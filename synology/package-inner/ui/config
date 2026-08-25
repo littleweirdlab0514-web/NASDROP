@@ -1,0 +1,12 @@
+{
+  ".url": {
+    "com.malicej.NasDownloadPortal": {
+      "type": "url",
+      "title": "nasdrop:title",
+      "desc": "nasdrop:desc",
+      "icon": "images/icon_{0}.png",
+      "url": "/webman/3rdparty/nasdownloadportal/launcher.html",
+      "allUsers": false
+    }
+  }
+}

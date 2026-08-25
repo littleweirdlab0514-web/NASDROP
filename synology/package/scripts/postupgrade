@@ -1,0 +1,46 @@
+#!/bin/sh
+set -eu
+
+config_path="${SYNOPKG_PKGVAR}/config.json"
+if [ -f "$config_path" ]; then
+  /usr/bin/python3 - "$config_path" <<'PY'
+import json
+import os
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+if isinstance(data, dict) and data.get("NAS_PORTAL_NAS_TARGET") == "/volume2/downloads":
+    data["NAS_PORTAL_NAS_TARGET"] = ""
+    temporary = path.with_suffix(".migration")
+    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+PY
+  chmod 600 "$config_path"
+fi
+
+if [ ! -s "${SYNOPKG_PKGVAR}/access_token" ]; then
+  /usr/bin/python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "${SYNOPKG_PKGVAR}/access_token"
+fi
+chmod 600 "${SYNOPKG_PKGVAR}/access_token"
+token="$(cat "${SYNOPKG_PKGVAR}/access_token")"
+cat > "${SYNOPKG_PKGDEST}/ui/launcher.html" <<EOF
+<!doctype html>
+<html><head><meta charset="utf-8"><title>NASDrop</title></head>
+<body><script>
+  var host = location.hostname;
+  var plainHost = host.replace(/^\\[|\\]$/g, "").toLowerCase();
+  var isV6 = plainHost.indexOf(":") !== -1;
+  var privateHost = plainHost === "localhost" || plainHost === "::1" ||
+    (!isV6 && (/^(127\\.|10\\.|192\\.168\\.)/.test(plainHost) ||
+    /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(plainHost) ||
+    plainHost.endsWith(".local") || plainHost.indexOf(".") === -1));
+  location.replace((privateHost ? "http://" : "https://") + host + ":8791/#token=${token}");
+</script></body></html>
+EOF
+chmod 644 "${SYNOPKG_PKGDEST}/ui/launcher.html"
+exit 0

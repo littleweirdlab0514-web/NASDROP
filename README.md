@@ -1,0 +1,123 @@
+# NASDrop
+
+NASDrop is a private download portal for Synology DSM. Paste a supported GigaFile, GoFile, or Pixeldrain share link, and the Synology NAS downloads the file directly.
+
+## Features
+
+- Validates GigaFile, GoFile, and Pixeldrain links and displays file names and sizes
+- Queues multiple download jobs
+- Supports a per-job destination folder and a configurable default folder
+- Downloads file parts directly on the Synology NAS and combines them locally
+- Displays progress, failure details, and SHA-256 results
+- Supports pausing, resuming, and deleting jobs, plus clearing completed jobs in bulk
+- Protects the private web interface with an access code
+- Detects GoFile rate limits and uses a persistent cooldown circuit breaker
+
+## Repository layout
+
+- `backend.py`: Authentication, link inspection, and the NAS-local download queue
+- `gofile_wt.mjs`: Helper for generating GoFile web tokens
+- `synology/`: DSM SPK metadata, web UI, lifecycle scripts, and build tools
+- `config.example.json`: Example package configuration
+- `runtime/`: Access codes, configuration, logs, and job state; excluded from Git
+
+## Installing on Synology DSM
+
+Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool packages DSM shell scripts with LF line endings and executable permissions, then validates the resulting archive.
+
+```powershell
+.\synology\build-spk.ps1
+```
+
+Install `synology/dist/nasdrop-0.7.7-1-x86_64.spk` with **Package Center > Manual Install**. The current package supports DSM 7.2 or later on Intel/AMD 64-bit (`x86_64`) Synology NAS models. ARM models are not supported yet.
+
+NASDrop does not select a default download folder during installation. A download cannot start until a writable destination is selected either as the default destination or for that individual job.
+
+When upgrading from an older release, the former automatically assigned `/volume2/downloads` value is cleared. A different destination that was explicitly selected by the administrator is preserved.
+
+## Configuring a download folder
+
+1. In DSM, open **Control Panel > Shared Folder**.
+2. Create a shared folder or select an existing one, then click **Edit > Permissions**.
+3. Change the permission category to **System internal user**.
+4. Find the NASDrop package account, commonly displayed as `sc-nasdownloadportal`, and grant it **Read/Write** permission.
+5. Open NASDrop, go to **Settings > Default destination > Change**, and select the writable shared folder.
+
+Folders without package-account permission appear locked or cannot be selected. If an encrypted shared folder is used, mount it before starting NASDrop. You can also leave the default empty and choose a writable destination separately for each download job.
+
+See Synology's official guides for [creating a shared folder](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/file_share_create?version=7) and [assigning shared-folder permissions](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/file_share_privilege?version=7).
+
+## Languages
+
+English is the default interface language. NASDrop automatically follows the browser language when it is Korean, Japanese, or Chinese. It falls back to English when the language is unsupported or cannot be detected.
+
+Users can manually select English, Korean, Japanese, or Chinese on the login screen or from the top navigation. The selection is stored in the browser. DSM Package Center descriptions support the same four languages.
+
+## Configuring HTTPS with DSM Reverse Proxy
+
+NASDrop listens on plain HTTP port `8791` inside the NAS. For internet access, keep that application port private and terminate HTTPS with DSM's built-in reverse proxy.
+
+1. Open **Control Panel > Login Portal > Advanced > Reverse Proxy** and click **Create**.
+2. Configure the source:
+   - Protocol: `HTTPS`
+   - Hostname: your public hostname, such as `nas.example.com`
+   - Port: `8443`
+3. Configure the destination:
+   - Protocol: `HTTP`
+   - Hostname: `127.0.0.1`
+   - Port: `8791`
+4. Save the rule.
+5. Open **Control Panel > Security > Certificate > Settings** and assign a valid certificate for the public hostname to the new reverse-proxy service.
+
+If the public address must remain `https://nas.example.com:8791`, configure the router to forward external TCP `8791` to NAS TCP `8443`. The complete request path is:
+
+```text
+Internet HTTPS :8791 -> router -> NAS HTTPS :8443 -> DSM Reverse Proxy -> HTTP 127.0.0.1:8791
+```
+
+Do not forward external port `8791` directly to NAS port `8791`; that would expose the access code and portal traffic over unencrypted HTTP.
+
+DSM should forward the original host and HTTPS scheme. If the generated public address is incorrect, add or correct these reverse-proxy request headers:
+
+- `X-Forwarded-Proto: https`
+- `X-Forwarded-Host: nas.example.com:8791` when the public URL uses port `8791`
+
+After saving the configuration, test the exact HTTPS address from outside the local network. A request beginning with `http://` will return `400 Bad Request` because plain HTTP was sent to an HTTPS listener.
+
+The DSM launcher uses HTTP for private LAN IP addresses and local hostnames, and HTTPS for public hostnames. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
+
+## Verification
+
+```powershell
+python -m py_compile backend.py
+python -m unittest discover -s tests -p "test_*.py"
+node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
+```
+
+## Security guidelines
+
+- Keep runtime credentials and device-specific configuration private.
+- Never commit `runtime/`, `.env*`, signing keys, or device-specific secrets.
+- Use HTTPS whenever the portal is accessible from the internet.
+- Consider an additional access-control layer beyond the NASDrop access code for internet-facing deployments.
+- NASDrop does not require DSM administrator passwords or NAS account credentials in the web interface.
+
+## Supported links and rate-limit protection
+
+NASDrop currently supports standard GigaFile links, GoFile share links, and Pixeldrain file-share links. For Pixeldrain, it compares the SHA-256 value reported by the public API with the final downloaded file hash.
+
+When GoFile returns HTTP 429, NASDrop immediately blocks additional GoFile requests and stores the cooldown deadline in persistent state. The cooldown survives service restarts, preventing repeated retries from making an IP restriction worse. Link-inspection logic may require updates when an external service changes its website or API behavior.
+
+### Warning: excessive requests can cause access restrictions
+
+External download services may rate-limit or block the NAS public IP when they receive too many link inspections, download attempts, parallel connections, or rapid retries. This can result in HTTP 429 responses, temporary access restrictions, or a longer IP-based block. NASDrop cannot remove a restriction imposed by an external service.
+
+To reduce the risk:
+
+- Keep parallel downloads from the same service disabled unless they are necessary.
+- Do not repeatedly submit the same link or restart NASDrop to bypass a displayed cooldown.
+- When NASDrop reports a protection pause, wait until the displayed cooldown has fully expired.
+- Avoid testing the same external service simultaneously from multiple tools or devices on the same public IP.
+- If access is already restricted, stop all automated requests and allow sufficient time for the external service to release the restriction.
+
+NASDrop processes jobs from the same provider sequentially by default and preserves GoFile cooldown state across service restarts. These protections reduce request volume, but they cannot guarantee that an external service will not apply its own limits.

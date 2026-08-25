@@ -1,0 +1,9 @@
+node_modules/
+synology/dist/
+runtime/
+synology/.build/
+synology/.cache/
+__pycache__/
+*.pyc
+.env*
+!.env.example

@@ -1,0 +1,6 @@
+* text=auto
+*.py text eol=lf
+*.mjs text eol=lf
+synology/package/INFO text eol=lf
+synology/package/conf/* text eol=lf
+synology/package/scripts/* text eol=lf

@@ -1,0 +1,34 @@
+#!/bin/sh
+set -eu
+
+mkdir -p "${SYNOPKG_PKGVAR}"
+if [ ! -f "${SYNOPKG_PKGVAR}/config.json" ]; then
+  cat > "${SYNOPKG_PKGVAR}/config.json" <<'EOF'
+{
+  "NAS_PORTAL_LISTEN_PORT": "8791",
+  "NAS_PORTAL_NAS_TARGET": ""
+}
+EOF
+fi
+chmod 600 "${SYNOPKG_PKGVAR}/config.json"
+if [ ! -s "${SYNOPKG_PKGVAR}/access_token" ]; then
+  /usr/bin/python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "${SYNOPKG_PKGVAR}/access_token"
+fi
+chmod 600 "${SYNOPKG_PKGVAR}/access_token"
+token="$(cat "${SYNOPKG_PKGVAR}/access_token")"
+cat > "${SYNOPKG_PKGDEST}/ui/launcher.html" <<EOF
+<!doctype html>
+<html><head><meta charset="utf-8"><title>NASDrop</title></head>
+<body><script>
+  var host = location.hostname;
+  var plainHost = host.replace(/^\\[|\\]$/g, "").toLowerCase();
+  var isV6 = plainHost.indexOf(":") !== -1;
+  var privateHost = plainHost === "localhost" || plainHost === "::1" ||
+    (!isV6 && (/^(127\\.|10\\.|192\\.168\\.)/.test(plainHost) ||
+    /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(plainHost) ||
+    plainHost.endsWith(".local") || plainHost.indexOf(".") === -1));
+  location.replace((privateHost ? "http://" : "https://") + host + ":8791/#token=${token}");
+</script></body></html>
+EOF
+chmod 644 "${SYNOPKG_PKGDEST}/ui/launcher.html"
+exit 0
