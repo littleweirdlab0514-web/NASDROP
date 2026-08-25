@@ -91,19 +91,19 @@ NASDrop listens on plain HTTP port `8791` inside the NAS. For internet access, k
 4. Save the rule.
 5. Open **Control Panel > Security > Certificate > Settings** and assign a valid certificate for the public hostname to the new reverse-proxy service.
 
-### Example configuration
+### Real-world example from the maintainer's environment
 
-The following example keeps the public NASDrop address on port `8791` while DSM terminates HTTPS on port `8443`.
+The screenshots below show the configuration currently used in the maintainer's own environment. They are provided as a working reference, not as values that must be copied exactly. Replace the hostname and NAS IP address with the values for your own network.
 
-On the router, forward external port `8791` to port `8443` on the NAS. TCP is sufficient; selecting `BOTH` also works when the router does not offer a convenient TCP-only option.
+In this environment, the router forwards external port `8791` to port `8443` on the NAS at `192.168.1.157`. The router is set to `BOTH`; TCP alone is sufficient for NASDrop.
 
 ![Router port forwarding example: external port 8791 to NAS port 8443](assets/router-port-forwarding-example.png)
 
-In DSM Reverse Proxy, create an HTTPS source on port `8443` and forward it to the NASDrop HTTP service on port `8791`.
+The DSM reverse-proxy rule receives HTTPS on port `8443` and forwards it to the NASDrop HTTP service at `192.168.1.157:8791`.
 
 ![DSM reverse proxy example: HTTPS port 8443 to HTTP port 8791](assets/dsm-reverse-proxy-example.png)
 
-Use your own certificate hostname in the **Source hostname** field. A matching wildcard certificate, such as `*.example.com`, can be assigned to this reverse-proxy rule. For the destination hostname, either `127.0.0.1` (recommended) or the NAS LAN address shown in the example can be used.
+The actual source hostname has been hidden in the screenshot. Enter your own certificate hostname in that field. A matching wildcard certificate, such as `*.example.com`, can be assigned to the rule. For the destination hostname, either `127.0.0.1` (recommended) or your NAS LAN address can be used.
 
 If the public address must remain `https://nas.example.com:8791`, configure the router to forward external TCP `8791` to NAS TCP `8443`. The complete request path is:
 
