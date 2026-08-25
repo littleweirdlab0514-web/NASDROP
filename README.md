@@ -97,11 +97,45 @@ The screenshots below show the configuration currently used in the maintainer's 
 
 In this environment, the router forwards external port `8791` to port `8443` on the NAS at `192.168.1.157`. The router is set to `BOTH`; TCP alone is sufficient for NASDrop.
 
-![Router port forwarding example: external port 8791 to NAS port 8443](assets/router-port-forwarding-example.png)
-
 The DSM reverse-proxy rule receives HTTPS on port `8443` and forwards it to the NASDrop HTTP service at `192.168.1.157:8791`.
 
-![DSM reverse proxy example: HTTPS port 8443 to HTTP port 8791](assets/dsm-reverse-proxy-example.png)
+Select a language to view both configuration screens. The localized copies are visual translations of the same settings; menu wording may differ slightly depending on the router firmware and DSM version.
+
+<details open>
+<summary><strong>English</strong></summary>
+
+![Router port forwarding example in English](assets/router-port-forwarding-example-en.png)
+
+![DSM reverse proxy example in English](assets/dsm-reverse-proxy-example-en.png)
+
+</details>
+
+<details>
+<summary><strong>한국어 (Korean)</strong></summary>
+
+![한국어 공유기 포트포워딩 설정 예제](assets/router-port-forwarding-example.png)
+
+![한국어 DSM 역방향 프록시 설정 예제](assets/dsm-reverse-proxy-example.png)
+
+</details>
+
+<details>
+<summary><strong>日本語 (Japanese)</strong></summary>
+
+![日本語のルーターポート転送設定例](assets/router-port-forwarding-example-ja.png)
+
+![日本語のDSMリバースプロキシ設定例](assets/dsm-reverse-proxy-example-ja.png)
+
+</details>
+
+<details>
+<summary><strong>简体中文 (Simplified Chinese)</strong></summary>
+
+![简体中文路由器端口转发设置示例](assets/router-port-forwarding-example-zh-cn.png)
+
+![简体中文 DSM 反向代理设置示例](assets/dsm-reverse-proxy-example-zh-cn.png)
+
+</details>
 
 The actual source hostname has been hidden in the screenshot. Enter your own certificate hostname in that field. A matching wildcard certificate, such as `*.example.com`, can be assigned to the rule. For the destination hostname, either `127.0.0.1` (recommended) or your NAS LAN address can be used.
 
