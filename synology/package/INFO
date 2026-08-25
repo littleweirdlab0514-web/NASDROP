@@ -1,5 +1,5 @@
 package="nasdownloadportal"
-version="0.7.9-1"
+version="0.7.10-1"
 arch="x86_64"
 os_min_ver="7.2-64570"
 maintainer="littleweirdlab0514-web"

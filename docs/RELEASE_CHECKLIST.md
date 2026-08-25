@@ -1,4 +1,4 @@
-# NASDrop 0.7.9 릴리스 체크리스트
+# NASDrop 0.7.10 릴리스 체크리스트
 
 ## Synology 패키지
 

@@ -44,6 +44,10 @@ class SpkPackagingTests(unittest.TestCase):
         ui_config = json.loads((ROOT / "synology" / "package-inner" / "ui" / "config").read_text(encoding="utf-8"))
         app_name = re.search(r'^dsmappname="([^"]+)"$', info, re.MULTILINE).group(1)
         self.assertEqual(list(ui_config[".url"]), [app_name])
+        app = ui_config[".url"][app_name]
+        self.assertEqual(app["title"], "NASDrop")
+        self.assertEqual(app["desc"], "nasdrop:desc")
+        self.assertIn("nasdrop:desc", app["preloadTexts"])
 
     def test_dsm_icon_uses_adaptive_launcher_instead_of_fixed_http_metadata(self):
         info = (PACKAGE_ROOT / "INFO").read_text(encoding="utf-8")

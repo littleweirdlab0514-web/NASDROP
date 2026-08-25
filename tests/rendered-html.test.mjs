@@ -38,10 +38,13 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(i18n, /localStorage\.getItem\("nasdrop-language"\)/);
   assert.match(i18n, /return "en"/);
   assert.match(app, /NASDropI18n\.t/);
-  assert.match(html, /\/app\.js\?v=0\.7\.9/);
-  assert.match(html, /\/qrcode\.js\?v=0\.7\.9/);
+  assert.match(html, /\/app\.js\?v=0\.7\.10/);
+  assert.match(html, /\/qrcode\.js\?v=0\.7\.10/);
   assert.match(html, /href="https:\/\/github\.com\/sponsors\/littleweirdlab0514-web"/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
+  assert.ok(html.indexOf("pairing-card") < html.indexOf("sponsor-card"));
+  assert.ok(html.indexOf("sponsor-card") < html.indexOf("concurrency-card"));
+  assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
   for (const key of ["sponsorTitle", "sponsorHint", "sponsorAction"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
@@ -49,8 +52,9 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(info, /description_krn=/);
   assert.match(info, /description_jpn=/);
   assert.match(info, /description_chs=/);
-  assert.match(uiConfig, /nasdrop:title/);
+  assert.match(uiConfig, /"title": "NASDrop"/);
   assert.match(uiConfig, /nasdrop:desc/);
+  assert.match(uiConfig, /"preloadTexts": \["nasdrop:desc"\]/);
   for (const locale of ["enu", "krn", "jpn", "chs"]) {
     const strings = await readFile(new URL(`synology/package-inner/ui/texts/${locale}/strings`, root), "utf8");
     assert.match(strings, /\[nasdrop\]/);
