@@ -1,6 +1,6 @@
 {
   ".url": {
-    "com.malicej.NasDownloadPortal": {
+    "com.littleweirdlab.NasDownloadPortal": {
       "type": "url",
       "title": "nasdrop:title",
       "desc": "nasdrop:desc",
