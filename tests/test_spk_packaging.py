@@ -39,6 +39,12 @@ class SpkPackagingTests(unittest.TestCase):
         self.assertIn(f"nasdrop-{package_release}-x86_64.spk", readme)
         self.assertIn(f"# NASDrop {package_version} ", checklist)
 
+    def test_dsm_application_identifier_is_synchronized(self):
+        info = (PACKAGE_ROOT / "INFO").read_text(encoding="utf-8")
+        ui_config = json.loads((ROOT / "synology" / "package-inner" / "ui" / "config").read_text(encoding="utf-8"))
+        app_name = re.search(r'^dsmappname="([^"]+)"$', info, re.MULTILINE).group(1)
+        self.assertEqual(list(ui_config[".url"]), [app_name])
+
     def test_dsm_icon_uses_adaptive_launcher_instead_of_fixed_http_metadata(self):
         info = (PACKAGE_ROOT / "INFO").read_text(encoding="utf-8")
         self.assertNotIn('adminprotocol=', info)
