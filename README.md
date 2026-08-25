@@ -120,6 +120,7 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 
 - Keep runtime credentials and device-specific configuration private.
 - Never commit `runtime/`, `.env*`, signing keys, or device-specific secrets.
+- The local `service.log` records timestamps, client IP addresses, HTTP methods, endpoint paths without query strings, and response status codes for diagnostics. Each log file is limited to 1 MiB and only two rotated backups are retained (about 3 MiB maximum total).
 - Use HTTPS whenever the portal is accessible from the internet.
 - Consider an additional access-control layer beyond the NASDrop access code for internet-facing deployments.
 - NASDrop does not require DSM administrator passwords or NAS account credentials in the web interface.

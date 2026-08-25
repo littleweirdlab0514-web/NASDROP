@@ -22,6 +22,14 @@ class SpkPackagingTests(unittest.TestCase):
             if path.is_file():
                 self.assertTrue(path.read_bytes().startswith(b"#!/bin/sh\n"), str(path))
 
+    def test_service_uses_bounded_rotating_log(self):
+        start_script = (PACKAGE_ROOT / "scripts" / "start-stop-status").read_text(encoding="utf-8")
+        backend = (ROOT / "backend.py").read_text(encoding="utf-8")
+        self.assertIn('NAS_PORTAL_LOG_FILE="$LOG_FILE"', start_script)
+        self.assertIn("RotatingFileHandler", backend)
+        self.assertIn("LOG_MAX_BYTES = 1024 * 1024", backend)
+        self.assertIn("LOG_BACKUP_COUNT = 2", backend)
+
     def test_versions_are_synchronized(self):
         info = (PACKAGE_ROOT / "INFO").read_text(encoding="utf-8")
         start_script = (PACKAGE_ROOT / "scripts" / "start-stop-status").read_text(encoding="utf-8")

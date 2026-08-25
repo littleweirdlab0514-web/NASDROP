@@ -12,6 +12,8 @@ from http.cookies import SimpleCookie
 import hashlib
 import html
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import mimetypes
 import os
 from pathlib import Path
@@ -72,6 +74,30 @@ GOFILE_MAX_COOLDOWN_SECONDS = 6 * 60 * 60
 GIGAFILE_HOST = re.compile(r"^[a-z0-9-]+\.gigafile\.nu$", re.I)
 SAFE_SERVICE_ID = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
 GOFILE_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
+LOG_MAX_BYTES = 1024 * 1024
+LOG_BACKUP_COUNT = 2
+LOGGER = logging.getLogger("nasdrop")
+LOGGER.addHandler(logging.NullHandler())
+
+
+def rotating_log_handler(path: str, max_bytes: int = LOG_MAX_BYTES, backup_count: int = LOG_BACKUP_COUNT):
+    target = Path(path).resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return RotatingFileHandler(
+        target, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8", delay=True,
+    )
+
+
+def configure_logging() -> None:
+    for handler in list(LOGGER.handlers):
+        LOGGER.removeHandler(handler)
+        handler.close()
+    log_path = setting("NAS_PORTAL_LOG_FILE")
+    handler = rotating_log_handler(log_path) if log_path else logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("[%(asctime)s] %(message)s", "%Y-%m-%dT%H:%M:%S%z"))
+    LOGGER.addHandler(handler)
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
 
 
 def bool_setting(name: str, default: bool = False) -> bool:
@@ -1131,7 +1157,13 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "NasDownloadPortal/1.0"
 
     def log_message(self, fmt: str, *args: object) -> None:
-        print(f"[{now()}] {self.client_address[0]} {fmt % args}", flush=True)
+        LOGGER.warning("%s %s", self.client_address[0], fmt % args)
+
+    def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
+        LOGGER.info(
+            "%s %s %s %s %s",
+            self.client_address[0], self.command, urlparse(self.path).path, code, size,
+        )
 
     def send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode()
@@ -1295,5 +1327,10 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"NAS Download Portal listening on http://{LISTEN_HOST}:{LISTEN_PORT}", flush=True)
-    ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler).serve_forever()
+    configure_logging()
+    LOGGER.info("NAS Download Portal listening on http://%s:%s", LISTEN_HOST, LISTEN_PORT)
+    try:
+        ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler).serve_forever()
+    except BaseException:
+        LOGGER.exception("NAS Download Portal stopped unexpectedly")
+        raise

@@ -82,6 +82,14 @@ test("static Synology UI responses cannot mix cached versions", async () => {
   assert.doesNotMatch(backend, /public, max-age/);
 });
 
+test("client connection and Sponsor cards share the top row equally", async () => {
+  const style = await readFile(new URL("synology/web/style.css", root), "utf8");
+  assert.match(style, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
+  assert.match(style, /\.pairing-card,\.sponsor-card\{grid-column:span 3\}/);
+  assert.match(style, /\.concurrency-card,\.folder-card,\.service-card\{grid-column:span 2\}/);
+  assert.match(style, /@media\(max-width:760px\)[^]*\.settings-grid\{grid-template-columns:1fr\}/);
+});
+
 test("Synology language detection falls back to English and persists manual choice", async () => {
   const source = await readFile(new URL("synology/web/i18n.js", root), "utf8");
   const storage = new Map();
