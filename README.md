@@ -29,7 +29,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-Install `synology/dist/nasdrop-0.7.7-1-x86_64.spk` with **Package Center > Manual Install**. The current package supports DSM 7.2 or later on Intel/AMD 64-bit (`x86_64`) Synology NAS models. ARM models are not supported yet.
+Install `synology/dist/nasdrop-0.7.9-1-x86_64.spk` with **Package Center > Manual Install**. The current package supports DSM 7.2 or later on Intel/AMD 64-bit (`x86_64`) Synology NAS models. ARM models are not supported yet.
 
 NASDrop does not select a default download folder during installation. A download cannot start until a writable destination is selected either as the default destination or for that individual job.
 

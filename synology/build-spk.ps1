@@ -13,7 +13,7 @@ $outerRoot = Join-Path $workRoot "outer"
 $distRoot = Join-Path $PSScriptRoot "dist"
 $nodeArchive = Join-Path $cacheRoot "node-v$NodeVersion-linux-x64.tar.xz"
 $nodeUrl = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-linux-x64.tar.xz"
-$packageVersion = "0.7.7-1"
+$packageVersion = "0.7.9-1"
 
 if ($PythonPath) {
   $pythonExe = $PythonPath
