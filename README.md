@@ -121,3 +121,7 @@ To reduce the risk:
 - If access is already restricted, stop all automated requests and allow sufficient time for the external service to release the restriction.
 
 NASDrop processes jobs from the same provider sequentially by default and preserves GoFile cooldown state across service restarts. These protections reduce request volume, but they cannot guarantee that an external service will not apply its own limits.
+
+## License
+
+Released under the [MIT License](LICENSE). The bundled QR code library retains its own license; see `synology/web/qrcode-LICENSE.txt`.
