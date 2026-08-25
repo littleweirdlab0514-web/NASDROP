@@ -91,6 +91,20 @@ NASDrop listens on plain HTTP port `8791` inside the NAS. For internet access, k
 4. Save the rule.
 5. Open **Control Panel > Security > Certificate > Settings** and assign a valid certificate for the public hostname to the new reverse-proxy service.
 
+### Example configuration
+
+The following example keeps the public NASDrop address on port `8791` while DSM terminates HTTPS on port `8443`.
+
+On the router, forward external port `8791` to port `8443` on the NAS. TCP is sufficient; selecting `BOTH` also works when the router does not offer a convenient TCP-only option.
+
+![Router port forwarding example: external port 8791 to NAS port 8443](assets/router-port-forwarding-example.png)
+
+In DSM Reverse Proxy, create an HTTPS source on port `8443` and forward it to the NASDrop HTTP service on port `8791`.
+
+![DSM reverse proxy example: HTTPS port 8443 to HTTP port 8791](assets/dsm-reverse-proxy-example.png)
+
+Use your own certificate hostname in the **Source hostname** field. A matching wildcard certificate, such as `*.example.com`, can be assigned to this reverse-proxy rule. For the destination hostname, either `127.0.0.1` (recommended) or the NAS LAN address shown in the example can be used.
+
 If the public address must remain `https://nas.example.com:8791`, configure the router to forward external TCP `8791` to NAS TCP `8443`. The complete request path is:
 
 ```text
