@@ -40,6 +40,11 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(app, /NASDropI18n\.t/);
   assert.match(html, /\/app\.js\?v=0\.7\.7/);
   assert.match(html, /\/qrcode\.js\?v=0\.7\.7/);
+  assert.match(html, /href="https:\/\/github\.com\/sponsors\/littleweirdlab0514-web"/);
+  assert.match(html, /target="_blank" rel="noopener noreferrer"/);
+  for (const key of ["sponsorTitle", "sponsorHint", "sponsorAction"]) {
+    assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
+  }
   assert.match(info, /description_enu=/);
   assert.match(info, /description_krn=/);
   assert.match(info, /description_jpn=/);
