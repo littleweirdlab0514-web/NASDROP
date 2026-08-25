@@ -636,6 +636,42 @@ def _clean_download_name(value: str) -> str:
     return re.sub(r"[\\/\x00-\x1f:]", "_", name)[:180]
 
 
+def _is_gigafile_masked_name(value: str) -> bool:
+    compact = re.sub(r"\s+", "", value)
+    return "ファイル名が置換されました" in compact
+
+
+def _content_disposition_filename(value: str) -> str:
+    encoded = re.search(r"filename\*\s*=\s*UTF-8''([^;]+)", value, re.I)
+    if encoded:
+        return _clean_download_name(unquote(encoded.group(1))).strip(". ")
+    quoted = re.search(r'filename\s*=\s*"([^"]+)"', value, re.I)
+    if quoted:
+        return _clean_download_name(quoted.group(1)).strip(". ")
+    plain = re.search(r"filename\s*=\s*([^;]+)", value, re.I)
+    if plain:
+        return _clean_download_name(plain.group(1)).strip(". ")
+    return ""
+
+
+def _gigafile_original_name(opener, canonical: str, host: str, file_id: str) -> str:
+    request = Request(
+        f"https://{host}/download.php?file={file_id}",
+        headers={
+            "Accept-Encoding": "identity",
+            "Range": "bytes=0-0",
+            "Referer": canonical,
+            "User-Agent": "Mozilla/5.0 NAS Download Portal",
+        },
+    )
+    with opener.open(request, timeout=30) as response:
+        disposition = response.headers.get("Content-Disposition", "")
+    name = _content_disposition_filename(disposition)
+    if not name or _is_gigafile_masked_name(name):
+        raise ValueError("GigaFile 원본 파일명을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.")
+    return name
+
+
 def service_path_id(parsed, prefix: str = "") -> str:
     parts = parsed.path.strip("/").split("/")
     expected = 2 if prefix else 1
@@ -694,7 +730,10 @@ def inspect_gigafile(raw_url: str) -> dict:
     request = Request(canonical, headers={"User-Agent": "Mozilla/5.0 NAS Download Portal"})
     with opener.open(request, timeout=30) as response:
         source = response.read(2_000_000).decode("utf-8", "replace")
-    return parse_gigafile_page(source, canonical, host, file_id)
+    result = parse_gigafile_page(source, canonical, host, file_id)
+    if result["download_mode"] == "gigafile_file" and _is_gigafile_masked_name(result["name"]):
+        result["name"] = _gigafile_original_name(opener, canonical, host, file_id)
+    return result
 
 
 def _retry_delay(exc: HTTPError, attempt: int) -> float:
