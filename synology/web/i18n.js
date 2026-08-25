@@ -1,7 +1,7 @@
 (() => {
   const messages = {
     en: {
-      language:"Language", loginHint:"Enter the access code issued after installing the package.", accessCode:"Access code", openDashboard:"Open dashboard",
+      language:"Language", loginHint:"Direct browser access and other devices require the NASDrop access code. Opening the DSM icon signs in automatically.", accessCode:"Access code", openDashboard:"Open dashboard",
       dashboard:"Dashboard", settings:"Settings", runningOnNas:"Running on NAS", downloads:"Downloads", linkLabel:"GigaFile, GoFile, or Pixeldrain download link", downloadNow:"Download to NAS",
       destination:"Destination", checking:"Checking…", checkingShort:"Checking", chooseFolder:"Choose folder", jobs:"Jobs", loading:"Loading…", clearCompleted:"Clear completed",
       selected:"{count} selected", selectAll:"Select all", clearSelection:"Clear selection", pause:"Pause", resume:"Resume", delete:"Delete",
@@ -10,7 +10,7 @@
       parallelHint:"Off by default. When enabled, multiple jobs from services such as GoFile may start together.", allowParallel:"Allow parallel downloads", sameServiceMax:"Maximum per service",
       twoJobs:"2 jobs", threeJobs:"3 jobs", warning:"Warning", parallelWarning:"Each job can use up to 8 connections. Three active jobs may create up to 24 connections, increasing rate-limit risk and NAS CPU, disk, and network load.",
       off:"Off", saveParallel:"Save parallel-download settings", folderPermissions:"Folder permissions", folderPermissionsHint:"Locked shared folders are not accessible. In DSM Shared Folder permissions, grant read/write access to this package's internal system user.",
-      serviceAccount:"Service account", serviceAddress:"Service address", serviceAddressHint:"Use this address and access code from DSM and connected clients.", version:"Version",
+      serviceAccount:"Service account", serviceAddress:"Service address", serviceAddressHint:"Use this address and access code from DSM and connected clients.", accessMethodHint:"The DSM icon passes the access code automatically. Direct browser access and other devices must enter it.", version:"Version",
       sponsorTitle:"Support NASDrop", sponsorHint:"If NASDrop is useful to you, you can support its continued development on GitHub Sponsors.", sponsorAction:"Sponsor on GitHub",
       folderTitle:"Choose destination folder", close:"Close", up:"Up", cancel:"Cancel", chooseThisFolder:"Choose this folder", requestFailed:"The request could not be completed.",
       statusQueued:"Queued", statusReady:"Ready", statusDownloading:"Downloading", statusVerifying:"Verifying", statusPaused:"Paused", statusCompleted:"Completed", statusFailed:"Error", statusCancelled:"Stopped",
@@ -24,7 +24,7 @@
       defaultChanged:"Default destination changed to {target}.", copied:"Access code copied.", confirmRotate:"Regenerating the access code disconnects existing clients and browsers. Continue?", rotated:"A new access code was issued. Reconnect existing devices with the new QR code."
     },
     ko: {
-      language:"언어", loginHint:"패키지 설치 후 발급된 접근 코드를 입력하세요.", accessCode:"접근 코드", openDashboard:"대시보드 열기",
+      language:"언어", loginHint:"주소를 직접 열거나 다른 기기에서 접속하면 NASDrop 접근 코드가 필요합니다. DSM 아이콘으로 열면 자동 로그인됩니다.", accessCode:"접근 코드", openDashboard:"대시보드 열기",
       dashboard:"대시보드", settings:"설정", runningOnNas:"NAS에서 실행 중", downloads:"다운로드", linkLabel:"GigaFile, GoFile 또는 Pixeldrain 다운로드 링크", downloadNow:"NAS로 바로 다운로드",
       destination:"저장 위치", checking:"확인 중…", checkingShort:"검사 중", chooseFolder:"폴더 선택", jobs:"작업 목록", loading:"불러오는 중…", clearCompleted:"완료 항목 정리",
       selected:"{count}개 선택", selectAll:"전체 선택", clearSelection:"선택 해제", pause:"일시정지", resume:"재개", delete:"삭제",
@@ -33,7 +33,7 @@
       parallelHint:"기본값은 꺼짐입니다. 켜면 GoFile 등 같은 서비스의 여러 작업을 함께 시작합니다.", allowParallel:"동시 다운로드 허용", sameServiceMax:"같은 서비스 최대",
       twoJobs:"2개", threeJobs:"3개", warning:"주의", parallelWarning:"작업 하나가 최대 8개 연결을 사용하므로 전체 3개 실행 시 최대 24개 연결이 생길 수 있습니다. 속도 제한·일시 차단 및 NAS CPU·디스크·네트워크 부하가 증가할 수 있습니다.",
       off:"꺼짐", saveParallel:"동시 다운로드 설정 저장", folderPermissions:"폴더 접근 권한", folderPermissionsHint:"권한이 없는 공유 폴더는 잠금 표시됩니다. DSM 공유 폴더 권한에서 이 패키지의 시스템 내부 사용자에게 읽기/쓰기를 허용하세요.",
-      serviceAccount:"서비스 계정", serviceAddress:"서비스 주소", serviceAddressHint:"DSM과 연결된 클라이언트에서 이 주소와 접근 코드를 사용합니다.", version:"버전",
+      serviceAccount:"서비스 계정", serviceAddress:"서비스 주소", serviceAddressHint:"DSM과 연결된 클라이언트에서 이 주소와 접근 코드를 사용합니다.", accessMethodHint:"DSM 아이콘은 접근 코드를 자동으로 전달합니다. 주소를 직접 열거나 다른 기기에서 접속하면 코드를 입력해야 합니다.", version:"버전",
       sponsorTitle:"NASDrop 후원", sponsorHint:"NASDrop이 유용했다면 GitHub Sponsors에서 지속적인 개발을 후원할 수 있습니다.", sponsorAction:"GitHub에서 후원하기",
       folderTitle:"저장 폴더 선택", close:"닫기", up:"상위", cancel:"취소", chooseThisFolder:"이 폴더 선택", requestFailed:"요청을 처리하지 못했습니다.",
       statusQueued:"대기 중", statusReady:"준비", statusDownloading:"다운로드 중", statusVerifying:"검증 중", statusPaused:"일시정지", statusCompleted:"완료", statusFailed:"오류", statusCancelled:"중지됨",
@@ -47,7 +47,7 @@
       defaultChanged:"기본 저장 폴더를 {target}(으)로 변경했습니다.", copied:"접근 코드를 복사했습니다.", confirmRotate:"접근 코드를 재발급하면 기존 클라이언트와 브라우저의 연결이 모두 해제됩니다. 계속할까요?", rotated:"새 접근 코드를 발급했습니다. 기존 기기는 새 QR로 다시 연결해야 합니다."
     },
     ja: {
-      language:"言語", loginHint:"パッケージのインストール後に発行されたアクセスコードを入力してください。", accessCode:"アクセスコード", openDashboard:"ダッシュボードを開く",
+      language:"言語", loginHint:"アドレスを直接開く場合や別の端末から接続する場合は、NASDropのアクセスコードが必要です。DSMアイコンから開くと自動でログインします。", accessCode:"アクセスコード", openDashboard:"ダッシュボードを開く",
       dashboard:"ダッシュボード", settings:"設定", runningOnNas:"NASで実行中", downloads:"ダウンロード", linkLabel:"GigaFile、GoFile、またはPixeldrainのダウンロードリンク", downloadNow:"NASへダウンロード",
       destination:"保存先", checking:"確認中…", checkingShort:"確認中", chooseFolder:"フォルダーを選択", jobs:"ジョブ一覧", loading:"読み込み中…", clearCompleted:"完了項目を消去",
       selected:"{count}件選択", selectAll:"すべて選択", clearSelection:"選択解除", pause:"一時停止", resume:"再開", delete:"削除",
@@ -56,7 +56,7 @@
       parallelHint:"既定ではオフです。有効にするとGoFileなど同じサービスの複数ジョブを同時に開始します。", allowParallel:"並列ダウンロードを許可", sameServiceMax:"サービスごとの最大数",
       twoJobs:"2件", threeJobs:"3件", warning:"注意", parallelWarning:"1ジョブは最大8接続を使用します。3ジョブでは最大24接続となり、速度制限や一時ブロック、NASのCPU・ディスク・ネットワーク負荷が増える場合があります。",
       off:"オフ", saveParallel:"並列設定を保存", folderPermissions:"フォルダー権限", folderPermissionsHint:"アクセスできない共有フォルダーはロック表示されます。DSMの共有フォルダー権限で、このパッケージの内部システムユーザーに読み書きを許可してください。",
-      serviceAccount:"サービスアカウント", serviceAddress:"サービスアドレス", serviceAddressHint:"DSMおよび接続済みクライアントで、このアドレスとアクセスコードを使用します。", version:"バージョン",
+      serviceAccount:"サービスアカウント", serviceAddress:"サービスアドレス", serviceAddressHint:"DSMおよび接続済みクライアントで、このアドレスとアクセスコードを使用します。", accessMethodHint:"DSMアイコンはアクセスコードを自動的に渡します。アドレスを直接開く場合や別の端末ではコードを入力してください。", version:"バージョン",
       sponsorTitle:"NASDropを支援", sponsorHint:"NASDropがお役に立った場合は、GitHub Sponsorsで継続的な開発を支援できます。", sponsorAction:"GitHubで支援する",
       folderTitle:"保存先フォルダーを選択", close:"閉じる", up:"上へ", cancel:"キャンセル", chooseThisFolder:"このフォルダーを選択", requestFailed:"リクエストを処理できませんでした。",
       statusQueued:"待機中", statusReady:"準備完了", statusDownloading:"ダウンロード中", statusVerifying:"検証中", statusPaused:"一時停止", statusCompleted:"完了", statusFailed:"エラー", statusCancelled:"停止済み",
@@ -70,7 +70,7 @@
       defaultChanged:"既定の保存先を{target}に変更しました。", copied:"アクセスコードをコピーしました。", confirmRotate:"アクセスコードを再発行すると既存のクライアントとブラウザーが切断されます。続行しますか？", rotated:"新しいアクセスコードを発行しました。既存の端末は新しいQRで再接続してください。"
     },
     zh: {
-      language:"语言", loginHint:"请输入安装套件后生成的访问代码。", accessCode:"访问代码", openDashboard:"打开控制面板",
+      language:"语言", loginHint:"直接打开地址或从其他设备连接时需要输入NASDrop访问代码。从DSM图标打开时会自动登录。", accessCode:"访问代码", openDashboard:"打开控制面板",
       dashboard:"控制面板", settings:"设置", runningOnNas:"正在NAS上运行", downloads:"下载", linkLabel:"GigaFile、GoFile或Pixeldrain下载链接", downloadNow:"下载到NAS",
       destination:"保存位置", checking:"正在检查…", checkingShort:"检查中", chooseFolder:"选择文件夹", jobs:"任务列表", loading:"正在加载…", clearCompleted:"清除已完成项",
       selected:"已选择{count}项", selectAll:"全选", clearSelection:"取消选择", pause:"暂停", resume:"继续", delete:"删除",
@@ -79,7 +79,7 @@
       parallelHint:"默认关闭。启用后，可同时启动GoFile等同一服务的多个任务。", allowParallel:"允许并行下载", sameServiceMax:"每个服务的最大数量",
       twoJobs:"2项", threeJobs:"3项", warning:"注意", parallelWarning:"每个任务最多使用8个连接。3个活动任务最多会产生24个连接，可能增加限速、临时封禁以及NAS的CPU、磁盘和网络负载。",
       off:"关闭", saveParallel:"保存并行下载设置", folderPermissions:"文件夹权限", folderPermissionsHint:"无权访问的共享文件夹会显示为锁定。请在DSM共享文件夹权限中，向此套件的内部系统用户授予读写权限。",
-      serviceAccount:"服务账户", serviceAddress:"服务地址", serviceAddressHint:"DSM和已连接客户端使用此地址和访问代码。", version:"版本",
+      serviceAccount:"服务账户", serviceAddress:"服务地址", serviceAddressHint:"DSM和已连接客户端使用此地址和访问代码。", accessMethodHint:"DSM图标会自动传递访问代码。直接打开地址或从其他设备连接时必须输入该代码。", version:"版本",
       sponsorTitle:"支持NASDrop", sponsorHint:"如果NASDrop对您有帮助，可以通过GitHub Sponsors支持项目的持续开发。", sponsorAction:"在GitHub上支持",
       folderTitle:"选择保存文件夹", close:"关闭", up:"上一级", cancel:"取消", chooseThisFolder:"选择此文件夹", requestFailed:"无法完成请求。",
       statusQueued:"等待中", statusReady:"准备就绪", statusDownloading:"下载中", statusVerifying:"验证中", statusPaused:"已暂停", statusCompleted:"已完成", statusFailed:"错误", statusCancelled:"已停止",

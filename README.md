@@ -39,6 +39,14 @@ NASDrop does not select a default download folder during installation. A downloa
 
 When upgrading from an older release, the former automatically assigned `/volume2/downloads` value is cleared. A different destination that was explicitly selected by the administrator is preserved.
 
+## Opening NASDrop and using the access code
+
+- Opening NASDrop from its DSM desktop or Package Center icon automatically passes the current NASDrop access code and opens the dashboard.
+- Opening the service address directly in a browser, or connecting from another device, does not receive that automatic code. Enter the access code shown in **NASDrop > Settings > Client connection**.
+- Regenerating the access code disconnects browsers and clients that saved the previous code. Launching NASDrop again from DSM passes the newly generated code.
+
+The DSM launcher transfers the code in the URL fragment and NASDrop removes that fragment from the browser address after saving it locally. Do not share screenshots or copied launcher URLs that still contain `#token=`.
+
 ## Build from source
 
 Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool packages DSM shell scripts with LF line endings and executable permissions, then validates the resulting archive.

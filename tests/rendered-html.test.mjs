@@ -46,9 +46,12 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.ok(html.indexOf("pairing-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("concurrency-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["sponsorTitle", "sponsorHint", "sponsorAction"]) {
+  for (const key of ["sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
+  assert.match(html, /data-i18n="accessMethodHint"/);
+  assert.match(app, /location\.hash\.slice\(1\)/);
+  assert.match(app, /history\.replaceState/);
   assert.match(info, /description_enu=/);
   assert.match(info, /description_krn=/);
   assert.match(info, /description_jpn=/);
