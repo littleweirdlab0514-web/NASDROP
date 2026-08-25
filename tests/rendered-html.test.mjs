@@ -38,8 +38,9 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(i18n, /localStorage\.getItem\("nasdrop-language"\)/);
   assert.match(i18n, /return "en"/);
   assert.match(app, /NASDropI18n\.t/);
-  assert.match(html, /\/app\.js\?v=0\.7\.10/);
-  assert.match(html, /\/qrcode\.js\?v=0\.7\.10/);
+  const packageVersion = info.match(/^version="([0-9.]+)-[0-9]+"$/m)[1];
+  assert.ok(html.includes(`/app.js?v=${packageVersion}`));
+  assert.ok(html.includes(`/qrcode.js?v=${packageVersion}`));
   assert.match(html, /href="https:\/\/github\.com\/sponsors\/littleweirdlab0514-web"/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
   assert.ok(html.indexOf("pairing-card") < html.indexOf("sponsor-card"));

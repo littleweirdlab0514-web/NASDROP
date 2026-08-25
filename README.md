@@ -1,6 +1,11 @@
 # NASDrop
 
-NASDrop is a private download portal for Synology DSM. Paste a supported GigaFile, GoFile, or Pixeldrain share link, and the Synology NAS downloads the file directly.
+NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supported GigaFile, GoFile, or Pixeldrain share link, and the Synology NAS downloads the file directly.
+
+**[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
+
+> [!IMPORTANT]
+> NASDrop is an independent, unofficial community project. It is not listed in Synology's official Package Center catalog and must be installed manually. It is not affiliated with, endorsed by, or sponsored by Synology, GigaFile, GoFile, or Pixeldrain.
 
 ## Features
 
@@ -21,7 +26,20 @@ NASDrop is a private download portal for Synology DSM. Paste a supported GigaFil
 - `config.example.json`: Example package configuration
 - `runtime/`: Access codes, configuration, logs, and job state; excluded from Git
 
-## Installing on Synology DSM
+## Install a prebuilt release
+
+1. Open the [latest GitHub release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest) and download the `x86_64.spk` asset.
+2. In DSM, open **Package Center > Manual Install**.
+3. Select the downloaded SPK and review the manual-install warning and license.
+4. Complete the installation, then grant the NASDrop package account access to a destination folder as described below.
+
+The package supports DSM 7.2 or later on Intel/AMD 64-bit (`x86_64`) Synology NAS models. ARM models are not supported yet. Because this is not an official Package Center listing, GitHub releases are the only supported distribution channel and updates are installed manually.
+
+NASDrop does not select a default download folder during installation. A download cannot start until a writable destination is selected either as the default destination or for that individual job.
+
+When upgrading from an older release, the former automatically assigned `/volume2/downloads` value is cleared. A different destination that was explicitly selected by the administrator is preserved.
+
+## Build from source
 
 Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool packages DSM shell scripts with LF line endings and executable permissions, then validates the resulting archive.
 
@@ -29,11 +47,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-Install `synology/dist/nasdrop-0.7.10-1-x86_64.spk` with **Package Center > Manual Install**. The current package supports DSM 7.2 or later on Intel/AMD 64-bit (`x86_64`) Synology NAS models. ARM models are not supported yet.
-
-NASDrop does not select a default download folder during installation. A download cannot start until a writable destination is selected either as the default destination or for that individual job.
-
-When upgrading from an older release, the former automatically assigned `/volume2/downloads` value is cleared. A different destination that was explicitly selected by the administrator is preserved.
+The output is `synology/dist/nasdrop-0.7.11-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 ## Configuring a download folder
 
@@ -101,6 +115,7 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 - Use HTTPS whenever the portal is accessible from the internet.
 - Consider an additional access-control layer beyond the NASDrop access code for internet-facing deployments.
 - NASDrop does not require DSM administrator passwords or NAS account credentials in the web interface.
+- Only submit links and download files that you own or are authorized to access. You are responsible for complying with the source service's terms and applicable law.
 
 ## Supported links and rate-limit protection
 
@@ -122,6 +137,14 @@ To reduce the risk:
 
 NASDrop processes jobs from the same provider sequentially by default and preserves GoFile cooldown state across service restarts. These protections reduce request volume, but they cannot guarantee that an external service will not apply its own limits.
 
+## Support and reporting issues
+
+- For installation problems, provider compatibility, and other non-security bugs, open a [GitHub issue](https://github.com/littleweirdlab0514-web/NASDROP/issues).
+- For vulnerabilities or reports containing sensitive details, follow [SECURITY.md](SECURITY.md) and do not open a public issue.
+- Include the NAS model, DSM version, NASDrop version, relevant logs with access codes and private URLs removed, and clear reproduction steps.
+
+External services may change without notice. Compatibility fixes are provided on a best-effort basis, and this unofficial package has no support relationship with Synology or the supported download services.
+
 ## License
 
-Released under the [MIT License](LICENSE). The bundled QR code library retains its own license; see `synology/web/qrcode-LICENSE.txt`.
+NASDrop is released under the [MIT License](LICENSE). Bundled third-party components retain their own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

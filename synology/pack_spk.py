@@ -10,18 +10,19 @@ from pathlib import Path, PurePosixPath
 import tarfile
 
 
-TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".mjs", ".py"}
+TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".md", ".mjs", ".py", ".txt"}
 
 
 def normalized_bytes(path: Path, relative: str, outer: bool) -> bytes:
     data = path.read_bytes()
     rel = PurePosixPath(relative)
     is_text = (
-        (outer and (relative == "INFO" or rel.parts[0] in {"conf", "scripts"}))
+        (outer and (relative in {"INFO", "LICENSE"} or rel.parts[0] in {"conf", "scripts"}))
         or (
             not outer
             and (
                 rel.suffix in TEXT_SUFFIXES
+                or relative == "LICENSE"
                 or relative == "ui/config"
                 or rel.parts[:2] == ("ui", "texts")
             )
@@ -62,7 +63,7 @@ def safe_members(archive: tarfile.TarFile) -> dict[str, tarfile.TarInfo]:
 def validate(spk_path: Path, expected_version: str) -> None:
     with tarfile.open(spk_path, "r:") as outer:
         members = safe_members(outer)
-        required = {"INFO", "package.tgz", "conf/privilege", "conf/resource"}
+        required = {"INFO", "LICENSE", "package.tgz", "conf/privilege", "conf/resource"}
         required.update(f"scripts/{name}" for name in (
             "postinst", "postuninst", "postupgrade", "preinst", "preuninst", "preupgrade", "start-stop-status"
         ))
@@ -85,12 +86,29 @@ def validate(spk_path: Path, expected_version: str) -> None:
 
     with tarfile.open(fileobj=io.BytesIO(package_data), mode="r:gz") as inner:
         members = safe_members(inner)
-        for name in ("backend.py", "bin/node", "gofile_wt.mjs", "web/index.html"):
+        for name in (
+            "LICENSE",
+            "THIRD_PARTY_NOTICES.md",
+            "backend.py",
+            "bin/node",
+            "gofile_wt.mjs",
+            "licenses/nodejs-LICENSE.txt",
+            "licenses/qrcode-LICENSE.txt",
+            "web/index.html",
+        ):
             if name not in members:
                 raise RuntimeError(f"package.tgz is missing: {name}")
         if members["bin/node"].mode & 0o111 == 0:
             raise RuntimeError("Bundled Node.js runtime is not executable")
-        for name in ("backend.py", "gofile_wt.mjs", "web/index.html"):
+        for name in (
+            "LICENSE",
+            "THIRD_PARTY_NOTICES.md",
+            "backend.py",
+            "gofile_wt.mjs",
+            "licenses/nodejs-LICENSE.txt",
+            "licenses/qrcode-LICENSE.txt",
+            "web/index.html",
+        ):
             if b"\r" in inner.extractfile(members[name]).read():
                 raise RuntimeError(f"{name} has non-Unix line endings")
 
