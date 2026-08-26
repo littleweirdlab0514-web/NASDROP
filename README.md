@@ -55,7 +55,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.7.12-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.7.13-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 ## Configuring a download folder
 
@@ -145,7 +145,9 @@ If the public address must remain `https://nas.example.com:8791`, configure the 
 Internet HTTPS :8791 -> router -> NAS HTTPS :8443 -> DSM Reverse Proxy -> HTTP 127.0.0.1:8791
 ```
 
-Do not forward external port `8791` directly to NAS port `8791`; that would expose the access code and portal traffic over unencrypted HTTP.
+If the router uses a different external port, such as `8795`, open **NASDrop > Settings > Service address** and set **DSM icon external port** to the same value. The DSM icon will then open `https://your-public-hostname:8795`, while private LAN launches continue to use the internal NASDrop port `8791`.
+
+Do not forward any external port directly to NAS port `8791`; that would expose the access code and portal traffic over unencrypted HTTP.
 
 DSM should forward the original host and HTTPS scheme. If the generated public address is incorrect, add or correct these reverse-proxy request headers:
 
@@ -154,7 +156,7 @@ DSM should forward the original host and HTTPS scheme. If the generated public a
 
 After saving the configuration, test the exact HTTPS address from outside the local network. A request beginning with `http://` will return `400 Bad Request` because plain HTTP was sent to an HTTPS listener.
 
-The DSM launcher uses HTTP for private LAN IP addresses and local hostnames, and HTTPS for public hostnames. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
+The DSM launcher uses HTTP with port `8791` for private LAN IP addresses and local hostnames. For public hostnames it uses HTTPS with the external icon port selected in NASDrop settings. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
 
 ## Verification
 

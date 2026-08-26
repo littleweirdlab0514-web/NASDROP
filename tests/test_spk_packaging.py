@@ -101,6 +101,18 @@ class SpkPackagingTests(unittest.TestCase):
             self.assertIn('+ host + ":8791/', source, str(path))
             self.assertNotIn('location.replace("http://"', source, str(path))
 
+    def test_launcher_port_setting_updates_installed_dsm_launcher(self):
+        start_script = (PACKAGE_ROOT / "scripts" / "start-stop-status").read_text(encoding="utf-8")
+        postinst = (PACKAGE_ROOT / "scripts" / "postinst").read_text(encoding="utf-8")
+        postupgrade = (PACKAGE_ROOT / "scripts" / "postupgrade").read_text(encoding="utf-8")
+        backend = (ROOT / "backend.py").read_text(encoding="utf-8")
+
+        self.assertIn('"NAS_PORTAL_LAUNCHER_PORT": "8791"', postinst)
+        self.assertIn('"NAS_PORTAL_LAUNCHER_PORT" not in data', postupgrade)
+        self.assertIn('NAS_PORTAL_LAUNCHER_FILE="${SYNOPKG_PKGDEST}/ui/launcher.html"', start_script)
+        self.assertIn('result["launcher_port"] = set_launcher_port', backend)
+        self.assertIn('write_launcher_file(public_port=normalized)', backend)
+
     def test_default_destination_is_empty_and_requires_explicit_permission(self):
         example = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
         resource = json.loads((PACKAGE_ROOT / "conf" / "resource").read_text(encoding="utf-8"))

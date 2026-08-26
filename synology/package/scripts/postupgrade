@@ -14,8 +14,14 @@ try:
     data = json.loads(path.read_text(encoding="utf-8"))
 except (OSError, json.JSONDecodeError):
     raise SystemExit(0)
+changed = False
 if isinstance(data, dict) and data.get("NAS_PORTAL_NAS_TARGET") == "/volume2/downloads":
     data["NAS_PORTAL_NAS_TARGET"] = ""
+    changed = True
+if isinstance(data, dict) and "NAS_PORTAL_LAUNCHER_PORT" not in data:
+    data["NAS_PORTAL_LAUNCHER_PORT"] = "8791"
+    changed = True
+if changed:
     temporary = path.with_suffix(".migration")
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, path)

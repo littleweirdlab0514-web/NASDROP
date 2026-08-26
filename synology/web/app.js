@@ -39,6 +39,7 @@
     $("#setting-write").className = `badge ${s.target && s.target_writable ? "ok" : "bad"}`;
     $("#service-user").textContent = s.service_user || t("dedicatedAccount");
     $("#service-url").textContent = location.origin;
+    $("#launcher-port").value = String(s.launcher_port || 8791);
     $("#version").textContent = s.version;
     const gofileCooldown = s.gofile_cooldown || {};
     const gofileNotice = $("#gofile-cooldown");
@@ -128,6 +129,17 @@
       state.status = await api("/api/status"); renderStatus();
       $("#concurrency-message").textContent = enabled ? t("parallelSaved", {count:limit}) : t("sequentialSaved");
     } catch (error) { $("#concurrency-message").textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+  $("#save-launcher-port").addEventListener("click", async () => {
+    const rawPort = $("#launcher-port").value.trim();
+    const port = rawPort ? Number(rawPort) : 8791;
+    const button = $("#save-launcher-port"); button.disabled = true; $("#launcher-port-message").textContent = t("saving");
+    try {
+      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({launcher_port:port})});
+      state.status = await api("/api/status"); renderStatus();
+      $("#launcher-port-message").textContent = t("launcherPortSaved", {port:result.launcher_port});
+    } catch (error) { $("#launcher-port-message").textContent = error.message; }
     finally { button.disabled = false; }
   });
   document.querySelectorAll(".nav").forEach(button => button.addEventListener("click", () => { document.querySelectorAll(".nav").forEach(x => x.classList.toggle("active", x === button)); $("#dashboard-view").classList.toggle("hidden", button.dataset.view !== "dashboard"); $("#settings-view").classList.toggle("hidden", button.dataset.view !== "settings"); if (button.dataset.view === "settings") loadPairing(); }));

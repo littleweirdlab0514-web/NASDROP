@@ -6,7 +6,8 @@ if [ ! -f "${SYNOPKG_PKGVAR}/config.json" ]; then
   cat > "${SYNOPKG_PKGVAR}/config.json" <<'EOF'
 {
   "NAS_PORTAL_LISTEN_PORT": "8791",
-  "NAS_PORTAL_NAS_TARGET": ""
+  "NAS_PORTAL_NAS_TARGET": "",
+  "NAS_PORTAL_LAUNCHER_PORT": "8791"
 }
 EOF
 fi

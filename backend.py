@@ -63,7 +63,9 @@ LISTEN_HOST = os.environ.get("NAS_PORTAL_LISTEN_HOST", "127.0.0.1")
 LISTEN_PORT = int(setting("NAS_PORTAL_LISTEN_PORT", "8791"))
 NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.7.12")
+LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
+LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.7.13")
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_PARALLEL_DOWNLOADS = 3
 BATCH_QUEUE_STAGGER_SECONDS = 20
@@ -112,8 +114,26 @@ def parallel_limit_setting() -> int:
     return min(3, max(2, value))
 
 
+def normalize_launcher_port(value: object) -> int:
+    try:
+        port = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise ValueError("아이콘 외부 포트는 1~65535 사이의 숫자여야 합니다.") from exc
+    if not 1 <= port <= 65535:
+        raise ValueError("아이콘 외부 포트는 1~65535 사이의 숫자여야 합니다.")
+    return port
+
+
+def launcher_port_setting() -> int:
+    try:
+        return normalize_launcher_port(setting("NAS_PORTAL_LAUNCHER_PORT", str(LISTEN_PORT)))
+    except ValueError:
+        return LISTEN_PORT
+
+
 ALLOW_SAME_PROVIDER_PARALLEL = bool_setting("NAS_PORTAL_ALLOW_SAME_PROVIDER_PARALLEL")
 SAME_PROVIDER_LIMIT = parallel_limit_setting()
+LAUNCHER_PORT = launcher_port_setting()
 
 
 def now() -> str:
@@ -131,6 +151,42 @@ def load_token() -> str:
 
 
 ACCESS_TOKEN = load_token()
+
+
+def render_launcher_html(token: str, public_port: int) -> str:
+    encoded_token = json.dumps(str(token))
+    return f'''<!doctype html>
+<html><head><meta charset="utf-8"><title>NASDrop</title></head>
+<body><script>
+  var host = location.hostname;
+  var plainHost = host.replace(/^\\[|\\]$/g, "").toLowerCase();
+  var isV6 = plainHost.indexOf(":") !== -1;
+  var privateHost = plainHost === "localhost" || plainHost === "::1" ||
+    (!isV6 && (/^(127\\.|10\\.|192\\.168\\.)/.test(plainHost) ||
+    /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(plainHost) ||
+    plainHost.endsWith(".local") || plainHost.indexOf(".") === -1));
+  var targetPort = privateHost ? {LISTEN_PORT} : {int(public_port)};
+  var token = {encoded_token};
+  location.replace((privateHost ? "http://" : "https://") + host + ":" + targetPort + "/#token=" + encodeURIComponent(token));
+</script></body></html>
+'''
+
+
+def write_launcher_file(token: str | None = None, public_port: int | None = None) -> None:
+    if LAUNCHER_FILE is None:
+        return
+    port = LAUNCHER_PORT if public_port is None else normalize_launcher_port(public_port)
+    temporary = LAUNCHER_FILE.with_suffix(".tmp")
+    temporary.write_text(render_launcher_html(token or ACCESS_TOKEN, port), encoding="utf-8")
+    temporary.chmod(0o644)
+    temporary.replace(LAUNCHER_FILE)
+
+
+def refresh_launcher_safely() -> None:
+    try:
+        write_launcher_file()
+    except OSError:
+        LOGGER.exception("DSM launcher file could not be refreshed")
 INSPECTION_CACHE: dict[str, tuple[float, dict]] = {}
 INSPECTION_CACHE_LOCK = threading.Lock()
 INSPECTION_TTL_SECONDS = 300
@@ -218,6 +274,7 @@ def replace_access_token() -> str:
     temp.chmod(0o600)
     temp.replace(TOKEN_FILE)
     ACCESS_TOKEN = token
+    refresh_launcher_safely()
     return token
 
 
@@ -1145,6 +1202,22 @@ def set_parallel_settings(enabled: object, limit: object) -> dict:
     return {"same_provider_parallel": enabled, "same_provider_limit": normalized_limit}
 
 
+def set_launcher_port(raw_port: object) -> int:
+    global LAUNCHER_PORT, CONFIG
+    normalized = normalize_launcher_port(raw_port)
+    updated = dict(CONFIG)
+    updated["NAS_PORTAL_LAUNCHER_PORT"] = normalized
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    temp = CONFIG_FILE.with_suffix(".tmp")
+    temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp.chmod(0o600)
+    temp.replace(CONFIG_FILE)
+    CONFIG = updated
+    LAUNCHER_PORT = normalized
+    write_launcher_file(public_port=normalized)
+    return normalized
+
+
 def pairing_server(host: str, forwarded_host: str = "", forwarded_proto: str = "") -> str:
     public_host = forwarded_host.split(",", 1)[0].strip() or host.strip()
     if not public_host or len(public_host) > 255 or not re.fullmatch(r"[A-Za-z0-9.\[\]:-]+", public_host):
@@ -1233,6 +1306,7 @@ class Handler(BaseHTTPRequestHandler):
                 "service_user": os.environ.get("USER", ""),
                 "same_provider_parallel": ALLOW_SAME_PROVIDER_PARALLEL,
                 "same_provider_limit": SAME_PROVIDER_LIMIT,
+                "launcher_port": LAUNCHER_PORT,
                 "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
                 "gofile_cooldown": _gofile_cooldown_status(),
             })
@@ -1269,6 +1343,8 @@ class Handler(BaseHTTPRequestHandler):
                     result["target"] = set_default_target(str(payload.get("target", "")))
                 if "same_provider_parallel" in payload or "same_provider_limit" in payload:
                     result.update(set_parallel_settings(payload.get("same_provider_parallel"), payload.get("same_provider_limit")))
+                if "launcher_port" in payload:
+                    result["launcher_port"] = set_launcher_port(payload.get("launcher_port"))
                 if len(result) == 1:
                     raise ValueError("변경할 설정이 없습니다.")
                 return self.send_json(HTTPStatus.OK, result)
@@ -1328,6 +1404,7 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     configure_logging()
+    refresh_launcher_safely()
     LOGGER.info("NAS Download Portal listening on http://%s:%s", LISTEN_HOST, LISTEN_PORT)
     try:
         ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler).serve_forever()
