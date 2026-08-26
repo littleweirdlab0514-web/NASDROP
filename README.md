@@ -17,11 +17,17 @@ NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supp
 - Validates GigaFile, GoFile, and Pixeldrain links and displays file names and sizes
 - Queues multiple download jobs
 - Supports a per-job destination folder and a configurable default folder
-- Downloads file parts directly on the Synology NAS and combines them locally
+- Offers either an 8-part verified download or a lower-disk-I/O single-connection download
 - Displays progress, failure details, and SHA-256 results
 - Supports pausing, resuming, and deleting jobs, plus clearing completed jobs in bulk
 - Protects the private web interface with an access code
 - Detects GoFile rate limits and uses a persistent cooldown circuit breaker
+
+### Download method option
+
+The default **8-part download + verification** mode downloads eight byte ranges in parallel, combines them locally, checks the final size, tests ZIP archives, and calculates SHA-256. It provides stronger integrity checking but can require substantial disk I/O after a large download finishes.
+
+The optional **Single connection + size check** mode writes one resumable temporary file and then renames it to the final filename. It still checks HTTP transfer failures and the final byte size, but skips splitting, merging, SHA-256 calculation, and ZIP integrity testing. This reduces post-download disk activity and completion time, at the cost of weaker corruption detection. The selected mode applies to new and resumed jobs.
 
 ## Repository layout
 
@@ -60,7 +66,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.7.13-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.7.14-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 ## Configuring a download folder
 

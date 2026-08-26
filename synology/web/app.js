@@ -54,6 +54,10 @@
     $("#same-provider-limit").disabled = !sameProviderEnabled;
     $("#concurrency-summary").textContent = sameProviderEnabled ? t("sameServiceSummary", {count:s.same_provider_limit}) : t("off");
     $("#concurrency-summary").className = `badge ${sameProviderEnabled ? "ok" : ""}`;
+    const downloadMode = s.download_mode === "single" ? "single" : "segmented";
+    $("#download-mode").value = downloadMode;
+    $("#download-mode-summary").textContent = t(downloadMode === "single" ? "singleModeShort" : "segmentedModeShort");
+    $("#download-mode-summary").className = `badge ${downloadMode === "single" ? "ok" : ""}`;
   }
   function renderPairing() {
     if (!state.pairing) return;
@@ -129,6 +133,17 @@
       state.status = await api("/api/status"); renderStatus();
       $("#concurrency-message").textContent = enabled ? t("parallelSaved", {count:limit}) : t("sequentialSaved");
     } catch (error) { $("#concurrency-message").textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+  $("#save-download-mode").addEventListener("click", async () => {
+    const mode = $("#download-mode").value;
+    if (mode === "single" && !confirm(t("confirmSingleMode"))) return;
+    const button = $("#save-download-mode"); button.disabled = true; $("#download-mode-message").textContent = t("saving");
+    try {
+      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({download_mode:mode})});
+      state.status = await api("/api/status"); renderStatus();
+      $("#download-mode-message").textContent = t(result.download_mode === "single" ? "singleModeSaved" : "segmentedModeSaved");
+    } catch (error) { $("#download-mode-message").textContent = error.message; }
     finally { button.disabled = false; }
   });
   $("#save-launcher-port").addEventListener("click", async () => {

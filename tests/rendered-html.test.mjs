@@ -46,13 +46,17 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.ok(html.indexOf("pairing-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("concurrency-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved"]) {
+  for (const key of ["sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
   assert.match(html, /data-i18n="accessMethodHint"/);
   assert.match(html, /id="launcher-port"[^>]*min="1"[^>]*max="65535"/);
   assert.match(html, /id="save-launcher-port"/);
   assert.match(app, /launcher_port:port/);
+  assert.match(html, /id="download-mode"/);
+  assert.match(html, /value="segmented"/);
+  assert.match(html, /value="single"/);
+  assert.match(app, /download_mode:mode/);
   assert.match(app, /location\.hash\.slice\(1\)/);
   assert.match(app, /history\.replaceState/);
   assert.match(info, /description_enu=/);
@@ -89,7 +93,7 @@ test("client connection and Sponsor cards share the top row equally", async () =
   const style = await readFile(new URL("synology/web/style.css", root), "utf8");
   assert.match(style, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
   assert.match(style, /\.pairing-card,\.sponsor-card\{grid-column:span 3\}/);
-  assert.match(style, /\.concurrency-card,\.folder-card,\.service-card\{grid-column:span 2\}/);
+  assert.match(style, /\.concurrency-card,\.download-card,\.folder-card,\.service-card\{grid-column:span 3\}/);
   assert.match(style, /@media\(max-width:760px\)[^]*\.settings-grid\{grid-template-columns:1fr\}/);
 });
 

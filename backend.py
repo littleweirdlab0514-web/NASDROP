@@ -65,7 +65,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.7.13")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.7.14")
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_PARALLEL_DOWNLOADS = 3
 BATCH_QUEUE_STAGGER_SECONDS = 20
@@ -131,9 +131,24 @@ def launcher_port_setting() -> int:
         return LISTEN_PORT
 
 
+def normalize_download_mode(value: object) -> str:
+    mode = str(value).strip().lower()
+    if mode not in {"segmented", "single"}:
+        raise ValueError("다운로드 방식은 분할 또는 단일 연결이어야 합니다.")
+    return mode
+
+
+def download_mode_setting() -> str:
+    try:
+        return normalize_download_mode(setting("NAS_PORTAL_DOWNLOAD_MODE", "segmented"))
+    except ValueError:
+        return "segmented"
+
+
 ALLOW_SAME_PROVIDER_PARALLEL = bool_setting("NAS_PORTAL_ALLOW_SAME_PROVIDER_PARALLEL")
 SAME_PROVIDER_LIMIT = parallel_limit_setting()
 LAUNCHER_PORT = launcher_port_setting()
+DOWNLOAD_MODE = download_mode_setting()
 
 
 def now() -> str:
@@ -484,24 +499,26 @@ class Controller:
             self.private_downloads[job_id] = private
         safe_name = job.name
         prefix = f"{target_dir}/.{safe_name}.{job.id}.segment."
+        download_mode = DOWNLOAD_MODE
         if provider == "gigafile" and private.get("download_mode") == "gigafile_zip":
             script = self._download_script_gigafile_zip(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, target_dir,
+                verify=download_mode != "single",
             )
         elif provider == "gofile":
             script = self._download_script_gofile(
                 private.get("download_url", ""), private.get("download_token", ""),
-                job.source, safe_name, job.id, job.size, target_dir,
+                job.source, safe_name, job.id, job.size, target_dir, mode=download_mode,
             )
         elif provider == "pixeldrain":
             script = self._download_script_direct(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, target_dir,
-                expected_sha256=private.get("expected_sha256", ""),
+                expected_sha256=private.get("expected_sha256", ""), mode=download_mode,
             )
         else:
             file_id = parsed.path.strip("/")
             host = parsed.hostname or ""
-            script = self._download_script(host, file_id, safe_name, job.id, job.size, target_dir)
+            script = self._download_script(host, file_id, safe_name, job.id, job.size, target_dir, mode=download_mode)
         command = ["sh", "-s"]
         process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
@@ -523,6 +540,8 @@ class Controller:
                     self._terminate(process)
                     break
                 self.jobs[job_id].downloaded = min(job.size, current)
+                if download_mode == "segmented" and current >= job.size:
+                    self.jobs[job_id].status = "verifying"
                 self.save()
 
         stdout = process.stdout.read() if process.stdout else ""
@@ -546,13 +565,38 @@ class Controller:
             self.private_downloads.pop(job_id, None)
             self.save()
 
-    def _download_script(self, host: str, file_id: str, name: str, job_id: str, total: int, target_dir: str) -> str:
+    def _download_script(self, host: str, file_id: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented") -> str:
         page = f"https://{host}/{file_id}"
         download = f"https://{host}/download.php?file={file_id}"
         target = f"{target_dir}/{name}"
-        assembled = f"{target_dir}/.{name}.{job_id}.assembling"
         prefix = f"{target_dir}/.{name}.{job_id}.segment"
         cookie = f"/tmp/nas_download_{job_id}.cookies"
+        if mode == "single":
+            part = f"{prefix}.0"
+            return f"""#!/bin/sh
+set -eu
+TOTAL={total}
+PART={shlex.quote(part)}
+COOKIE={shlex.quote(cookie)}
+PAGE_COPY=/tmp/nas_download_{job_id}.page
+cleanup() {{ rm -f "$COOKIE" "$PAGE_COPY"; }}
+trap cleanup EXIT HUP INT TERM
+curl -L --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
+existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
+[ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
+if [ "$existing" -lt "$TOTAL" ]; then
+  if [ "$existing" -gt 0 ]; then
+    curl -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -C - -o "$PART" {shlex.quote(download)}
+  else
+    curl -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
+  fi
+fi
+actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -eq "$TOTAL" ]
+mv "$PART" {shlex.quote(target)}
+trap - EXIT HUP INT TERM
+cleanup
+"""
+        assembled = f"{target_dir}/.{name}.{job_id}.assembling"
         quoted_parts = " ".join(shlex.quote(f"{prefix}.{i}") for i in range(8))
         return f"""#!/bin/sh
 set -eu
@@ -578,12 +622,12 @@ trap - EXIT HUP INT TERM
 printf 'SHA256=%s\\n' "$hash"
 """
 
-    def _download_script_gofile(self, download: str, token: str, page: str, name: str, job_id: str, total: int, target_dir: str) -> str:
+    def _download_script_gofile(self, download: str, token: str, page: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented") -> str:
         if not download.startswith("https://") or not token:
             raise ValueError("Gofile 다운로드 인증 정보가 없습니다.")
-        return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}")
+        return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}", mode=mode)
 
-    def _download_script_gigafile_zip(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str) -> str:
+    def _download_script_gigafile_zip(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, verify: bool = True) -> str:
         parsed_download = urlparse(download)
         parsed_page = urlparse(page)
         if (
@@ -597,6 +641,8 @@ printf 'SHA256=%s\\n' "$hash"
         part = f"{target_dir}/.{name}.{job_id}.segment.0"
         cookie = f"/tmp/nas_download_{job_id}.cookies"
         page_copy = f"/tmp/nas_download_{job_id}.page"
+        verification = f"""case {shlex.quote(name.lower())} in *.zip) python3 -m zipfile -t "$PART" >/dev/null;; esac
+hash=$(sha256sum "$PART" | cut -d' ' -f1)""" if verify else "hash="
         return f"""#!/bin/sh
 set -eu
 TOTAL={total}
@@ -609,22 +655,39 @@ curl -L --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_
 rm -f "$PART"
 curl -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
 actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -ge "$TOTAL" ]
-case {shlex.quote(name.lower())} in *.zip) python3 -m zipfile -t "$PART" >/dev/null;; esac
-hash=$(sha256sum "$PART" | cut -d' ' -f1)
+{verification}
 mv "$PART" {shlex.quote(target)}
 trap - EXIT HUP INT TERM
 cleanup
-printf 'SHA256=%s\\n' "$hash"
+if [ -n "$hash" ]; then printf 'SHA256=%s\\n' "$hash"; fi
 """
 
-    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "") -> str:
+    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented") -> str:
         if not download.startswith("https://"):
             raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
         target = f"{target_dir}/{name}"
         assembled = f"{target_dir}/.{name}.{job_id}.assembling"
         prefix = f"{target_dir}/.{name}.{job_id}.segment"
-        quoted_parts = " ".join(shlex.quote(f"{prefix}.{i}") for i in range(8))
         header_option = f"-H {shlex.quote('Cookie: ' + cookie)}" if cookie else ""
+        if mode == "single":
+            part = f"{prefix}.0"
+            return f"""#!/bin/sh
+set -eu
+TOTAL={total}
+PART={shlex.quote(part)}
+existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
+[ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
+if [ "$existing" -lt "$TOTAL" ]; then
+  if [ "$existing" -gt 0 ]; then
+    curl -L --fail --silent --show-error --retry 8 --retry-delay 5 {header_option} -e {shlex.quote(page)} -C - -o "$PART" {shlex.quote(download)}
+  else
+    curl -L --fail --silent --show-error --retry 8 --retry-delay 5 {header_option} -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
+  fi
+fi
+actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -eq "$TOTAL" ]
+mv "$PART" {shlex.quote(target)}
+"""
+        quoted_parts = " ".join(shlex.quote(f"{prefix}.{i}") for i in range(8))
         hash_check = f"[ \"$hash\" = {shlex.quote(expected_sha256.lower())} ]" if re.fullmatch(r"[0-9a-fA-F]{64}", expected_sha256) else ":"
         return f"""#!/bin/sh
 set -eu
@@ -1218,6 +1281,21 @@ def set_launcher_port(raw_port: object) -> int:
     return normalized
 
 
+def set_download_mode(raw_mode: object) -> str:
+    global DOWNLOAD_MODE, CONFIG
+    normalized = normalize_download_mode(raw_mode)
+    updated = dict(CONFIG)
+    updated["NAS_PORTAL_DOWNLOAD_MODE"] = normalized
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    temp = CONFIG_FILE.with_suffix(".tmp")
+    temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temp.chmod(0o600)
+    temp.replace(CONFIG_FILE)
+    CONFIG = updated
+    DOWNLOAD_MODE = normalized
+    return normalized
+
+
 def pairing_server(host: str, forwarded_host: str = "", forwarded_proto: str = "") -> str:
     public_host = forwarded_host.split(",", 1)[0].strip() or host.strip()
     if not public_host or len(public_host) > 255 or not re.fullmatch(r"[A-Za-z0-9.\[\]:-]+", public_host):
@@ -1306,6 +1384,7 @@ class Handler(BaseHTTPRequestHandler):
                 "service_user": os.environ.get("USER", ""),
                 "same_provider_parallel": ALLOW_SAME_PROVIDER_PARALLEL,
                 "same_provider_limit": SAME_PROVIDER_LIMIT,
+                "download_mode": DOWNLOAD_MODE,
                 "launcher_port": LAUNCHER_PORT,
                 "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
                 "gofile_cooldown": _gofile_cooldown_status(),
@@ -1345,6 +1424,8 @@ class Handler(BaseHTTPRequestHandler):
                     result.update(set_parallel_settings(payload.get("same_provider_parallel"), payload.get("same_provider_limit")))
                 if "launcher_port" in payload:
                     result["launcher_port"] = set_launcher_port(payload.get("launcher_port"))
+                if "download_mode" in payload:
+                    result["download_mode"] = set_download_mode(payload.get("download_mode"))
                 if len(result) == 1:
                     raise ValueError("변경할 설정이 없습니다.")
                 return self.send_json(HTTPStatus.OK, result)

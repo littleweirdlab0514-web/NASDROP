@@ -15,7 +15,7 @@ $distRoot = Join-Path $PSScriptRoot "dist"
 $nodeArchiveName = "node-v$NodeVersion-$NodeVariant.tar.xz"
 $nodeArchive = Join-Path $cacheRoot $nodeArchiveName
 $nodeUrl = "https://unofficial-builds.nodejs.org/download/release/v$NodeVersion/$nodeArchiveName"
-$packageVersion = "0.7.13-1"
+$packageVersion = "0.7.14-1"
 
 if ($PythonPath) {
   $pythonExe = $PythonPath
