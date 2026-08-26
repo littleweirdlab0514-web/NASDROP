@@ -62,6 +62,17 @@ class SpkPackagingTests(unittest.TestCase):
         self.assertIn('"licenses\\qrcode-LICENSE.txt"', build_script)
         self.assertIn('Join-Path $repoRoot "LICENSE"', build_script)
 
+    def test_dsm_71_metadata_uses_compatible_node_runtime(self):
+        info = (PACKAGE_ROOT / "INFO").read_text(encoding="utf-8")
+        build_script = (ROOT / "synology" / "build-spk.ps1").read_text(encoding="utf-8")
+        notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+
+        self.assertIn('os_min_ver="7.1-42661"', info)
+        self.assertIn('NodeVariant = "linux-x64-glibc-217"', build_script)
+        self.assertIn("unofficial-builds.nodejs.org", build_script)
+        self.assertIn("9c0927b3cdccce0d5d5196b9076cfbd356a4ad7214cd147631a74837e52ba88e", build_script)
+        self.assertIn("linux-x64-glibc-217", notices)
+
     def test_dsm_application_identifier_is_synchronized(self):
         info = (PACKAGE_ROOT / "INFO").read_text(encoding="utf-8")
         ui_config = json.loads((ROOT / "synology" / "package-inner" / "ui" / "config").read_text(encoding="utf-8"))

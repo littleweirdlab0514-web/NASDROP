@@ -1,6 +1,7 @@
 param(
   [string]$NodeVersion = "22.13.1",
-  [string]$NodeSha256 = "0d2a5af33c7deab5555c8309cd3f373446fe1526c1b95833935ab3f019733b3b",
+  [string]$NodeVariant = "linux-x64-glibc-217",
+  [string]$NodeSha256 = "9c0927b3cdccce0d5d5196b9076cfbd356a4ad7214cd147631a74837e52ba88e",
   [string]$PythonPath = ""
 )
 
@@ -11,9 +12,10 @@ $cacheRoot = Join-Path $PSScriptRoot ".cache"
 $innerRoot = Join-Path $workRoot "inner"
 $outerRoot = Join-Path $workRoot "outer"
 $distRoot = Join-Path $PSScriptRoot "dist"
-$nodeArchive = Join-Path $cacheRoot "node-v$NodeVersion-linux-x64.tar.xz"
-$nodeUrl = "https://nodejs.org/dist/v$NodeVersion/node-v$NodeVersion-linux-x64.tar.xz"
-$packageVersion = "0.7.11-1"
+$nodeArchiveName = "node-v$NodeVersion-$NodeVariant.tar.xz"
+$nodeArchive = Join-Path $cacheRoot $nodeArchiveName
+$nodeUrl = "https://unofficial-builds.nodejs.org/download/release/v$NodeVersion/$nodeArchiveName"
+$packageVersion = "0.7.12-1"
 
 if ($PythonPath) {
   $pythonExe = $PythonPath
@@ -50,10 +52,10 @@ if ($actualNodeSha256 -ne $NodeSha256.ToLowerInvariant()) {
 }
 $nodeExtract = Join-Path $workRoot "node"
 New-Item -ItemType Directory -Path $nodeExtract -Force | Out-Null
-& tar.exe -xJf $nodeArchive -C $nodeExtract "node-v$NodeVersion-linux-x64/bin/node"
+& tar.exe -xJf $nodeArchive -C $nodeExtract "node-v$NodeVersion-$NodeVariant/bin/node"
 if ($LASTEXITCODE -ne 0) { throw "Node.js runtime extraction failed" }
 New-Item -ItemType Directory -Path (Join-Path $innerRoot "bin") -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $nodeExtract "node-v$NodeVersion-linux-x64\bin\node") -Destination (Join-Path $innerRoot "bin\node")
+Copy-Item -LiteralPath (Join-Path $nodeExtract "node-v$NodeVersion-$NodeVariant\bin\node") -Destination (Join-Path $innerRoot "bin\node")
 
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "package\INFO") -Destination $outerRoot
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "package\conf") -Destination $outerRoot -Recurse

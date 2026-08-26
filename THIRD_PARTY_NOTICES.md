@@ -6,7 +6,8 @@ NASDrop includes the following third-party components. Each component remains su
 
 - Project: [Node.js](https://nodejs.org/)
 - Source release: [v22.13.1](https://github.com/nodejs/node/tree/v22.13.1)
-- Use in NASDrop: the Linux x64 Node.js runtime bundled in the SPK to execute `gofile_wt.mjs`
+- Binary distribution: [`nodejs/unofficial-builds`](https://github.com/nodejs/unofficial-builds), `linux-x64-glibc-217`
+- Use in NASDrop: the glibc 2.17-compatible Linux x64 Node.js runtime bundled in the SPK to execute `gofile_wt.mjs` on supported DSM 7 systems
 - License text in this repository: [`synology/licenses/nodejs-LICENSE.txt`](synology/licenses/nodejs-LICENSE.txt)
 - License text in the installed package: `licenses/nodejs-LICENSE.txt`
 

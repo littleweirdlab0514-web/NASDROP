@@ -33,7 +33,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supp
 3. Select the downloaded SPK and review the manual-install warning and license.
 4. Complete the installation, then grant the NASDrop package account access to a destination folder as described below.
 
-The package supports DSM 7.2 or later on Intel/AMD 64-bit (`x86_64`) Synology NAS models. ARM models are not supported yet. Because this is not an official Package Center listing, GitHub releases are the only supported distribution channel and updates are installed manually.
+The package targets DSM 7.1 or later on Intel/AMD 64-bit (`x86_64`) Synology NAS models. DSM 7.1 support is currently experimental until it is verified on real hardware. ARM models are not supported yet. Because this is not an official Package Center listing, GitHub releases are the only supported distribution channel and updates are installed manually.
 
 NASDrop does not select a default download folder during installation. A download cannot start until a writable destination is selected either as the default destination or for that individual job.
 
@@ -55,7 +55,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.7.11-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.7.12-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 ## Configuring a download folder
 
