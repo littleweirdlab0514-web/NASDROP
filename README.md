@@ -64,6 +64,38 @@ When upgrading from an older release, the former automatically assigned `/volume
 
 The DSM launcher uses a separate internal browser handoff value and removes it from the address immediately. It is not displayed in the NASDrop interface or stored as a reusable client credential.
 
+### Client login creation and reset examples
+
+The following guides show how a DSM administrator creates the first NASDrop ID and password, and how the same administrator-only DSM launch can reset existing credentials.
+
+<details open>
+<summary><strong>English</strong></summary>
+
+![English NASDrop ID creation and reset guide](assets/client-login-guide-en.png)
+
+</details>
+
+<details>
+<summary><strong>한국어 (Korean)</strong></summary>
+
+![한국어 NASDrop ID 생성 및 재설정 안내](assets/client-login-guide-ko.png)
+
+</details>
+
+<details>
+<summary><strong>日本語 (Japanese)</strong></summary>
+
+![日本語 NASDrop ID作成・再設定ガイド](assets/client-login-guide-ja.png)
+
+</details>
+
+<details>
+<summary><strong>简体中文 (Simplified Chinese)</strong></summary>
+
+![简体中文 NASDrop ID创建和重置指南](assets/client-login-guide-zh-cn.png)
+
+</details>
+
 ## Build from source
 
 Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool packages DSM shell scripts with LF line endings and executable permissions, then validates the resulting archive.
