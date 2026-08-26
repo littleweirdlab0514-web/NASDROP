@@ -1,6 +1,6 @@
 # NASDrop
 
-[![DSM 7.1 and 7.2 supported](https://img.shields.io/badge/DSM-7.1%20%7C%207.2-supported-brightgreen)](#install-a-prebuilt-release)
+[![DSM 7.1 and 7.2 supported](https://img.shields.io/badge/DSM-7.1%20%7C%207.2%20supported-brightgreen)](#install-a-prebuilt-release)
 
 > [!TIP]
 > **DSM 7.1 support is now available.** NASDrop has been verified on real DSM 7.1 and DSM 7.2 hardware. The current SPK supports Intel/AMD 64-bit (`x86_64`) Synology NAS models running DSM 7.1 or later.
