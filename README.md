@@ -12,6 +12,9 @@ NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supp
 > [!IMPORTANT]
 > NASDrop is an independent, unofficial community project. It is not listed in Synology's official Package Center catalog and must be installed manually. It is not affiliated with, endorsed by, or sponsored by Synology, GigaFile, GoFile, or Pixeldrain.
 
+> [!WARNING]
+> **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, and Pixeldrain. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
+
 ## Features
 
 - Validates GigaFile, GoFile, and Pixeldrain links and displays file names and sizes
