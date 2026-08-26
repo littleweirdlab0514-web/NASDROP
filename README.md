@@ -147,6 +147,38 @@ Internet HTTPS :8791 -> router -> NAS HTTPS :8443 -> DSM Reverse Proxy -> HTTP 1
 
 If the router uses a different external port, such as `8795`, open **NASDrop > Settings > Service address** and set **DSM icon external port** to the same value. The DSM icon will then open `https://your-public-hostname:8795`, while private LAN launches continue to use the internal NASDrop port `8791`.
 
+### DSM icon external port setting
+
+The following screenshots show the new port setting in all four supported interface languages. The public hostname is intentionally hidden.
+
+<details open>
+<summary><strong>English</strong></summary>
+
+![English DSM icon external port setting](assets/dsm-icon-port-setting-en.png)
+
+</details>
+
+<details>
+<summary><strong>한국어 (Korean)</strong></summary>
+
+![한국어 DSM 아이콘 외부 포트 설정](assets/dsm-icon-port-setting-ko.png)
+
+</details>
+
+<details>
+<summary><strong>日本語 (Japanese)</strong></summary>
+
+![日本語 DSM アイコン外部ポート設定](assets/dsm-icon-port-setting-ja.png)
+
+</details>
+
+<details>
+<summary><strong>简体中文 (Simplified Chinese)</strong></summary>
+
+![简体中文 DSM 图标外部端口设置](assets/dsm-icon-port-setting-zh-cn.png)
+
+</details>
+
 Do not forward any external port directly to NAS port `8791`; that would expose the access code and portal traffic over unencrypted HTTP.
 
 DSM should forward the original host and HTTPS scheme. If the generated public address is incorrect, add or correct these reverse-proxy request headers:
