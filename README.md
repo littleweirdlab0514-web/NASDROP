@@ -52,8 +52,8 @@ When upgrading from an older release, the former automatically assigned `/volume
 
 ## Opening NASDrop and setting up client login
 
-- Opening NASDrop from its DSM desktop or Package Center icon signs in automatically.
-- After installing or updating, open NASDrop from the DSM icon and create an ID and password under **Settings > Client connection**.
+- Sign in to DSM with an administrator account, then open NASDrop from its DSM desktop or Package Center icon. This administrator-only launch signs in automatically.
+- After installing or updating, use that DSM administrator launch and create a NASDrop ID and password under **Settings > Client connection**.
 - Opening the service address directly, using another browser, or connecting a client app requires that ID and password.
 - If the ID or password is forgotten, sign in to DSM, open NASDrop from its DSM icon, and reset both values under **Settings > Client connection**. The old password cannot be displayed or recovered.
 - Passwords are stored only as salted PBKDF2-SHA256 hashes. Successful logins receive a time-limited session token; changing the account credentials revokes existing sessions.
