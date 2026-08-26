@@ -67,7 +67,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.7.15")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.7.16")
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_PARALLEL_DOWNLOADS = 3
 BATCH_QUEUE_STAGGER_SECONDS = 20
@@ -599,8 +599,17 @@ class Controller:
                 self.condition.notify_all()
 
     def _local_size(self, prefix: str) -> int:
-        import glob
-        return sum(os.path.getsize(path) for path in glob.glob(prefix + "*") if os.path.isfile(path))
+        prefix_path = Path(prefix)
+        total = 0
+        try:
+            for entry in prefix_path.parent.iterdir():
+                if not entry.name.startswith(prefix_path.name):
+                    continue
+                if entry.is_file():
+                    total += entry.stat().st_size
+        except OSError:
+            return total
+        return total
 
     def _run(self, job_id: str) -> None:
         with self.lock:

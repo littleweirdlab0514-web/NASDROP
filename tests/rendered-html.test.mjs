@@ -46,7 +46,7 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("concurrency-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod"]) {
+  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
   assert.match(html, /data-i18n="accessMethodHint"/);
@@ -70,6 +70,7 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(info, /description_jpn=/);
   assert.match(info, /description_chs=/);
   assert.match(uiConfig, /"title": "NASDrop"/);
+  assert.match(uiConfig, /"allUsers": false/);
   assert.match(uiConfig, /nasdrop:desc/);
   assert.match(uiConfig, /"preloadTexts": \["nasdrop:desc"\]/);
   for (const locale of ["enu", "krn", "jpn", "chs"]) {

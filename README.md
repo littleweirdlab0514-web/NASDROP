@@ -55,6 +55,7 @@ When upgrading from an older release, the former automatically assigned `/volume
 - Opening NASDrop from its DSM desktop or Package Center icon signs in automatically.
 - After installing or updating, open NASDrop from the DSM icon and create an ID and password under **Settings > Client connection**.
 - Opening the service address directly, using another browser, or connecting a client app requires that ID and password.
+- If the ID or password is forgotten, sign in to DSM, open NASDrop from its DSM icon, and reset both values under **Settings > Client connection**. The old password cannot be displayed or recovered.
 - Passwords are stored only as salted PBKDF2-SHA256 hashes. Successful logins receive a time-limited session token; changing the account credentials revokes existing sessions.
 - Five consecutive failed login attempts from the same client IP trigger a 15-minute login block.
 
@@ -68,7 +69,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.7.15-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.7.16-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 ## Configuring a download folder
 
