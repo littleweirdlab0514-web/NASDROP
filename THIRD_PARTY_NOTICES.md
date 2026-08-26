@@ -13,13 +13,4 @@ NASDrop includes the following third-party components. Each component remains su
 
 The Node.js license file also contains the notices required by third-party software distributed with Node.js.
 
-## QR Code Generator for JavaScript
-
-- Author: Kazuhiko Arase
-- Project: [QR Code Generator for JavaScript](https://www.d-project.com/qrcode/index.html)
-- Use in NASDrop: generation of client-connection QR codes in the DSM web interface
-- License: MIT
-- License text in this repository: [`synology/web/qrcode-LICENSE.txt`](synology/web/qrcode-LICENSE.txt)
-- License text in the installed package: `licenses/qrcode-LICENSE.txt`
-
 NASDrop's own license is available in [`LICENSE`](LICENSE) and is also included in the SPK.

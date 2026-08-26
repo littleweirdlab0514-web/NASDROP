@@ -20,7 +20,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supp
 - Offers either an 8-part verified download or a lower-disk-I/O single-connection download
 - Displays progress, failure details, and SHA-256 results
 - Supports pausing, resuming, and deleting jobs, plus clearing completed jobs in bulk
-- Protects the private web interface with an access code
+- Protects direct browser and client-app access with an ID, hashed password, login throttling, and time-limited sessions
 - Detects GoFile rate limits and uses a persistent cooldown circuit breaker
 
 ### Download method option
@@ -35,7 +35,7 @@ The optional **Single connection + size check** mode writes one resumable tempor
 - `gofile_wt.mjs`: Helper for generating GoFile web tokens
 - `synology/`: DSM SPK metadata, web UI, lifecycle scripts, and build tools
 - `config.example.json`: Example package configuration
-- `runtime/`: Access codes, configuration, logs, and job state; excluded from Git
+- `runtime/`: Hashed account credentials, sessions, configuration, logs, and job state; excluded from Git
 
 ## Install a prebuilt release
 
@@ -50,13 +50,15 @@ NASDrop does not select a default download folder during installation. A downloa
 
 When upgrading from an older release, the former automatically assigned `/volume2/downloads` value is cleared. A different destination that was explicitly selected by the administrator is preserved.
 
-## Opening NASDrop and using the access code
+## Opening NASDrop and setting up client login
 
-- Opening NASDrop from its DSM desktop or Package Center icon automatically passes the current NASDrop access code and opens the dashboard.
-- Opening the service address directly in a browser, or connecting from another device, does not receive that automatic code. Enter the access code shown in **NASDrop > Settings > Client connection**.
-- Regenerating the access code disconnects browsers and clients that saved the previous code. Launching NASDrop again from DSM passes the newly generated code.
+- Opening NASDrop from its DSM desktop or Package Center icon signs in automatically.
+- After installing or updating, open NASDrop from the DSM icon and create an ID and password under **Settings > Client connection**.
+- Opening the service address directly, using another browser, or connecting a client app requires that ID and password.
+- Passwords are stored only as salted PBKDF2-SHA256 hashes. Successful logins receive a time-limited session token; changing the account credentials revokes existing sessions.
+- Five consecutive failed login attempts from the same client IP trigger a 15-minute login block.
 
-The DSM launcher transfers the code in the URL fragment and NASDrop removes that fragment from the browser address after saving it locally. Do not share screenshots or copied launcher URLs that still contain `#token=`.
+The DSM launcher uses a separate internal browser handoff value and removes it from the address immediately. It is not displayed in the NASDrop interface or stored as a reusable client credential.
 
 ## Build from source
 
@@ -66,7 +68,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.7.14-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.7.15-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 ## Configuring a download folder
 
@@ -190,7 +192,7 @@ The following screenshots show the new port setting in all four supported interf
 
 </details>
 
-Do not forward any external port directly to NAS port `8791`; that would expose the access code and portal traffic over unencrypted HTTP.
+Do not forward any external port directly to NAS port `8791`; that would expose login credentials and portal traffic over unencrypted HTTP.
 
 DSM should forward the original host and HTTPS scheme. If the generated public address is incorrect, add or correct these reverse-proxy request headers:
 
@@ -215,7 +217,7 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 - Never commit `runtime/`, `.env*`, signing keys, or device-specific secrets.
 - The local `service.log` records timestamps, client IP addresses, HTTP methods, endpoint paths without query strings, and response status codes for diagnostics. Each log file is limited to 1 MiB and only two rotated backups are retained (about 3 MiB maximum total).
 - Use HTTPS whenever the portal is accessible from the internet.
-- Consider an additional access-control layer beyond the NASDrop access code for internet-facing deployments.
+- Consider an additional access-control layer beyond the NASDrop account login for internet-facing deployments.
 - NASDrop does not require DSM administrator passwords or NAS account credentials in the web interface.
 - Only submit links and download files that you own or are authorized to access. You are responsible for complying with the source service's terms and applicable law.
 
@@ -243,7 +245,7 @@ NASDrop processes jobs from the same provider sequentially by default and preser
 
 - For installation problems, provider compatibility, and other non-security bugs, open a [GitHub issue](https://github.com/littleweirdlab0514-web/NASDROP/issues).
 - For vulnerabilities or reports containing sensitive details, follow [SECURITY.md](SECURITY.md) and do not open a public issue.
-- Include the NAS model, DSM version, NASDrop version, relevant logs with access codes and private URLs removed, and clear reproduction steps.
+- Include the NAS model, DSM version, NASDrop version, relevant logs with account credentials, session tokens, and private URLs removed, and clear reproduction steps.
 
 External services may change without notice. Compatibility fixes are provided on a best-effort basis, and this unofficial package has no support relationship with Synology or the supported download services.
 

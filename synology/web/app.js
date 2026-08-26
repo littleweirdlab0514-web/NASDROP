@@ -2,8 +2,8 @@
   const $ = (selector) => document.querySelector(selector);
   const t = (key, vars) => window.NASDropI18n.t(key, vars);
   const launchedToken = new URLSearchParams(location.hash.slice(1)).get("token") || "";
-  if (launchedToken) { localStorage.setItem("nas-download-token", launchedToken); history.replaceState(null, "", location.pathname + location.search); }
-  const state = { token: launchedToken || localStorage.getItem("nas-download-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", pairing: null, codeVisible: false, selected: new Set() };
+  if (launchedToken) history.replaceState(null, "", location.pathname + location.search);
+  const state = { token: launchedToken || localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, selected: new Set() };
   const statusKeys = { queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", verifying:"statusVerifying", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
 
   function bytes(value) {
@@ -19,11 +19,17 @@
     if (!response.ok) throw new Error(payload.error || t("requestFailed"));
     return payload;
   }
+  async function publicApi(path, init = {}) {
+    const response = await fetch(path, { ...init, headers:{ "content-type":"application/json", ...(init.headers || {}) } });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || t("requestFailed"));
+    return payload;
+  }
   function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); refresh(); state.timer = setInterval(refreshJobs, 2500); }
   function showLogin(message = "") { clearInterval(state.timer); $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); $("#login-error").textContent = message; }
   async function refresh() {
-    try { const [status, jobs] = await Promise.all([api("/api/status"), api("/api/jobs")]); state.status = status; state.jobs = jobs.jobs; renderStatus(); renderJobs(); }
-    catch (error) { showLogin(error.message); }
+    try { const [status, jobs, account] = await Promise.all([api("/api/status"), api("/api/jobs"), api("/api/account")]); state.status = status; state.jobs = jobs.jobs; state.account = account; renderStatus(); renderJobs(); renderAccount(); }
+    catch (error) { localStorage.removeItem("nasdrop-session-token"); state.token = ""; showLogin(error.message); }
   }
   async function refreshJobs() { try { state.jobs = (await api("/api/jobs")).jobs; renderJobs(); } catch (_) {} }
   function renderStatus() {
@@ -59,21 +65,14 @@
     $("#download-mode-summary").textContent = t(downloadMode === "single" ? "singleModeShort" : "segmentedModeShort");
     $("#download-mode-summary").className = `badge ${downloadMode === "single" ? "ok" : ""}`;
   }
-  function renderPairing() {
-    if (!state.pairing) return;
-    $("#access-code").textContent = state.codeVisible ? state.pairing.token : "••••••••••••••••••••";
-    $("#reveal-code").textContent = state.codeVisible ? t("hideCode") : t("showCode");
-    try {
-      qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"];
-      const qr = qrcode(0, "M");
-      qr.addData(state.pairing.uri);
-      qr.make();
-      $("#pairing-qr").innerHTML = qr.createImgTag(5, 12, t("qrAlt"));
-    } catch (error) { $("#pairing-qr").textContent = t("qrFailed", {error:error.message}); }
+  function renderAccount() {
+    if (!state.account) return;
+    $("#account-username").value = state.account.username || "";
+    $("#current-password-row").classList.toggle("hidden", !state.account.configured || state.account.launcher_session);
   }
-  async function loadPairing() {
-    try { state.pairing = await api("/api/pairing"); renderPairing(); }
-    catch (error) { $("#pairing-message").textContent = error.message; }
+  async function loadAccount() {
+    try { state.account = await api("/api/account"); renderAccount(); }
+    catch (error) { $("#account-message").textContent = error.message; }
   }
   function renderJobs() {
     const active = state.jobs.filter(j => ["queued","ready","downloading","verifying"].includes(j.status));
@@ -114,7 +113,14 @@
       await refreshJobs();
     } catch (error) { $("#notice").textContent = error.message; }
   }
-  $("#login-form").addEventListener("submit", async (event) => { event.preventDefault(); state.token = $("#access-token").value.trim(); try { await api("/api/status"); localStorage.setItem("nas-download-token", state.token); showApp(); } catch (error) { $("#login-error").textContent = error.message; } });
+  $("#login-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    $("#login-error").textContent = "";
+    try {
+      const result = await publicApi("/api/login", {method:"POST",body:JSON.stringify({username:$("#login-username").value.trim(),password:$("#login-password").value})});
+      state.token = result.token; localStorage.setItem("nasdrop-session-token", state.token); $("#login-password").value = ""; showApp();
+    } catch (error) { $("#login-error").textContent = error.message; }
+  });
   $("#download-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("#start-button"); const url = $("#download-url").value.trim(); button.disabled = true; $("#notice").textContent = t("inspectLink"); try { const checked = await api("/api/inspect", {method:"POST",body:JSON.stringify({url})}); const started = await api("/api/start", {method:"POST",body:JSON.stringify({...checked.file,target:state.selectedTarget})}); $("#download-url").value = ""; $("#notice").textContent = started.count > 1 ? t("addedMany", {count:started.count,target:state.selectedTarget}) : t("addedOne", {name:checked.file.name,target:state.selectedTarget}); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; } finally { button.disabled = false; } });
   $("#jobs").addEventListener("change", event => { const checkbox = event.target.closest("input[data-id]"); if (!checkbox) return; checkbox.checked ? state.selected.add(checkbox.dataset.id) : state.selected.delete(checkbox.dataset.id); renderJobs(); });
   $("#select-all").addEventListener("click", () => { if (state.selected.size === state.jobs.length) state.selected.clear(); else state.jobs.forEach(job => state.selected.add(job.id)); renderJobs(); });
@@ -157,7 +163,11 @@
     } catch (error) { $("#launcher-port-message").textContent = error.message; }
     finally { button.disabled = false; }
   });
-  document.querySelectorAll(".nav").forEach(button => button.addEventListener("click", () => { document.querySelectorAll(".nav").forEach(x => x.classList.toggle("active", x === button)); $("#dashboard-view").classList.toggle("hidden", button.dataset.view !== "dashboard"); $("#settings-view").classList.toggle("hidden", button.dataset.view !== "settings"); if (button.dataset.view === "settings") loadPairing(); }));
+  document.querySelectorAll(".nav").forEach(button => button.addEventListener("click", () => { document.querySelectorAll(".nav").forEach(x => x.classList.toggle("active", x === button)); $("#dashboard-view").classList.toggle("hidden", button.dataset.view !== "dashboard"); $("#settings-view").classList.toggle("hidden", button.dataset.view !== "settings"); if (button.dataset.view === "settings") loadAccount(); }));
+  $("#logout-button").addEventListener("click", async () => {
+    try { await api("/api/logout", {method:"POST",body:"{}"}); } catch (_) {}
+    localStorage.removeItem("nasdrop-session-token"); state.token = ""; showLogin();
+  });
   async function loadFolder(path) {
     $("#folder-list").innerHTML = `<div class="folder-loading">${esc(t("loadingFolders"))}</div>`;
     $("#folder-message").textContent = "";
@@ -197,29 +207,29 @@
     $("#write-state").className = "ok";
     closeFolder();
   });
-  $("#reveal-code").addEventListener("click", () => { state.codeVisible = !state.codeVisible; renderPairing(); });
-  $("#copy-code").addEventListener("click", async () => {
-    if (!state.pairing) return;
-    try { await navigator.clipboard.writeText(state.pairing.token); $("#pairing-message").textContent = t("copied"); }
-    catch (_) {
-      const input = document.createElement("textarea"); input.value = state.pairing.token; document.body.appendChild(input); input.select(); document.execCommand("copy"); input.remove();
-      $("#pairing-message").textContent = t("copied");
-    }
-  });
-  $("#rotate-code").addEventListener("click", async () => {
-    if (!confirm(t("confirmRotate"))) return;
+  $("#account-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const password = $("#new-password").value;
+    if (password !== $("#confirm-password").value) { $("#account-message").textContent = t("passwordMismatch"); return; }
+    const button = $("#account-form button[type=submit]"); button.disabled = true; $("#account-message").textContent = t("saving");
     try {
-      const pairing = await api("/api/token/rotate", {method:"POST",body:"{}"});
-      state.pairing = pairing; state.token = pairing.token; state.codeVisible = true;
-      localStorage.setItem("nas-download-token", state.token); renderPairing();
-      $("#pairing-message").textContent = t("rotated");
-    } catch (error) { $("#pairing-message").textContent = error.message; }
+      const result = await api("/api/account", {method:"POST",body:JSON.stringify({username:$("#account-username").value.trim(),current_password:$("#current-password").value,password})});
+      if (result.token) { state.token = result.token; localStorage.setItem("nasdrop-session-token", state.token); }
+      $("#current-password").value = ""; $("#new-password").value = ""; $("#confirm-password").value = "";
+      await loadAccount(); $("#account-message").textContent = t("accountSaved");
+    } catch (error) { $("#account-message").textContent = error.message; }
+    finally { button.disabled = false; }
   });
   window.addEventListener("nasdrop-language-change", () => {
     if (state.status) renderStatus();
     renderJobs();
-    renderPairing();
+    renderAccount();
     if (state.folder) loadFolder(state.folder.path);
   });
-  if (state.token) showApp();
+  async function bootstrap() {
+    if (state.token) { showApp(); return; }
+    try { const auth = await publicApi("/api/auth/status"); $("#login-setup-hint").classList.toggle("hidden", auth.configured); }
+    catch (_) {}
+  }
+  bootstrap();
 })();

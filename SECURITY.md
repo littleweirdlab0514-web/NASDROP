@@ -6,7 +6,7 @@ Security fixes are provided for the latest NASDrop release only. Before reportin
 
 ## Reporting a vulnerability
 
-Please do not disclose vulnerabilities, access codes, private download URLs, NAS addresses, logs containing secrets, or exploit details in a public issue.
+Please do not disclose vulnerabilities, account credentials, session tokens, private download URLs, NAS addresses, logs containing secrets, or exploit details in a public issue.
 
 Use GitHub's [private vulnerability reporting form](https://github.com/littleweirdlab0514-web/NASDROP/security/advisories/new). Include:
 
@@ -20,8 +20,8 @@ You should receive an acknowledgement within seven days. Please allow reasonable
 
 ## Non-security issues
 
-Installation questions, unsupported NAS architectures, provider website changes, rate limits, and ordinary bugs belong in the public [issue tracker](https://github.com/littleweirdlab0514-web/NASDROP/issues) after removing access codes, private URLs, and device-specific information.
+Installation questions, unsupported NAS architectures, provider website changes, rate limits, and ordinary bugs belong in the public [issue tracker](https://github.com/littleweirdlab0514-web/NASDROP/issues) after removing account credentials, session tokens, private URLs, and device-specific information.
 
 ## Deployment note
 
-NASDrop is an unofficial, manually installed Synology DSM package. Keep port `8791` private, use DSM Reverse Proxy with HTTPS for internet access, use a strong access code, and consider an additional authentication layer for public deployments.
+NASDrop is an unofficial, manually installed Synology DSM package. Keep port `8791` private, use DSM Reverse Proxy with HTTPS for internet access, choose a unique strong password, and consider an additional authentication layer for public deployments.

@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
 import hashlib
 import html
+import ipaddress
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -33,6 +34,7 @@ ROOT = Path(__file__).resolve().parent
 STATE_DIR = Path(os.environ.get("NAS_PORTAL_STATE_DIR", str(ROOT / "runtime"))).resolve()
 STATE_FILE = STATE_DIR / "jobs.json"
 TOKEN_FILE = STATE_DIR / "access_token"
+AUTH_FILE = STATE_DIR / "credentials.json"
 CONFIG_FILE = STATE_DIR / "config.json"
 GOFILE_COOLDOWN_FILE = STATE_DIR / "gofile_cooldown.json"
 
@@ -65,7 +67,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.7.14")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.7.15")
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_PARALLEL_DOWNLOADS = 3
 BATCH_QUEUE_STAGGER_SECONDS = 20
@@ -78,6 +80,10 @@ SAFE_SERVICE_ID = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
 GOFILE_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
 LOG_MAX_BYTES = 1024 * 1024
 LOG_BACKUP_COUNT = 2
+PASSWORD_HASH_ITERATIONS = 600_000
+SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
+LOGIN_FAILURE_LIMIT = 5
+LOGIN_BLOCK_SECONDS = 15 * 60
 LOGGER = logging.getLogger("nasdrop")
 LOGGER.addHandler(logging.NullHandler())
 
@@ -155,7 +161,7 @@ def now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def load_token() -> str:
+def load_launcher_token() -> str:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     if TOKEN_FILE.exists():
         return TOKEN_FILE.read_text(encoding="utf-8").strip()
@@ -165,7 +171,162 @@ def load_token() -> str:
     return token
 
 
-ACCESS_TOKEN = load_token()
+LAUNCHER_TOKEN = load_launcher_token()
+
+
+def normalize_username(value: object) -> str:
+    username = str(value).strip()
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", username):
+        raise ValueError("ID는 영문, 숫자, 마침표, 밑줄, 하이픈을 사용해 3~32자로 입력하세요.")
+    return username
+
+
+def validate_password(value: object) -> str:
+    if not isinstance(value, str) or not 10 <= len(value) <= 128:
+        raise ValueError("비밀번호는 10~128자로 입력하세요.")
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError("비밀번호에는 제어 문자를 사용할 수 없습니다.")
+    return value
+
+
+def load_credentials() -> dict[str, object]:
+    if not AUTH_FILE.exists():
+        return {}
+    try:
+        data = json.loads(AUTH_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict) or data.get("algorithm") != "pbkdf2_sha256":
+        return {}
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", str(data.get("username", ""))):
+        return {}
+    if not re.fullmatch(r"[0-9a-f]{32}", str(data.get("salt", ""))):
+        return {}
+    if not re.fullmatch(r"[0-9a-f]{64}", str(data.get("password_hash", ""))):
+        return {}
+    return data
+
+
+CREDENTIALS = load_credentials()
+SESSIONS: dict[str, tuple[str, float]] = {}
+SESSIONS_LOCK = threading.Lock()
+LOGIN_FAILURES: dict[str, tuple[int, float]] = {}
+LOGIN_FAILURES_LOCK = threading.Lock()
+
+
+def credentials_configured() -> bool:
+    return bool(CREDENTIALS)
+
+
+def password_hash(password: str, salt: bytes, iterations: int = PASSWORD_HASH_ITERATIONS) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations).hex()
+
+
+def verify_credentials(username: object, password: object) -> bool:
+    if not CREDENTIALS or not isinstance(username, str) or not isinstance(password, str):
+        return False
+    stored_username = str(CREDENTIALS.get("username", ""))
+    username_matches = secrets.compare_digest(username.strip().casefold(), stored_username.casefold())
+    try:
+        salt = bytes.fromhex(str(CREDENTIALS["salt"]))
+        iterations = int(CREDENTIALS.get("iterations", PASSWORD_HASH_ITERATIONS))
+        candidate = password_hash(password, salt, iterations)
+    except (KeyError, TypeError, ValueError):
+        return False
+    hash_matches = secrets.compare_digest(candidate, str(CREDENTIALS.get("password_hash", "")))
+    return username_matches and hash_matches
+
+
+def create_session(username: str) -> str:
+    token = secrets.token_urlsafe(32)
+    with SESSIONS_LOCK:
+        current = time.time()
+        expired = [value for value, (_, expiry) in SESSIONS.items() if expiry <= current]
+        for value in expired:
+            SESSIONS.pop(value, None)
+        SESSIONS[token] = (username, current + SESSION_TTL_SECONDS)
+    return token
+
+
+def session_username(token: str) -> str:
+    with SESSIONS_LOCK:
+        session = SESSIONS.get(token)
+        if not session:
+            return ""
+        username, expiry = session
+        if expiry <= time.time():
+            SESSIONS.pop(token, None)
+            return ""
+        return username
+
+
+def revoke_session(token: str) -> None:
+    with SESSIONS_LOCK:
+        SESSIONS.pop(token, None)
+
+
+def replace_credentials(username: object, password: object) -> str:
+    global CREDENTIALS
+    normalized_username = normalize_username(username)
+    normalized_password = validate_password(password)
+    salt = secrets.token_bytes(16)
+    updated = {
+        "algorithm": "pbkdf2_sha256",
+        "iterations": PASSWORD_HASH_ITERATIONS,
+        "username": normalized_username,
+        "salt": salt.hex(),
+        "password_hash": password_hash(normalized_password, salt),
+    }
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = AUTH_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(AUTH_FILE)
+    CREDENTIALS = updated
+    with SESSIONS_LOCK:
+        SESSIONS.clear()
+    return normalized_username
+
+
+def login_block_remaining(client_ip: str) -> int:
+    with LOGIN_FAILURES_LOCK:
+        failures, blocked_until = LOGIN_FAILURES.get(client_ip, (0, 0))
+        if not failures or not blocked_until:
+            return 0
+        if blocked_until <= time.time():
+            LOGIN_FAILURES.pop(client_ip, None)
+            return 0
+        return max(1, int(blocked_until - time.time()))
+
+
+def record_login_result(client_ip: str, success: bool) -> None:
+    with LOGIN_FAILURES_LOCK:
+        if success:
+            LOGIN_FAILURES.pop(client_ip, None)
+            return
+        failures, blocked_until = LOGIN_FAILURES.get(client_ip, (0, 0))
+        if blocked_until > time.time():
+            return
+        failures += 1
+        LOGIN_FAILURES[client_ip] = (
+            failures,
+            time.time() + LOGIN_BLOCK_SECONDS if failures >= LOGIN_FAILURE_LIMIT else 0,
+        )
+
+
+def trusted_client_ip(peer_ip: str, forwarded_for: str = "") -> str:
+    """Use a forwarded client IP only when DSM's local reverse proxy supplied it."""
+    try:
+        peer = ipaddress.ip_address(peer_ip)
+    except ValueError:
+        return peer_ip
+    if not peer.is_loopback or not forwarded_for:
+        return peer_ip
+    candidate = forwarded_for.split(",", 1)[0].strip()
+    try:
+        return str(ipaddress.ip_address(candidate))
+    except ValueError:
+        return peer_ip
 
 
 def render_launcher_html(token: str, public_port: int) -> str:
@@ -192,7 +353,7 @@ def write_launcher_file(token: str | None = None, public_port: int | None = None
         return
     port = LAUNCHER_PORT if public_port is None else normalize_launcher_port(public_port)
     temporary = LAUNCHER_FILE.with_suffix(".tmp")
-    temporary.write_text(render_launcher_html(token or ACCESS_TOKEN, port), encoding="utf-8")
+    temporary.write_text(render_launcher_html(token or LAUNCHER_TOKEN, port), encoding="utf-8")
     temporary.chmod(0o644)
     temporary.replace(LAUNCHER_FILE)
 
@@ -279,18 +440,6 @@ def _trip_gofile_cooldown(seconds: float, reason: str) -> GofileCooldownError:
         _save_gofile_cooldown(GOFILE_COOLDOWN_UNTIL, reason)
     until = datetime.fromtimestamp(GOFILE_COOLDOWN_UNTIL).astimezone().strftime("%H:%M")
     return GofileCooldownError(f"{reason} GoFile 요청을 {until}까지 자동 중단합니다.")
-
-
-def replace_access_token() -> str:
-    global ACCESS_TOKEN
-    token = secrets.token_urlsafe(32)
-    temp = TOKEN_FILE.with_suffix(".tmp")
-    temp.write_text(token + "\n", encoding="utf-8")
-    temp.chmod(0o600)
-    temp.replace(TOKEN_FILE)
-    ACCESS_TOKEN = token
-    refresh_launcher_safely()
-    return token
 
 
 @dataclass
@@ -1296,14 +1445,6 @@ def set_download_mode(raw_mode: object) -> str:
     return normalized
 
 
-def pairing_server(host: str, forwarded_host: str = "", forwarded_proto: str = "") -> str:
-    public_host = forwarded_host.split(",", 1)[0].strip() or host.strip()
-    if not public_host or len(public_host) > 255 or not re.fullmatch(r"[A-Za-z0-9.\[\]:-]+", public_host):
-        public_host = f"127.0.0.1:{LISTEN_PORT}"
-    scheme = "https" if forwarded_proto.split(",", 1)[0].strip().lower() == "https" else "http"
-    return f"{scheme}://{public_host}"
-
-
 class Handler(BaseHTTPRequestHandler):
     server_version = "NasDownloadPortal/1.0"
 
@@ -1325,28 +1466,27 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def authorized(self) -> bool:
+    def authorization_token(self) -> str:
         supplied = self.headers.get("authorization", "")
         if supplied.startswith("Bearer "):
             supplied = supplied[7:]
-        supplied = supplied.strip()
-        return bool(supplied) and secrets.compare_digest(
-            supplied.encode("utf-8"), ACCESS_TOKEN.encode("utf-8")
+        return supplied.strip()
+
+    def login_client_ip(self) -> str:
+        return trusted_client_ip(
+            self.client_address[0], self.headers.get("x-forwarded-for", "")
         )
 
-    def pairing_payload(self, token=None) -> dict:
-        server = pairing_server(
-            self.headers.get("host", ""),
-            self.headers.get("x-forwarded-host", ""),
-            self.headers.get("x-forwarded-proto", ""),
-        )
-        access = token or ACCESS_TOKEN
-        pairing_uri = "nasdrop://pair?" + urlencode({
-            "server": server,
-            "token": access,
-            "folder": NAS_TARGET,
-        })
-        return {"server": server, "token": access, "folder": NAS_TARGET, "uri": pairing_uri}
+    def auth_kind(self) -> str:
+        supplied = self.authorization_token()
+        if not supplied:
+            return ""
+        if secrets.compare_digest(supplied.encode("utf-8"), LAUNCHER_TOKEN.encode("utf-8")):
+            return "launcher"
+        return "session" if session_username(supplied) else ""
+
+    def authorized(self) -> bool:
+        return bool(self.auth_kind())
 
     def body(self) -> dict:
         length = min(int(self.headers.get("content-length", "0")), 16_384)
@@ -1359,13 +1499,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed_path = urlparse(self.path)
+        if self.path == "/api/auth/status":
+            return self.send_json(HTTPStatus.OK, {"configured": credentials_configured()})
         if self.path == "/api/jobs":
             if not self.authorized():
-                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "접근 코드가 올바르지 않습니다."})
+                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
             return self.send_json(HTTPStatus.OK, {"jobs": CONTROLLER.public_jobs()})
         if parsed_path.path == "/api/folders":
             if not self.authorized():
-                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "접근 코드가 올바르지 않습니다."})
+                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
             try:
                 requested = parse_qs(parsed_path.query).get("path", ["/"])[0]
                 return self.send_json(HTTPStatus.OK, browse_folders(requested))
@@ -1373,7 +1515,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         if self.path == "/api/status":
             if not self.authorized():
-                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "접근 코드가 올바르지 않습니다."})
+                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
             target = Path(NAS_TARGET) if NAS_TARGET else None
             target_exists = bool(target and target.is_dir())
             return self.send_json(HTTPStatus.OK, {
@@ -1389,19 +1531,58 @@ class Handler(BaseHTTPRequestHandler):
                 "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
                 "gofile_cooldown": _gofile_cooldown_status(),
             })
-        if self.path == "/api/pairing":
+        if self.path == "/api/account":
             if not self.authorized():
-                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "접근 코드가 올바르지 않습니다."})
-            return self.send_json(HTTPStatus.OK, self.pairing_payload())
+                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
+            return self.send_json(HTTPStatus.OK, {
+                "configured": credentials_configured(),
+                "username": str(CREDENTIALS.get("username", "")),
+                "launcher_session": self.auth_kind() == "launcher",
+            })
         self.serve_static()
 
     def do_POST(self) -> None:
         if not self.path.startswith("/api/"):
             return self.send_json(HTTPStatus.NOT_FOUND, {"error": "찾을 수 없습니다."})
+        if self.path == "/api/login":
+            try:
+                payload = self.body()
+                if not credentials_configured():
+                    raise ValueError("계정이 아직 설정되지 않았습니다. DSM 아이콘으로 열어 ID와 비밀번호를 먼저 설정하세요.")
+                client_ip = self.login_client_ip()
+                remaining = login_block_remaining(client_ip)
+                if remaining:
+                    return self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {
+                        "error": f"로그인 시도가 너무 많습니다. 약 {max(1, (remaining + 59) // 60)}분 후 다시 시도하세요."
+                    })
+                username = payload.get("username")
+                password = payload.get("password")
+                valid = verify_credentials(username, password)
+                record_login_result(client_ip, valid)
+                if not valid:
+                    return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "ID 또는 비밀번호가 올바르지 않습니다."})
+                token = create_session(str(CREDENTIALS["username"]))
+                return self.send_json(HTTPStatus.OK, {"token": token, "username": str(CREDENTIALS["username"])})
+            except (ValueError, json.JSONDecodeError) as exc:
+                return self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         if not self.authorized():
-            return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "접근 코드가 올바르지 않습니다."})
+            return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
         try:
             payload = self.body()
+            if self.path == "/api/logout":
+                if self.auth_kind() == "session":
+                    revoke_session(self.authorization_token())
+                return self.send_json(HTTPStatus.OK, {"ok": True})
+            if self.path == "/api/account":
+                auth_kind = self.auth_kind()
+                if credentials_configured() and auth_kind != "launcher":
+                    if not verify_credentials(str(CREDENTIALS.get("username", "")), payload.get("current_password")):
+                        raise ValueError("현재 비밀번호가 올바르지 않습니다.")
+                username = replace_credentials(payload.get("username"), payload.get("password"))
+                result = {"ok": True, "username": username}
+                if auth_kind == "session":
+                    result["token"] = create_session(username)
+                return self.send_json(HTTPStatus.OK, result)
             if self.path == "/api/inspect":
                 inspected = inspect_download(str(payload.get("url", "")))
                 return self.send_json(HTTPStatus.OK, {"file": cache_inspection(inspected)})
@@ -1429,9 +1610,6 @@ class Handler(BaseHTTPRequestHandler):
                 if len(result) == 1:
                     raise ValueError("변경할 설정이 없습니다.")
                 return self.send_json(HTTPStatus.OK, result)
-            if self.path == "/api/token/rotate":
-                token = replace_access_token()
-                return self.send_json(HTTPStatus.OK, self.pairing_payload(token))
             cancel_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/cancel", self.path)
             if cancel_match:
                 CONTROLLER.cancel(cancel_match.group(1))

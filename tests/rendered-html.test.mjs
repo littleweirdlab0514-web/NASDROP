@@ -40,13 +40,13 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(app, /NASDropI18n\.t/);
   const packageVersion = info.match(/^version="([0-9.]+)-[0-9]+"$/m)[1];
   assert.ok(html.includes(`/app.js?v=${packageVersion}`));
-  assert.ok(html.includes(`/qrcode.js?v=${packageVersion}`));
+  assert.doesNotMatch(html, /qrcode\.js/);
   assert.match(html, /href="https:\/\/github\.com\/sponsors\/littleweirdlab0514-web"/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
-  assert.ok(html.indexOf("pairing-card") < html.indexOf("sponsor-card"));
+  assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("concurrency-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod"]) {
+  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
   assert.match(html, /data-i18n="accessMethodHint"/);
@@ -59,6 +59,12 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(app, /download_mode:mode/);
   assert.match(app, /location\.hash\.slice\(1\)/);
   assert.match(app, /history\.replaceState/);
+  assert.match(html, /id="login-username"[^>]*autocomplete="username"/);
+  assert.match(html, /id="login-password"[^>]*autocomplete="current-password"/);
+  assert.match(html, /id="account-form"/);
+  assert.match(app, /\/api\/login/);
+  assert.match(app, /\/api\/account/);
+  assert.doesNotMatch(app, /nas-download-token|\/api\/pairing|\/api\/token\/rotate/);
   assert.match(info, /description_enu=/);
   assert.match(info, /description_krn=/);
   assert.match(info, /description_jpn=/);
@@ -92,7 +98,7 @@ test("static Synology UI responses cannot mix cached versions", async () => {
 test("client connection and Sponsor cards share the top row equally", async () => {
   const style = await readFile(new URL("synology/web/style.css", root), "utf8");
   assert.match(style, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
-  assert.match(style, /\.pairing-card,\.sponsor-card\{grid-column:span 3\}/);
+  assert.match(style, /\.account-card\{grid-column:span 3\}/);
   assert.match(style, /\.concurrency-card,\.download-card,\.folder-card,\.service-card\{grid-column:span 3\}/);
   assert.match(style, /@media\(max-width:760px\)[^]*\.settings-grid\{grid-template-columns:1fr\}/);
 });

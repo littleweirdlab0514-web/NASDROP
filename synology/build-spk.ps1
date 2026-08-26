@@ -15,7 +15,7 @@ $distRoot = Join-Path $PSScriptRoot "dist"
 $nodeArchiveName = "node-v$NodeVersion-$NodeVariant.tar.xz"
 $nodeArchive = Join-Path $cacheRoot $nodeArchiveName
 $nodeUrl = "https://unofficial-builds.nodejs.org/download/release/v$NodeVersion/$nodeArchiveName"
-$packageVersion = "0.7.14-1"
+$packageVersion = "0.7.15-1"
 
 if ($PythonPath) {
   $pythonExe = $PythonPath
@@ -41,7 +41,6 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot "web") -Destination $innerRoot -
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "package-inner\ui") -Destination $innerRoot -Recurse
 New-Item -ItemType Directory -Path (Join-Path $innerRoot "licenses") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "licenses\nodejs-LICENSE.txt") -Destination (Join-Path $innerRoot "licenses\nodejs-LICENSE.txt")
-Copy-Item -LiteralPath (Join-Path $PSScriptRoot "web\qrcode-LICENSE.txt") -Destination (Join-Path $innerRoot "licenses\qrcode-LICENSE.txt")
 
 if (-not (Test-Path -LiteralPath $nodeArchive)) {
   Invoke-WebRequest -Uri $nodeUrl -OutFile $nodeArchive

@@ -93,7 +93,6 @@ def validate(spk_path: Path, expected_version: str) -> None:
             "bin/node",
             "gofile_wt.mjs",
             "licenses/nodejs-LICENSE.txt",
-            "licenses/qrcode-LICENSE.txt",
             "web/index.html",
         ):
             if name not in members:
@@ -106,7 +105,6 @@ def validate(spk_path: Path, expected_version: str) -> None:
             "backend.py",
             "gofile_wt.mjs",
             "licenses/nodejs-LICENSE.txt",
-            "licenses/qrcode-LICENSE.txt",
             "web/index.html",
         ):
             if b"\r" in inner.extractfile(members[name]).read():

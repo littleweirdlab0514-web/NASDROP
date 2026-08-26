@@ -1,16 +1,16 @@
 (() => {
   const messages = {
     en: {
-      language:"Language", loginHint:"Direct browser access and other devices require the NASDrop access code. Opening the DSM icon signs in automatically.", accessCode:"Access code", openDashboard:"Open dashboard",
+      language:"Language", loginHint:"Sign in with the NASDrop ID and password configured on this NAS. Opening the DSM icon signs in automatically.", username:"ID", password:"Password", openDashboard:"Open dashboard", accountNotConfigured:"No account is configured. Open NASDrop from its DSM icon and create an ID and password first.", logout:"Sign out",
       dashboard:"Dashboard", settings:"Settings", runningOnNas:"Running on NAS", downloads:"Downloads", linkLabel:"GigaFile, GoFile, or Pixeldrain download link", downloadNow:"Download to NAS",
       destination:"Destination", checking:"Checking…", checkingShort:"Checking", chooseFolder:"Choose folder", jobs:"Jobs", loading:"Loading…", clearCompleted:"Clear completed",
       selected:"{count} selected", selectAll:"Select all", clearSelection:"Clear selection", pause:"Pause", resume:"Resume", delete:"Delete",
-      clientConnection:"Client connection", scanQr:"Scan the QR code to configure connection details automatically.", showCode:"Show code", hideCode:"Hide code", copy:"Copy", rotate:"Regenerate", preparingQr:"Preparing QR…",
+      clientConnection:"Client connection", accountHint:"Direct browsers and client apps sign in with this ID and password. The DSM icon continues to sign in automatically.", currentPassword:"Current password", newPassword:"New password", confirmPassword:"Confirm new password", passwordRules:"Use 10–128 characters. Passwords are stored only as a salted hash.", saveAccount:"Save ID and password", passwordMismatch:"The new passwords do not match.", accountSaved:"The client login ID and password were saved.",
       defaultFolder:"Default destination", defaultFolderHint:"Jobs are saved here unless another folder is selected.", change:"Change", parallelTitle:"Parallel downloads from the same service",
       parallelHint:"Off by default. When enabled, multiple jobs from services such as GoFile may start together.", allowParallel:"Allow parallel downloads", sameServiceMax:"Maximum per service",
       twoJobs:"2 jobs", threeJobs:"3 jobs", warning:"Warning", parallelWarning:"In 8-part mode, each job can use up to 8 connections. Three active jobs may create up to 24 connections, increasing rate-limit risk and NAS CPU, disk, and network load.",
       off:"Off", saveParallel:"Save parallel-download settings", folderPermissions:"Folder permissions", folderPermissionsHint:"Locked shared folders are not accessible. In DSM Shared Folder permissions, grant read/write access to this package's internal system user.",
-      serviceAccount:"Service account", serviceAddress:"Service address", serviceAddressHint:"Use this address and access code from DSM and connected clients.", accessMethodHint:"The DSM icon passes the access code automatically. Direct browser access and other devices must enter it.", version:"Version",
+      serviceAccount:"Service account", serviceAddress:"Service address", serviceAddressHint:"Use this address with the configured ID and password from connected clients.", accessMethodHint:"The DSM icon signs in automatically. Direct browser access and client apps must enter the ID and password.", version:"Version",
       launcherPort:"DSM icon external port", launcherPortHint:"Used when the DSM icon is opened through a public hostname. LAN access continues to use port 8791.", saveLauncherPort:"Save icon port", launcherPortSaved:"The DSM icon will use external port {port}.",
       downloadMethod:"Per-file download method", downloadMethodHint:"Single connection avoids splitting, merging, and full-file verification to reduce NAS disk activity after a download.", method:"Method", segmentedMode:"8-part download + verification", singleMode:"Single connection + size check",
       singleModeWarningTitle:"Single-connection trade-off", singleModeWarning:"The final byte size and transfer errors are checked, but SHA-256 and ZIP integrity verification are skipped. Corruption detection is weaker.", saveDownloadMethod:"Save download method", singleModeShort:"Single connection", segmentedModeShort:"8 parts + verification",
@@ -25,19 +25,19 @@
       parallelSaved:"Up to {count} jobs from the same service can now run together.", sequentialSaved:"Jobs from the same service will run one at a time.", loadingFolders:"Loading folders…",
       confirmSingleMode:"Use single-connection downloads? Splitting, merging, SHA-256, and ZIP integrity verification will be skipped.", singleModeSaved:"New and resumed jobs will use one connection with a final size check.", segmentedModeSaved:"New and resumed jobs will use 8 parts and full verification.",
       currentWritable:"Files can be saved in this folder.", currentNotWritable:"This location cannot be selected. Choose a writable subfolder.", browse:"Browse", noSubfolders:"No subfolders to display.",
-      defaultChanged:"Default destination changed to {target}.", copied:"Access code copied.", confirmRotate:"Regenerating the access code disconnects existing clients and browsers. Continue?", rotated:"A new access code was issued. Reconnect existing devices with the new QR code."
+      defaultChanged:"Default destination changed to {target}."
     },
     ko: {
-      language:"언어", loginHint:"주소를 직접 열거나 다른 기기에서 접속하면 NASDrop 접근 코드가 필요합니다. DSM 아이콘으로 열면 자동 로그인됩니다.", accessCode:"접근 코드", openDashboard:"대시보드 열기",
+      language:"언어", loginHint:"이 NAS에 설정한 NASDrop ID와 비밀번호로 로그인하세요. DSM 아이콘으로 열면 자동 로그인됩니다.", username:"ID", password:"비밀번호", openDashboard:"대시보드 열기", accountNotConfigured:"아직 계정이 설정되지 않았습니다. DSM 아이콘으로 NASDrop을 열어 ID와 비밀번호를 먼저 만드세요.", logout:"로그아웃",
       dashboard:"대시보드", settings:"설정", runningOnNas:"NAS에서 실행 중", downloads:"다운로드", linkLabel:"GigaFile, GoFile 또는 Pixeldrain 다운로드 링크", downloadNow:"NAS로 바로 다운로드",
       destination:"저장 위치", checking:"확인 중…", checkingShort:"검사 중", chooseFolder:"폴더 선택", jobs:"작업 목록", loading:"불러오는 중…", clearCompleted:"완료 항목 정리",
       selected:"{count}개 선택", selectAll:"전체 선택", clearSelection:"선택 해제", pause:"일시정지", resume:"재개", delete:"삭제",
-      clientConnection:"클라이언트 연결", scanQr:"QR을 스캔하면 연결 정보가 자동으로 설정됩니다.", showCode:"코드 보기", hideCode:"코드 숨기기", copy:"복사", rotate:"재발급", preparingQr:"QR을 준비하는 중…",
+      clientConnection:"클라이언트 연결", accountHint:"주소를 직접 연 브라우저와 클라이언트 앱은 이 ID와 비밀번호로 로그인합니다. DSM 아이콘은 계속 자동 로그인됩니다.", currentPassword:"현재 비밀번호", newPassword:"새 비밀번호", confirmPassword:"새 비밀번호 확인", passwordRules:"10~128자를 사용하세요. 비밀번호 원문은 저장하지 않고 솔트를 적용한 해시만 저장합니다.", saveAccount:"ID와 비밀번호 저장", passwordMismatch:"새 비밀번호가 서로 일치하지 않습니다.", accountSaved:"클라이언트 로그인 ID와 비밀번호를 저장했습니다.",
       defaultFolder:"기본 저장 폴더", defaultFolderHint:"작업에서 폴더를 따로 고르지 않으면 이 위치에 저장합니다.", change:"변경", parallelTitle:"같은 서비스 동시 다운로드",
       parallelHint:"기본값은 꺼짐입니다. 켜면 GoFile 등 같은 서비스의 여러 작업을 함께 시작합니다.", allowParallel:"동시 다운로드 허용", sameServiceMax:"같은 서비스 최대",
       twoJobs:"2개", threeJobs:"3개", warning:"주의", parallelWarning:"8분할 방식에서는 작업 하나가 최대 8개 연결을 사용하므로 전체 3개 실행 시 최대 24개 연결이 생길 수 있습니다. 속도 제한·일시 차단 및 NAS CPU·디스크·네트워크 부하가 증가할 수 있습니다.",
       off:"꺼짐", saveParallel:"동시 다운로드 설정 저장", folderPermissions:"폴더 접근 권한", folderPermissionsHint:"권한이 없는 공유 폴더는 잠금 표시됩니다. DSM 공유 폴더 권한에서 이 패키지의 시스템 내부 사용자에게 읽기/쓰기를 허용하세요.",
-      serviceAccount:"서비스 계정", serviceAddress:"서비스 주소", serviceAddressHint:"DSM과 연결된 클라이언트에서 이 주소와 접근 코드를 사용합니다.", accessMethodHint:"DSM 아이콘은 접근 코드를 자동으로 전달합니다. 주소를 직접 열거나 다른 기기에서 접속하면 코드를 입력해야 합니다.", version:"버전",
+      serviceAccount:"서비스 계정", serviceAddress:"서비스 주소", serviceAddressHint:"연결된 클라이언트에서 이 주소와 설정한 ID·비밀번호를 사용합니다.", accessMethodHint:"DSM 아이콘은 자동 로그인됩니다. 주소를 직접 연 브라우저와 클라이언트 앱은 ID와 비밀번호를 입력해야 합니다.", version:"버전",
       launcherPort:"DSM 아이콘 외부 포트", launcherPortHint:"공개 호스트 이름으로 DSM 아이콘을 열 때 사용합니다. 내부망 접속은 계속 8791 포트를 사용합니다.", saveLauncherPort:"아이콘 포트 저장", launcherPortSaved:"DSM 아이콘이 외부 포트 {port}을(를) 사용합니다.",
       downloadMethod:"파일별 다운로드 방식", downloadMethodHint:"단일 연결은 분할·병합·전체 파일 검증을 생략하여 다운로드 후 NAS 디스크 작업을 줄입니다.", method:"방식", segmentedMode:"8분할 다운로드 + 검증", singleMode:"단일 연결 + 크기 확인",
       singleModeWarningTitle:"단일 연결 사용 시 주의", singleModeWarning:"전송 오류와 최종 파일 크기는 확인하지만 SHA-256 및 ZIP 무결성 검사는 생략합니다. 파일 손상 탐지 수준이 낮아집니다.", saveDownloadMethod:"다운로드 방식 저장", singleModeShort:"단일 연결", segmentedModeShort:"8분할 + 검증",
@@ -52,19 +52,19 @@
       parallelSaved:"같은 서비스 동시 다운로드를 최대 {count}개로 설정했습니다.", sequentialSaved:"같은 서비스 작업은 한 번에 하나씩 실행합니다.", loadingFolders:"폴더를 불러오는 중…",
       confirmSingleMode:"단일 연결 다운로드를 사용할까요? 분할·병합·SHA-256 및 ZIP 무결성 검사가 생략됩니다.", singleModeSaved:"새 작업과 재개 작업은 단일 연결로 받고 마지막에 파일 크기만 확인합니다.", segmentedModeSaved:"새 작업과 재개 작업은 8분할 다운로드와 전체 검증을 사용합니다.",
       currentWritable:"현재 폴더에 저장할 수 있습니다.", currentNotWritable:"현재 위치는 선택할 수 없습니다. 쓰기 가능한 하위 폴더를 선택하세요.", browse:"탐색", noSubfolders:"표시할 하위 폴더가 없습니다.",
-      defaultChanged:"기본 저장 폴더를 {target}(으)로 변경했습니다.", copied:"접근 코드를 복사했습니다.", confirmRotate:"접근 코드를 재발급하면 기존 클라이언트와 브라우저의 연결이 모두 해제됩니다. 계속할까요?", rotated:"새 접근 코드를 발급했습니다. 기존 기기는 새 QR로 다시 연결해야 합니다."
+      defaultChanged:"기본 저장 폴더를 {target}(으)로 변경했습니다."
     },
     ja: {
-      language:"言語", loginHint:"アドレスを直接開く場合や別の端末から接続する場合は、NASDropのアクセスコードが必要です。DSMアイコンから開くと自動でログインします。", accessCode:"アクセスコード", openDashboard:"ダッシュボードを開く",
+      language:"言語", loginHint:"このNASで設定したNASDropのIDとパスワードでログインしてください。DSMアイコンから開くと自動でログインします。", username:"ID", password:"パスワード", openDashboard:"ダッシュボードを開く", accountNotConfigured:"アカウントがまだ設定されていません。DSMアイコンからNASDropを開き、IDとパスワードを作成してください。", logout:"ログアウト",
       dashboard:"ダッシュボード", settings:"設定", runningOnNas:"NASで実行中", downloads:"ダウンロード", linkLabel:"GigaFile、GoFile、またはPixeldrainのダウンロードリンク", downloadNow:"NASへダウンロード",
       destination:"保存先", checking:"確認中…", checkingShort:"確認中", chooseFolder:"フォルダーを選択", jobs:"ジョブ一覧", loading:"読み込み中…", clearCompleted:"完了項目を消去",
       selected:"{count}件選択", selectAll:"すべて選択", clearSelection:"選択解除", pause:"一時停止", resume:"再開", delete:"削除",
-      clientConnection:"クライアント接続", scanQr:"QRコードを読み取ると接続情報が自動設定されます。", showCode:"コードを表示", hideCode:"コードを隠す", copy:"コピー", rotate:"再発行", preparingQr:"QRを準備中…",
+      clientConnection:"クライアント接続", accountHint:"直接開いたブラウザーとクライアントアプリは、このIDとパスワードでログインします。DSMアイコンは引き続き自動ログインします。", currentPassword:"現在のパスワード", newPassword:"新しいパスワード", confirmPassword:"新しいパスワードの確認", passwordRules:"10～128文字を使用してください。パスワードの原文は保存せず、ソルト付きハッシュのみ保存します。", saveAccount:"IDとパスワードを保存", passwordMismatch:"新しいパスワードが一致しません。", accountSaved:"クライアントログイン用のIDとパスワードを保存しました。",
       defaultFolder:"既定の保存先", defaultFolderHint:"別のフォルダーを選ばない場合、ここに保存します。", change:"変更", parallelTitle:"同一サービスの並列ダウンロード",
       parallelHint:"既定ではオフです。有効にするとGoFileなど同じサービスの複数ジョブを同時に開始します。", allowParallel:"並列ダウンロードを許可", sameServiceMax:"サービスごとの最大数",
       twoJobs:"2件", threeJobs:"3件", warning:"注意", parallelWarning:"8分割方式では1ジョブが最大8接続を使用します。3ジョブでは最大24接続となり、速度制限や一時ブロック、NASのCPU・ディスク・ネットワーク負荷が増える場合があります。",
       off:"オフ", saveParallel:"並列設定を保存", folderPermissions:"フォルダー権限", folderPermissionsHint:"アクセスできない共有フォルダーはロック表示されます。DSMの共有フォルダー権限で、このパッケージの内部システムユーザーに読み書きを許可してください。",
-      serviceAccount:"サービスアカウント", serviceAddress:"サービスアドレス", serviceAddressHint:"DSMおよび接続済みクライアントで、このアドレスとアクセスコードを使用します。", accessMethodHint:"DSMアイコンはアクセスコードを自動的に渡します。アドレスを直接開く場合や別の端末ではコードを入力してください。", version:"バージョン",
+      serviceAccount:"サービスアカウント", serviceAddress:"サービスアドレス", serviceAddressHint:"接続するクライアントでは、このアドレスと設定したID・パスワードを使用します。", accessMethodHint:"DSMアイコンは自動ログインします。直接開いたブラウザーとクライアントアプリではIDとパスワードを入力してください。", version:"バージョン",
       launcherPort:"DSMアイコンの外部ポート", launcherPortHint:"公開ホスト名からDSMアイコンを開くときに使用します。LANアクセスでは引き続き8791番ポートを使用します。", saveLauncherPort:"アイコンポートを保存", launcherPortSaved:"DSMアイコンは外部ポート{port}を使用します。",
       downloadMethod:"ファイルごとのダウンロード方式", downloadMethodHint:"単一接続では分割・結合・ファイル全体の検証を省略し、ダウンロード後のNASディスク処理を減らします。", method:"方式", segmentedMode:"8分割ダウンロード + 検証", singleMode:"単一接続 + サイズ確認",
       singleModeWarningTitle:"単一接続の注意点", singleModeWarning:"転送エラーと最終ファイルサイズは確認しますが、SHA-256とZIP整合性検証は省略します。破損検出能力は低くなります。", saveDownloadMethod:"ダウンロード方式を保存", singleModeShort:"単一接続", segmentedModeShort:"8分割 + 検証",
@@ -79,19 +79,19 @@
       parallelSaved:"同一サービスのジョブを最大{count}件同時実行するよう設定しました。", sequentialSaved:"同一サービスのジョブは1件ずつ実行します。", loadingFolders:"フォルダーを読み込み中…",
       confirmSingleMode:"単一接続ダウンロードを使用しますか？分割・結合・SHA-256・ZIP整合性検証は省略されます。", singleModeSaved:"新規および再開ジョブは単一接続でダウンロードし、最後にファイルサイズのみ確認します。", segmentedModeSaved:"新規および再開ジョブは8分割ダウンロードと完全検証を使用します。",
       currentWritable:"このフォルダーに保存できます。", currentNotWritable:"この場所は選択できません。書き込み可能なサブフォルダーを選択してください。", browse:"開く", noSubfolders:"表示できるサブフォルダーはありません。",
-      defaultChanged:"既定の保存先を{target}に変更しました。", copied:"アクセスコードをコピーしました。", confirmRotate:"アクセスコードを再発行すると既存のクライアントとブラウザーが切断されます。続行しますか？", rotated:"新しいアクセスコードを発行しました。既存の端末は新しいQRで再接続してください。"
+      defaultChanged:"既定の保存先を{target}に変更しました。"
     },
     zh: {
-      language:"语言", loginHint:"直接打开地址或从其他设备连接时需要输入NASDrop访问代码。从DSM图标打开时会自动登录。", accessCode:"访问代码", openDashboard:"打开控制面板",
+      language:"语言", loginHint:"请使用在此NAS上设置的NASDrop ID和密码登录。从DSM图标打开时会自动登录。", username:"ID", password:"密码", openDashboard:"打开控制面板", accountNotConfigured:"尚未设置账户。请从DSM图标打开NASDrop，并先创建ID和密码。", logout:"退出登录",
       dashboard:"控制面板", settings:"设置", runningOnNas:"正在NAS上运行", downloads:"下载", linkLabel:"GigaFile、GoFile或Pixeldrain下载链接", downloadNow:"下载到NAS",
       destination:"保存位置", checking:"正在检查…", checkingShort:"检查中", chooseFolder:"选择文件夹", jobs:"任务列表", loading:"正在加载…", clearCompleted:"清除已完成项",
       selected:"已选择{count}项", selectAll:"全选", clearSelection:"取消选择", pause:"暂停", resume:"继续", delete:"删除",
-      clientConnection:"客户端连接", scanQr:"扫描二维码即可自动配置连接信息。", showCode:"显示代码", hideCode:"隐藏代码", copy:"复制", rotate:"重新生成", preparingQr:"正在生成二维码…",
+      clientConnection:"客户端连接", accountHint:"直接打开的浏览器和客户端应用使用此ID和密码登录。DSM图标仍会自动登录。", currentPassword:"当前密码", newPassword:"新密码", confirmPassword:"确认新密码", passwordRules:"请输入10至128个字符。系统不会保存密码原文，只保存加盐哈希。", saveAccount:"保存ID和密码", passwordMismatch:"两次输入的新密码不一致。", accountSaved:"已保存客户端登录ID和密码。",
       defaultFolder:"默认保存位置", defaultFolderHint:"未另选文件夹时，任务将保存到此位置。", change:"更改", parallelTitle:"同一服务并行下载",
       parallelHint:"默认关闭。启用后，可同时启动GoFile等同一服务的多个任务。", allowParallel:"允许并行下载", sameServiceMax:"每个服务的最大数量",
       twoJobs:"2项", threeJobs:"3项", warning:"注意", parallelWarning:"在8段模式下，每个任务最多使用8个连接。3个活动任务最多会产生24个连接，可能增加限速、临时封禁以及NAS的CPU、磁盘和网络负载。",
       off:"关闭", saveParallel:"保存并行下载设置", folderPermissions:"文件夹权限", folderPermissionsHint:"无权访问的共享文件夹会显示为锁定。请在DSM共享文件夹权限中，向此套件的内部系统用户授予读写权限。",
-      serviceAccount:"服务账户", serviceAddress:"服务地址", serviceAddressHint:"DSM和已连接客户端使用此地址和访问代码。", accessMethodHint:"DSM图标会自动传递访问代码。直接打开地址或从其他设备连接时必须输入该代码。", version:"版本",
+      serviceAccount:"服务账户", serviceAddress:"服务地址", serviceAddressHint:"连接的客户端使用此地址以及已设置的ID和密码。", accessMethodHint:"DSM图标会自动登录。直接打开的浏览器和客户端应用必须输入ID和密码。", version:"版本",
       launcherPort:"DSM 图标外部端口", launcherPortHint:"通过公共主机名打开 DSM 图标时使用。局域网访问仍使用 8791 端口。", saveLauncherPort:"保存图标端口", launcherPortSaved:"DSM 图标将使用外部端口 {port}。",
       downloadMethod:"单个文件下载方式", downloadMethodHint:"单连接会跳过分段、合并和完整文件验证，以减少下载后的NAS磁盘操作。", method:"方式", segmentedMode:"8段下载 + 验证", singleMode:"单连接 + 大小检查",
       singleModeWarningTitle:"单连接注意事项", singleModeWarning:"仍会检查传输错误和最终文件大小，但会跳过SHA-256和ZIP完整性验证，文件损坏检测能力会降低。", saveDownloadMethod:"保存下载方式", singleModeShort:"单连接", segmentedModeShort:"8段 + 验证",
@@ -106,7 +106,7 @@
       parallelSaved:"已设置同一服务最多并行运行{count}个任务。", sequentialSaved:"同一服务的任务将逐个运行。", loadingFolders:"正在加载文件夹…",
       confirmSingleMode:"要使用单连接下载吗？将跳过分段、合并、SHA-256和ZIP完整性验证。", singleModeSaved:"新建和继续的任务将使用单连接下载，并在最后只检查文件大小。", segmentedModeSaved:"新建和继续的任务将使用8段下载和完整验证。",
       currentWritable:"可以保存到当前文件夹。", currentNotWritable:"无法选择当前位置。请选择可写的子文件夹。", browse:"浏览", noSubfolders:"没有可显示的子文件夹。",
-      defaultChanged:"默认保存位置已更改为{target}。", copied:"访问代码已复制。", confirmRotate:"重新生成访问代码会断开现有客户端和浏览器。是否继续？", rotated:"已生成新的访问代码。现有设备需要使用新二维码重新连接。"
+      defaultChanged:"默认保存位置已更改为{target}。"
     }
   };
 

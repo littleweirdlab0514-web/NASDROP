@@ -43,23 +43,20 @@ class SpkPackagingTests(unittest.TestCase):
         self.assertIn(f'NAS_PORTAL_VERSION="{package_version}"', start_script)
         self.assertIn(f'NAS_PORTAL_VERSION", "{package_version}"', backend)
         self.assertIn(f'$packageVersion = "{package_release}"', build_script)
-        self.assertEqual(index.count(f"?v={package_version}"), 7)
+        self.assertEqual(index.count(f"?v={package_version}"), 6)
         self.assertIn(f"nasdrop-{package_release}-x86_64.spk", readme)
         self.assertIn(f"# NASDrop {package_version} ", checklist)
 
     def test_distribution_license_sources_are_present(self):
         nasdrop_license = (ROOT / "LICENSE").read_text(encoding="utf-8")
         node_license = (ROOT / "synology" / "licenses" / "nodejs-LICENSE.txt").read_text(encoding="utf-8")
-        qrcode_license = (ROOT / "synology" / "web" / "qrcode-LICENSE.txt").read_text(encoding="utf-8")
         notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
         build_script = (ROOT / "synology" / "build-spk.ps1").read_text(encoding="utf-8")
 
         self.assertIn("MIT License", nasdrop_license)
         self.assertIn("Copyright Node.js contributors", node_license)
-        self.assertIn("Copyright (c) 2009 Kazuhiko Arase", qrcode_license)
         self.assertIn("Node.js 22.13.1", notices)
         self.assertIn('"licenses\\nodejs-LICENSE.txt"', build_script)
-        self.assertIn('"licenses\\qrcode-LICENSE.txt"', build_script)
         self.assertIn('Join-Path $repoRoot "LICENSE"', build_script)
 
     def test_dsm_71_metadata_uses_compatible_node_runtime(self):
