@@ -1,5 +1,10 @@
 # NASDrop
 
+[![DSM 7.1 and 7.2 supported](https://img.shields.io/badge/DSM-7.1%20%7C%207.2-supported-brightgreen)](#install-a-prebuilt-release)
+
+> [!TIP]
+> **DSM 7.1 support is now available.** NASDrop has been verified on real DSM 7.1 and DSM 7.2 hardware. The current SPK supports Intel/AMD 64-bit (`x86_64`) Synology NAS models running DSM 7.1 or later.
+
 NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supported GigaFile, GoFile, or Pixeldrain share link, and the Synology NAS downloads the file directly.
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
