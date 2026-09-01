@@ -15,6 +15,17 @@ NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supp
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, and Pixeldrain. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
+## What's new in 0.9.3
+
+- Downloads, segmented-file assembly, verification, and extraction now run inside a hidden `.nasdrop-tmp` workspace. Only the completed file or extracted folder is moved to the selected destination.
+- ZIP (including AES-encrypted ZIP), 7z, RAR, and TAR-family archives can be extracted automatically. Extraction can be selected for each job, and an archive password can be entered when adding a job or after NASDrop detects that one is required.
+- Disk protection can pause new downloads while verification or extraction is using the disk heavily.
+- GigaFile filenames are resolved from the real download metadata so the queue can show the final filename before completion whenever the provider supplies it.
+- The DSM launcher is validated during packaging so its desktop label remains `NASDrop`.
+
+> [!NOTE]
+> **ALZip EGG archives are not supported for extraction.** If an `.egg` file is downloaded, NASDrop saves it in its original `.egg` form even when extraction was requested. Extract it later with a separate EGG-compatible application.
+
 ## Features
 
 - Validates GigaFile, GoFile, and Pixeldrain links and displays file names and sizes
@@ -54,7 +65,10 @@ The package supports DSM 7.1 or later on Intel/AMD 64-bit (`x86_64`) Synology NA
 
 NASDrop does not select a default download folder during installation. A download cannot start until a writable destination is selected either as the default destination or for that individual job.
 
-When upgrading from an older release, the former automatically assigned `/volume2/downloads` value is cleared. A different destination that was explicitly selected by the administrator is preserved.
+> [!IMPORTANT]
+> **After every update, open NASDrop Settings and select the default download folder again before adding new jobs.** Even if the previous path still appears, reselect it once so NASDrop can confirm that the package account still has write permission.
+
+When upgrading from an older release, the former automatically assigned `/volume2/downloads` value is cleared. A different destination that was explicitly selected by the administrator may remain visible, but it should still be selected again after the update as described above.
 
 ## Opening NASDrop and setting up client login
 
