@@ -3,8 +3,8 @@
   const t = (key, vars) => window.NASDropI18n.t(key, vars);
   const launchedToken = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   if (launchedToken) history.replaceState(null, "", location.pathname + location.search);
-  const state = { token: launchedToken || localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, selected: new Set() };
-  const statusKeys = { queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", verifying:"statusVerifying", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
+  const state = { token: launchedToken || localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, selected: new Set(), extractionInitialized: false };
+  const statusKeys = { queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
 
   function bytes(value) {
     if (!Number.isFinite(value) || value <= 0) return "0 B";
@@ -64,6 +64,18 @@
     $("#download-mode").value = downloadMode;
     $("#download-mode-summary").textContent = t(downloadMode === "single" ? "singleModeShort" : "segmentedModeShort");
     $("#download-mode-summary").className = `badge ${downloadMode === "single" ? "ok" : ""}`;
+    $("#auto-extract-archives").checked = Boolean(s.auto_extract_archives);
+    $("#disk-protection").checked = Boolean(s.disk_protection);
+    $("#processing-summary").textContent = s.auto_extract_archives ? t("autoExtractOn") : t("autoExtractOff");
+    $("#processing-summary").className = `badge ${s.auto_extract_archives ? "ok" : ""}`;
+    $("#temp-folder-name").textContent = s.temporary_folder || ".nasdrop-tmp";
+    $("#archive-engine").textContent = s.seven_zip_available ? t("engineReady") : t("engineMissing");
+    $("#archive-engine").className = `badge ${s.seven_zip_available ? "ok" : "bad"}`;
+    if (!state.extractionInitialized) {
+      $("#extract-download").checked = Boolean(s.auto_extract_archives);
+      $("#archive-password-wrap").classList.toggle("hidden", !s.auto_extract_archives);
+      state.extractionInitialized = true;
+    }
   }
   function renderAccount() {
     if (!state.account) return;
@@ -91,7 +103,7 @@
     catch (error) { $("#account-message").textContent = error.message; }
   }
   function renderJobs() {
-    const active = state.jobs.filter(j => ["queued","ready","downloading","verifying"].includes(j.status));
+    const active = state.jobs.filter(j => ["queued","ready","downloading","waiting_processing","verifying","extracting","publishing"].includes(j.status));
     const existing = new Set(state.jobs.map(job => job.id));
     state.selected.forEach(id => { if (!existing.has(id)) state.selected.delete(id); });
     $("#queue-summary").textContent = active.length ? t("processing", {count:active.length}) : t("noQueuedJobs");
@@ -100,7 +112,8 @@
     $("#jobs").innerHTML = state.jobs.map(job => {
       const pct = job.size ? Math.min(100, Math.round(job.downloaded / job.size * 100)) : 0;
       const statusLabel = job.status === "queued" && job.not_before > Date.now() / 1000 ? t("scheduled") : (statusKeys[job.status] ? t(statusKeys[job.status]) : esc(job.status));
-      return `<article class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.target || state.status?.target || "")}</span></div>${job.error ? `<p class="error">${esc(job.error)}</p>` : ""}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
+      const passwordForm = job.status === "password_required" ? `<form class="job-password" data-id="${job.id}"><input type="password" name="password" autocomplete="new-password" maxlength="256" required placeholder="${esc(t("archivePassword"))}"><button type="submit" class="ghost">${esc(t("retryExtraction"))}</button></form>` : "";
+      return `<article class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${job.error ? `<p class="error">${esc(job.error)}</p>` : ""}${passwordForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
     }).join("");
     renderSelectionToolbar();
   }
@@ -110,16 +123,16 @@
     $("#selection-toolbar").classList.toggle("hidden", !selected.length);
     $("#selection-count").textContent = t("selected", {count:selected.length});
     $("#select-all").textContent = selected.length === state.jobs.length && state.jobs.length ? t("clearSelection") : t("selectAll");
-    $("#pause-selected").disabled = !selected.some(job => ["queued","ready","downloading","verifying"].includes(job.status));
+    $("#pause-selected").disabled = !selected.some(job => ["queued","ready","downloading","waiting_processing","verifying"].includes(job.status));
     $("#resume-selected").disabled = !selected.some(job => ["paused","failed","cancelled"].includes(job.status));
-    $("#delete-selected").disabled = !selected.some(job => !["queued","ready","downloading","verifying"].includes(job.status));
+    $("#delete-selected").disabled = !selected.some(job => !["queued","ready","downloading","waiting_processing","verifying","extracting","publishing"].includes(job.status));
   }
   async function runSelected(action) {
     const selected = selectedJobs();
     let jobs = selected;
-    if (action === "pause") jobs = selected.filter(job => ["queued","ready","downloading","verifying"].includes(job.status));
+    if (action === "pause") jobs = selected.filter(job => ["queued","ready","downloading","waiting_processing","verifying"].includes(job.status));
     if (action === "resume") jobs = selected.filter(job => ["paused","failed","cancelled"].includes(job.status));
-    if (action === "delete") jobs = selected.filter(job => !["queued","ready","downloading","verifying"].includes(job.status));
+    if (action === "delete") jobs = selected.filter(job => !["queued","ready","downloading","waiting_processing","verifying","extracting","publishing"].includes(job.status));
     if (!jobs.length) return;
     if (action === "delete" && !confirm(t("confirmDelete", {count:jobs.length}))) return;
     try {
@@ -137,8 +150,10 @@
       state.token = result.token; localStorage.setItem("nasdrop-session-token", state.token); $("#login-password").value = ""; showApp();
     } catch (error) { $("#login-error").textContent = error.message; }
   });
-  $("#download-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("#start-button"); const url = $("#download-url").value.trim(); button.disabled = true; $("#notice").textContent = t("inspectLink"); try { const checked = await api("/api/inspect", {method:"POST",body:JSON.stringify({url})}); const started = await api("/api/start", {method:"POST",body:JSON.stringify({...checked.file,target:state.selectedTarget})}); $("#download-url").value = ""; $("#notice").textContent = started.count > 1 ? t("addedMany", {count:started.count,target:state.selectedTarget}) : t("addedOne", {name:checked.file.name,target:state.selectedTarget}); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; } finally { button.disabled = false; } });
+  $("#download-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("#start-button"); const url = $("#download-url").value.trim(); const extract = $("#extract-download").checked; const password = extract ? $("#archive-password").value : ""; button.disabled = true; $("#notice").textContent = t("inspectLink"); try { const checked = await api("/api/inspect", {method:"POST",body:JSON.stringify({url})}); const started = await api("/api/start", {method:"POST",body:JSON.stringify({...checked.file,target:state.selectedTarget,extract,password})}); $("#download-url").value = ""; $("#archive-password").value = ""; $("#notice").textContent = started.count > 1 ? t("addedMany", {count:started.count,target:state.selectedTarget}) : t("addedOne", {name:checked.file.name,target:state.selectedTarget}); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; } finally { button.disabled = false; } });
+  $("#extract-download").addEventListener("change", event => { $("#archive-password-wrap").classList.toggle("hidden", !event.target.checked); if (!event.target.checked) $("#archive-password").value = ""; });
   $("#jobs").addEventListener("change", event => { const checkbox = event.target.closest("input[data-id]"); if (!checkbox) return; checkbox.checked ? state.selected.add(checkbox.dataset.id) : state.selected.delete(checkbox.dataset.id); renderJobs(); });
+  $("#jobs").addEventListener("submit", async event => { const form = event.target.closest(".job-password"); if (!form) return; event.preventDefault(); const button = form.querySelector("button"); const password = form.elements.password.value; button.disabled = true; try { await api(`/api/jobs/${form.dataset.id}/password`, {method:"POST",body:JSON.stringify({password})}); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; button.disabled = false; } });
   $("#select-all").addEventListener("click", () => { if (state.selected.size === state.jobs.length) state.selected.clear(); else state.jobs.forEach(job => state.selected.add(job.id)); renderJobs(); });
   $("#pause-selected").addEventListener("click", () => runSelected("pause"));
   $("#resume-selected").addEventListener("click", () => runSelected("resume"));
@@ -177,6 +192,17 @@
       state.status = await api("/api/status"); renderStatus();
       $("#launcher-port-message").textContent = t("launcherPortSaved", {port:result.launcher_port});
     } catch (error) { $("#launcher-port-message").textContent = error.message; }
+    finally { button.disabled = false; }
+  });
+  $("#save-processing").addEventListener("click", async () => {
+    const enabled = $("#auto-extract-archives").checked;
+    const diskProtection = $("#disk-protection").checked;
+    const button = $("#save-processing"); button.disabled = true; $("#processing-message").textContent = t("saving");
+    try {
+      await api("/api/settings", {method:"POST",body:JSON.stringify({auto_extract_archives:enabled,disk_protection:diskProtection})});
+      state.status = await api("/api/status"); renderStatus();
+      $("#processing-message").textContent = enabled ? t("processingSavedOn") : t("processingSavedOff");
+    } catch (error) { $("#processing-message").textContent = error.message; }
     finally { button.disabled = false; }
   });
   document.querySelectorAll(".nav").forEach(button => button.addEventListener("click", () => { document.querySelectorAll(".nav").forEach(x => x.classList.toggle("active", x === button)); $("#dashboard-view").classList.toggle("hidden", button.dataset.view !== "dashboard"); $("#settings-view").classList.toggle("hidden", button.dataset.view !== "settings"); if (button.dataset.view === "settings") loadAccount(); }));

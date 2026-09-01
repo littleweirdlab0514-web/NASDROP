@@ -3,11 +3,13 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 
 
 _state = tempfile.TemporaryDirectory(prefix="nasdrop-scheduler-test-")
 os.environ["NAS_PORTAL_STATE_DIR"] = _state.name
 
+import backend
 from backend import Controller, Job
 
 
@@ -54,6 +56,16 @@ class ProbeController(Controller):
 
 
 class ProviderParallelismTest(unittest.TestCase):
+    def test_disk_protection_blocks_new_downloads_while_postprocessing_is_pending(self):
+        controller = ProbeController()
+        job = Job("gofile-next", "next", "https://gofile.io/d/example", 1, 0, "queued", "now", "/volume2/downloads")
+        controller.private_downloads[job.id] = {"provider": "gofile"}
+        controller.postprocess_waiting.append("finished-job")
+        with mock.patch.object(backend, "DISK_PROTECTION", True):
+            self.assertFalse(controller._can_start(job))
+        with mock.patch.object(backend, "DISK_PROTECTION", False):
+            self.assertTrue(controller._can_start(job))
+
     def test_staged_job_waits_until_its_release_time(self):
         controller = ProbeController()
         controller.enqueue_probe("gofile-later", "gofile", delay=0.35)

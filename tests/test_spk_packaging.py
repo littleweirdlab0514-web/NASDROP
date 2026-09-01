@@ -110,6 +110,21 @@ class SpkPackagingTests(unittest.TestCase):
         self.assertIn('result["launcher_port"] = set_launcher_port', backend)
         self.assertIn('write_launcher_file(public_port=normalized)', backend)
 
+    def test_dsm_launcher_brand_is_literal_and_description_is_preloaded(self):
+        config = json.loads((ROOT / "synology" / "package-inner" / "ui" / "config").read_text(encoding="utf-8"))
+        info = (PACKAGE_ROOT / "INFO").read_text(encoding="utf-8")
+        app_name = re.search(r'^dsmappname="([^"]+)"$', info, re.MULTILINE).group(1)
+        launcher = config[".url"][app_name]
+        self.assertEqual(launcher["title"], "NASDrop")
+        self.assertNotEqual(launcher["title"], "nasdrop:title")
+        self.assertEqual(launcher["texts"], "texts")
+        self.assertIn("nasdrop:desc", launcher["preloadTexts"])
+
+        packer = (ROOT / "synology" / "pack_spk.py").read_text(encoding="utf-8")
+        self.assertIn('launcher.get("title") != "NASDrop"', packer)
+        self.assertIn('if line.startswith("dsmappname=")', packer)
+        self.assertIn('"nasdrop:desc" not in launcher.get("preloadTexts", [])', packer)
+
     def test_default_destination_is_empty_and_requires_explicit_permission(self):
         example = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
         resource = json.loads((PACKAGE_ROOT / "conf" / "resource").read_text(encoding="utf-8"))
@@ -125,6 +140,22 @@ class SpkPackagingTests(unittest.TestCase):
         self.assertIn('data["NAS_PORTAL_NAS_TARGET"] = ""', postupgrade)
         self.assertIn('Path(NAS_TARGET) if NAS_TARGET else None', backend)
         self.assertNotIn('state.status?.target || "/volume2/downloads"', app)
+
+    def test_official_seven_zip_runtime_is_pinned_and_packaged(self):
+        build_script = (ROOT / "synology" / "build-spk.ps1").read_text(encoding="utf-8")
+        packer = (ROOT / "synology" / "pack_spk.py").read_text(encoding="utf-8")
+        notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+        example = json.loads((ROOT / "config.example.json").read_text(encoding="utf-8"))
+
+        self.assertIn('SevenZipVersion = "26.02"', build_script)
+        self.assertIn('41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e', build_script)
+        self.assertIn('github.com/ip7z/7zip/releases/download', build_script)
+        self.assertIn('bin\\7zz', build_script)
+        self.assertIn('"bin/7zz"', packer)
+        self.assertIn('7zip-LICENSE.txt', packer)
+        self.assertIn('7-Zip 26.02', notices)
+        self.assertTrue(example["NAS_PORTAL_AUTO_EXTRACT_ARCHIVES"])
+        self.assertTrue(example["NAS_PORTAL_DISK_PROTECTION"])
 
 
 if __name__ == "__main__":

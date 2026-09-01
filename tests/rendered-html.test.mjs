@@ -46,7 +46,7 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("concurrency-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod"]) {
+  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
   assert.match(html, /data-i18n="accessMethodHint"/);
@@ -57,6 +57,10 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(html, /value="segmented"/);
   assert.match(html, /value="single"/);
   assert.match(app, /download_mode:mode/);
+  assert.match(html, /id="extract-download"/);
+  assert.match(html, /id="archive-password"/);
+  assert.match(html, /id="save-processing"/);
+  assert.match(app, /auto_extract_archives:enabled,disk_protection:diskProtection/);
   assert.match(app, /location\.hash\.slice\(1\)/);
   assert.match(app, /history\.replaceState/);
   assert.match(html, /id="login-username"[^>]*autocomplete="username"/);
@@ -70,6 +74,8 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(info, /description_jpn=/);
   assert.match(info, /description_chs=/);
   assert.match(uiConfig, /"title": "NASDrop"/);
+  assert.doesNotMatch(uiConfig, /"title": "nasdrop:title"/);
+  assert.match(uiConfig, /"texts": "texts"/);
   assert.match(uiConfig, /"allUsers": false/);
   assert.match(uiConfig, /nasdrop:desc/);
   assert.match(uiConfig, /"preloadTexts": \["nasdrop:desc"\]/);
@@ -101,6 +107,7 @@ test("client connection and Sponsor cards share the top row equally", async () =
   assert.match(style, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
   assert.match(style, /\.account-card\{grid-column:span 3\}/);
   assert.match(style, /\.concurrency-card,\.download-card,\.folder-card,\.service-card\{grid-column:span 3\}/);
+  assert.match(style, /\.processing-card/);
   assert.match(style, /@media\(max-width:760px\)[^]*\.settings-grid\{grid-template-columns:1fr\}/);
 });
 

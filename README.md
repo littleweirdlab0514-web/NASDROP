@@ -21,6 +21,9 @@ NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supp
 - Queues multiple download jobs
 - Supports a per-job destination folder and a configurable default folder
 - Offers either an 8-part verified download or a lower-disk-I/O single-connection download
+- Keeps partial files and assembly work inside a hidden `.nasdrop-tmp` workspace, then publishes only complete results
+- Can extract ZIP (including AES), 7z, RAR, and TAR-family archives with an optional per-job password
+- Pauses new downloads during verification and extraction when disk protection is enabled
 - Displays progress, failure details, and SHA-256 results
 - Supports pausing, resuming, and deleting jobs, plus clearing completed jobs in bulk
 - Protects direct browser and client-app access with an ID, hashed password, login throttling, and time-limited sessions
@@ -30,7 +33,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supp
 
 The default **8-part download + verification** mode downloads eight byte ranges in parallel, combines them locally, checks the final size, tests ZIP archives, and calculates SHA-256. It provides stronger integrity checking but can require substantial disk I/O after a large download finishes.
 
-The optional **Single connection + size check** mode writes one resumable temporary file and then renames it to the final filename. It still checks HTTP transfer failures and the final byte size, but skips splitting, merging, SHA-256 calculation, and ZIP integrity testing. This reduces post-download disk activity and completion time, at the cost of weaker corruption detection. The selected mode applies to new and resumed jobs.
+The optional **Single connection** mode writes one resumable temporary file without splitting or merging it. The shared post-processing pipeline still checks the final size and SHA-256 and performs archive validation when applicable. This lowers connection pressure while preserving integrity checks. The selected mode applies to new and resumed jobs.
 
 ## Repository layout
 
@@ -104,7 +107,9 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.7.16-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.3-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+
+Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
 ## Configuring a download folder
 

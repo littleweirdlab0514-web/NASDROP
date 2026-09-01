@@ -36,14 +36,15 @@ class DownloadModeTests(unittest.TestCase):
         self.assertNotIn("sha256sum", script)
         self.assertNotIn("python3 -m zipfile", script)
 
-    def test_segmented_mode_keeps_eight_parts_and_full_verification(self):
+    def test_segmented_mode_keeps_eight_parts_for_python_postprocessing(self):
         script = self.controller._download_script_direct(
             "https://cdn.example/file", "https://example/file", "archive.zip", "abc123", 2048,
             "/volume1/downloads", expected_sha256="a" * 64, mode="segmented",
         )
         self.assertIn("COUNT=8", script)
-        self.assertIn("sha256sum", script)
-        self.assertIn("python3 -m zipfile", script)
+        self.assertIn("printf 'SEGMENTS_READY=%s\\n' \"$COUNT\"", script)
+        self.assertNotIn("sha256sum", script)
+        self.assertNotIn("python3 -m zipfile", script)
 
     def test_gigafile_bundle_can_skip_deep_verification(self):
         script = self.controller._download_script_gigafile_zip(

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import gzip
 import io
+import json
 from pathlib import Path, PurePosixPath
 import tarfile
 
@@ -44,7 +45,7 @@ def add_tree(archive: tarfile.TarFile, root: Path, outer: bool) -> None:
             info.mode = 0o755
             archive.addfile(info)
             continue
-        executable = (outer and relative.startswith("scripts/")) or (not outer and relative == "bin/node")
+        executable = (outer and relative.startswith("scripts/")) or (not outer and relative in {"bin/node", "bin/7zz"})
         info.mode = 0o755 if executable else 0o644
         data = normalized_bytes(path, relative, outer)
         info.size = len(data)
@@ -73,6 +74,12 @@ def validate(spk_path: Path, expected_version: str) -> None:
         info_data = outer.extractfile(members["INFO"]).read()
         if b"\r" in info_data or f'version="{expected_version}"'.encode() not in info_data:
             raise RuntimeError("INFO has invalid line endings or version")
+        app_name = next(
+            (line.split("=", 1)[1].strip().strip('"') for line in info_data.decode("utf-8").splitlines() if line.startswith("dsmappname=")),
+            "",
+        )
+        if not app_name:
+            raise RuntimeError("INFO is missing dsmappname")
         for name in sorted(required):
             if not name.startswith("scripts/"):
                 continue
@@ -91,14 +98,18 @@ def validate(spk_path: Path, expected_version: str) -> None:
             "THIRD_PARTY_NOTICES.md",
             "backend.py",
             "bin/node",
+            "bin/7zz",
+            "7zip-LICENSE.txt",
             "gofile_wt.mjs",
             "licenses/nodejs-LICENSE.txt",
+            "ui/config",
             "web/index.html",
         ):
             if name not in members:
                 raise RuntimeError(f"package.tgz is missing: {name}")
-        if members["bin/node"].mode & 0o111 == 0:
-            raise RuntimeError("Bundled Node.js runtime is not executable")
+        for name in ("bin/node", "bin/7zz"):
+            if members[name].mode & 0o111 == 0:
+                raise RuntimeError(f"Bundled runtime is not executable: {name}")
         for name in (
             "LICENSE",
             "THIRD_PARTY_NOTICES.md",
@@ -109,6 +120,12 @@ def validate(spk_path: Path, expected_version: str) -> None:
         ):
             if b"\r" in inner.extractfile(members[name]).read():
                 raise RuntimeError(f"{name} has non-Unix line endings")
+        ui_config = json.loads(inner.extractfile(members["ui/config"]).read().decode("utf-8"))
+        launcher = ui_config.get(".url", {}).get(app_name, {})
+        if launcher.get("title") != "NASDrop" or launcher.get("title") == "nasdrop:title":
+            raise RuntimeError("DSM launcher title must be the literal NASDrop brand")
+        if launcher.get("texts") != "texts" or "nasdrop:desc" not in launcher.get("preloadTexts", []):
+            raise RuntimeError("DSM launcher i18n description must be preloaded")
 
 
 def build(inner_root: Path, outer_root: Path, output: Path, version: str) -> None:

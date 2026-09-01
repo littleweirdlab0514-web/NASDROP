@@ -2,6 +2,8 @@ param(
   [string]$NodeVersion = "22.13.1",
   [string]$NodeVariant = "linux-x64-glibc-217",
   [string]$NodeSha256 = "9c0927b3cdccce0d5d5196b9076cfbd356a4ad7214cd147631a74837e52ba88e",
+  [string]$SevenZipVersion = "26.02",
+  [string]$SevenZipSha256 = "41aaba7b1235304ab5aa0624530c67ae829496cd29e875925271efdccc28c03e",
   [string]$PythonPath = ""
 )
 
@@ -15,7 +17,10 @@ $distRoot = Join-Path $PSScriptRoot "dist"
 $nodeArchiveName = "node-v$NodeVersion-$NodeVariant.tar.xz"
 $nodeArchive = Join-Path $cacheRoot $nodeArchiveName
 $nodeUrl = "https://unofficial-builds.nodejs.org/download/release/v$NodeVersion/$nodeArchiveName"
-$packageVersion = "0.7.16-1"
+$sevenZipDigits = $SevenZipVersion.Replace(".", "")
+$sevenZipArchive = Join-Path $cacheRoot "7z$sevenZipDigits-linux-x64.tar.xz"
+$sevenZipUrl = "https://github.com/ip7z/7zip/releases/download/$SevenZipVersion/7z$sevenZipDigits-linux-x64.tar.xz"
+$packageVersion = "0.9.3-1"
 
 if ($PythonPath) {
   $pythonExe = $PythonPath
@@ -55,6 +60,20 @@ New-Item -ItemType Directory -Path $nodeExtract -Force | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Node.js runtime extraction failed" }
 New-Item -ItemType Directory -Path (Join-Path $innerRoot "bin") -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $nodeExtract "node-v$NodeVersion-$NodeVariant\bin\node") -Destination (Join-Path $innerRoot "bin\node")
+
+if (-not (Test-Path -LiteralPath $sevenZipArchive)) {
+  Invoke-WebRequest -Uri $sevenZipUrl -OutFile $sevenZipArchive
+}
+$actualSevenZipSha256 = (Get-FileHash -LiteralPath $sevenZipArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualSevenZipSha256 -ne $SevenZipSha256.ToLowerInvariant()) {
+  throw "7-Zip runtime SHA-256 verification failed"
+}
+$sevenZipExtract = Join-Path $workRoot "7zip"
+New-Item -ItemType Directory -Path $sevenZipExtract -Force | Out-Null
+& tar.exe -xJf $sevenZipArchive -C $sevenZipExtract "7zz" "License.txt"
+if ($LASTEXITCODE -ne 0) { throw "7-Zip runtime extraction failed" }
+Copy-Item -LiteralPath (Join-Path $sevenZipExtract "7zz") -Destination (Join-Path $innerRoot "bin\7zz")
+Copy-Item -LiteralPath (Join-Path $sevenZipExtract "License.txt") -Destination (Join-Path $innerRoot "7zip-LICENSE.txt")
 
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "package\INFO") -Destination $outerRoot
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "package\conf") -Destination $outerRoot -Recurse

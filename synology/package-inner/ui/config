@@ -4,6 +4,7 @@
       "type": "url",
       "title": "NASDrop",
       "desc": "nasdrop:desc",
+      "texts": "texts",
       "preloadTexts": ["nasdrop:desc"],
       "icon": "images/icon_{0}.png",
       "url": "/webman/3rdparty/nasdownloadportal/launcher.html",
