@@ -352,15 +352,28 @@ NASDrop currently supports standard GigaFile links, GoFile share links, Pixeldra
 
 ### Buzzheavier signed direct links
 
-A normal Buzzheavier share URL such as `https://buzzheavier.com/FILE_ID` opens a provider page rather than the file itself. Open that page in a regular browser and select **Copy download link**, then submit the copied HTTPS URL to NASDrop. The copied address has a form similar to:
+A normal Buzzheavier share URL such as `https://buzzheavier.com/FILE_ID` opens the provider page; it is not the direct file URL that NASDrop needs. Use the following steps:
+
+1. Open the normal `https://buzzheavier.com/FILE_ID` share page in a regular browser.
+2. On the real Buzzheavier file page, select **Copy download link**. Do not copy an advertisement button or the browser address bar URL again.
+3. Confirm that the copied address begins with HTTPS, uses a Buzzheavier download host, contains `/d/FILE_ID`, and still includes its complete `?v=...` query value.
+4. Paste that copied address into the NASDrop web portal or Android app. You may then choose a destination folder and extraction option normally.
+5. Add the job promptly. NASDrop inspects the signed link and the NAS downloads the file directly; the browser or phone does not relay the file data.
+
+The address accepted by NASDrop has a form similar to:
 
 ```text
 https://DOWNLOAD-SERVER.buzzheavier.com/d/FILE_ID?v=SIGNED_TOKEN
 ```
 
-The copied URL points directly to the file, so the NAS can perform the transfer without routing file data through the browser, phone, Mac, or PC. Verified Buzzheavier responses provide the final filename through `Content-Disposition`, the file size through `Content-Length`, and byte-range support for segmented downloads and resume.
+For example, submit the copied `https://ts.buzzheavier.com/d/...?...` style address—not the original `https://buzzheavier.com/...` page address. Do not remove or shorten the query string: the complete `v` value is required to authorize the file request.
 
-The `v` value is a signed, potentially time-limited token. Add the copied URL to the queue promptly. If NASDrop reports that the link has expired or is no longer authorized, return to the original share page, select **Copy download link** again, and submit the newly generated address. Do not post the complete signed URL in public issue reports or logs; remove the query string or replace the token with `REDACTED`.
+Verified Buzzheavier responses provide the final filename through `Content-Disposition`, the file size through `Content-Length`, and byte-range support for segmented downloads and resume.
+
+The `v` value is a signed, potentially time-limited token. If NASDrop reports that the link has expired, is unauthorized, or no longer resolves to a file, return to the original share page, select **Copy download link** again, and submit the newly generated address. Repeatedly retrying the expired address will not refresh it.
+
+> [!CAUTION]
+> Treat the complete copied URL as private while it remains valid. Do not post it in public issues, screenshots, chat logs, or documentation. When reporting a problem, remove the entire query string or replace the token with `?v=REDACTED`. Keep the original share-page address so you can generate a fresh signed link later.
 
 NASDrop does not automate Buzzheavier's advertisement page or imitate clicks on the provider page. The user obtains the final link in a normal browser, while the NAS performs only the resulting direct file transfer. Only download files that you own or are authorized to access.
 
