@@ -160,27 +160,18 @@
   $("#delete-selected").addEventListener("click", () => runSelected("delete"));
   $("#clear-completed").addEventListener("click", async () => { const count = state.jobs.filter(job => job.status === "completed").length; if (!count || !confirm(t("confirmClear", {count}))) return; try { await api("/api/jobs/completed/clear", {method:"POST",body:"{}"}); state.selected.clear(); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; } });
   $("#same-provider-parallel").addEventListener("change", event => { $("#same-provider-limit").disabled = !event.target.checked; });
-  $("#save-concurrency").addEventListener("click", async () => {
+  $("#save-download-behavior").addEventListener("click", async () => {
     const enabled = $("#same-provider-parallel").checked;
     const limit = Number($("#same-provider-limit").value);
     if (enabled && !confirm(t("confirmParallel", {count:limit}))) return;
-    const button = $("#save-concurrency"); button.disabled = true; $("#concurrency-message").textContent = t("saving");
-    try {
-      await api("/api/settings", {method:"POST",body:JSON.stringify({same_provider_parallel:enabled,same_provider_limit:limit})});
-      state.status = await api("/api/status"); renderStatus();
-      $("#concurrency-message").textContent = enabled ? t("parallelSaved", {count:limit}) : t("sequentialSaved");
-    } catch (error) { $("#concurrency-message").textContent = error.message; }
-    finally { button.disabled = false; }
-  });
-  $("#save-download-mode").addEventListener("click", async () => {
     const mode = $("#download-mode").value;
     if (mode === "single" && !confirm(t("confirmSingleMode"))) return;
-    const button = $("#save-download-mode"); button.disabled = true; $("#download-mode-message").textContent = t("saving");
+    const button = $("#save-download-behavior"); button.disabled = true; $("#download-behavior-message").textContent = t("saving");
     try {
-      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({download_mode:mode})});
+      await api("/api/settings", {method:"POST",body:JSON.stringify({same_provider_parallel:enabled,same_provider_limit:limit,download_mode:mode})});
       state.status = await api("/api/status"); renderStatus();
-      $("#download-mode-message").textContent = t(result.download_mode === "single" ? "singleModeSaved" : "segmentedModeSaved");
-    } catch (error) { $("#download-mode-message").textContent = error.message; }
+      $("#download-behavior-message").textContent = t("downloadBehaviorSaved");
+    } catch (error) { $("#download-behavior-message").textContent = error.message; }
     finally { button.disabled = false; }
   });
   $("#save-launcher-port").addEventListener("click", async () => {

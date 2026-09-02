@@ -44,9 +44,9 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(html, /href="https:\/\/github\.com\/sponsors\/littleweirdlab0514-web"/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
   assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
-  assert.ok(html.indexOf("sponsor-card") < html.indexOf("concurrency-card"));
+  assert.ok(html.indexOf("sponsor-card") < html.indexOf("download-behavior-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction"]) {
+  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "downloadBehavior", "downloadBehaviorHint", "combinedDownloadWarning", "saveDownloadBehavior", "downloadBehaviorSaved", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
   assert.match(html, /data-i18n="accessMethodHint"/);
@@ -103,11 +103,15 @@ test("static Synology UI responses cannot mix cached versions", async () => {
 });
 
 test("client connection and Sponsor cards share the top row equally", async () => {
+  const html = await readFile(new URL("synology/web/index.html", root), "utf8");
   const style = await readFile(new URL("synology/web/style.css", root), "utf8");
   assert.match(style, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
   assert.match(style, /\.account-card\{grid-column:span 3\}/);
-  assert.match(style, /\.concurrency-card,\.download-card,\.folder-card,\.service-card\{grid-column:span 3\}/);
-  assert.match(style, /\.processing-card/);
+  assert.match(style, /\.download-behavior-card,\.processing-card,\.folder-card,\.service-card\{grid-column:span 3\}/);
+  assert.match(style, /\.download-behavior-controls\{display:grid/);
+  assert.doesNotMatch(html, /download-behavior-grid/);
+  assert.match(style, /\.download-options\{display:grid;grid-template-columns:max-content minmax\(0,1fr\);align-items:center/);
+  assert.match(style, /\.download-options \.password-setting\{display:grid;grid-template-columns:max-content minmax\(180px,360px\)/);
   assert.match(style, /@media\(max-width:760px\)[^]*\.settings-grid\{grid-template-columns:1fr\}/);
 });
 

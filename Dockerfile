@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim
 
-ARG NASDROP_VERSION=0.9.3
+ARG NASDROP_VERSION=0.9.4
 ARG VCS_REF=unknown
 
 LABEL org.opencontainers.image.title="NASDrop" \

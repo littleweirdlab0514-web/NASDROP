@@ -20,7 +20,7 @@ case "${1:-}" in
     export NAS_PORTAL_LAUNCHER_FILE="${SYNOPKG_PKGDEST}/ui/launcher.html"
     export NAS_PORTAL_LOG_FILE="$LOG_FILE"
     export NAS_PORTAL_LISTEN_HOST="0.0.0.0"
-    export NAS_PORTAL_VERSION="0.9.3"
+    export NAS_PORTAL_VERSION="0.9.4"
     export PATH="${SYNOPKG_PKGDEST}/bin:/usr/local/bin:/usr/bin:/bin"
     umask 077
     "$PYTHON" "$APP" >/dev/null 2>&1 &

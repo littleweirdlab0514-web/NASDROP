@@ -5,15 +5,22 @@
 > [!TIP]
 > **DSM 7.1 support is now available.** NASDrop has been verified on real DSM 7.1 and DSM 7.2 hardware. The current SPK supports Intel/AMD 64-bit (`x86_64`) Synology NAS models running DSM 7.1 or later.
 
-NASDrop is a self-hosted personal download portal for Synology DSM and Docker hosts. Paste a supported GigaFile, GoFile, or Pixeldrain share link, and the storage server downloads the file directly.
+NASDrop is a self-hosted personal download portal for Synology DSM and Docker hosts. Paste a supported GigaFile, GoFile, Pixeldrain, or Buzzheavier signed direct link, and the storage server downloads the file directly.
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
 
 > [!IMPORTANT]
-> NASDrop is an independent, unofficial community project. It is not listed in Synology's official Package Center catalog and must be installed manually. It is not affiliated with, endorsed by, or sponsored by Synology, GigaFile, GoFile, or Pixeldrain.
+> NASDrop is an independent, unofficial community project. It is not listed in Synology's official Package Center catalog and must be installed manually. It is not affiliated with, endorsed by, or sponsored by Synology, GigaFile, GoFile, Pixeldrain, or Buzzheavier.
 
 > [!WARNING]
-> **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, and Pixeldrain. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
+> **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
+
+## What's new in 0.9.4
+
+- Buzzheavier signed direct links copied with **Copy download link** are now accepted by the web portal and Android client.
+- Buzzheavier link tokens are removed from the public job source and stored separately with restricted permissions so they do not appear in the job list or `jobs.json`.
+- Expired Buzzheavier links now produce a provider-specific message asking for a newly copied link.
+- The settings screen now combines parallel-download and per-file transfer controls into one compact half-width card with a single warning and save action.
 
 ## What's new in 0.9.3
 
@@ -28,7 +35,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 ## Features
 
-- Validates GigaFile, GoFile, and Pixeldrain links and displays file names and sizes
+- Validates GigaFile, GoFile, Pixeldrain, and Buzzheavier signed direct links and displays file names and sizes
 - Queues multiple download jobs
 - Supports a per-job destination folder and a configurable default folder
 - Offers either an 8-part verified download or a lower-disk-I/O single-connection download
@@ -184,7 +191,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.3-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.4-4-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
@@ -341,7 +348,21 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 
 ## Supported links and rate-limit protection
 
-NASDrop currently supports standard GigaFile links, GoFile share links, and Pixeldrain file-share links. For Pixeldrain, it compares the SHA-256 value reported by the public API with the final downloaded file hash.
+NASDrop currently supports standard GigaFile links, GoFile share links, Pixeldrain file-share links, and Buzzheavier signed direct links copied from the provider page. For Pixeldrain, it compares the SHA-256 value reported by the public API with the final downloaded file hash.
+
+### Buzzheavier signed direct links
+
+A normal Buzzheavier share URL such as `https://buzzheavier.com/FILE_ID` opens a provider page rather than the file itself. Open that page in a regular browser and select **Copy download link**, then submit the copied HTTPS URL to NASDrop. The copied address has a form similar to:
+
+```text
+https://DOWNLOAD-SERVER.buzzheavier.com/d/FILE_ID?v=SIGNED_TOKEN
+```
+
+The copied URL points directly to the file, so the NAS can perform the transfer without routing file data through the browser, phone, Mac, or PC. Verified Buzzheavier responses provide the final filename through `Content-Disposition`, the file size through `Content-Length`, and byte-range support for segmented downloads and resume.
+
+The `v` value is a signed, potentially time-limited token. Add the copied URL to the queue promptly. If NASDrop reports that the link has expired or is no longer authorized, return to the original share page, select **Copy download link** again, and submit the newly generated address. Do not post the complete signed URL in public issue reports or logs; remove the query string or replace the token with `REDACTED`.
+
+NASDrop does not automate Buzzheavier's advertisement page or imitate clicks on the provider page. The user obtains the final link in a normal browser, while the NAS performs only the resulting direct file transfer. Only download files that you own or are authorized to access.
 
 When GoFile returns HTTP 429, NASDrop immediately blocks additional GoFile requests and stores the cooldown deadline in persistent state. The cooldown survives service restarts, preventing repeated retries from making an IP restriction worse. Link-inspection logic may require updates when an external service changes its website or API behavior.
 

@@ -32,7 +32,7 @@ import time
 import zipfile
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
-from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener, urlopen
 
 
 ROOT = Path(__file__).resolve().parent
@@ -73,7 +73,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.3")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.4")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -85,6 +85,8 @@ GOFILE_RATE_LIMIT_COOLDOWN_SECONDS = 30 * 60
 GOFILE_NETWORK_COOLDOWN_SECONDS = 5 * 60
 GOFILE_MAX_COOLDOWN_SECONDS = 6 * 60 * 60
 GIGAFILE_HOST = re.compile(r"^[a-z0-9-]+\.gigafile\.nu$", re.I)
+BUZZHEAVIER_DOWNLOAD_HOST = re.compile(r"^[a-z0-9-]+\.buzzheavier\.com$", re.I)
+BUZZHEAVIER_TOKEN = re.compile(r"^[A-Za-z0-9_-]{16,4096}$")
 SAFE_SERVICE_ID = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
 GOFILE_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
 LOG_MAX_BYTES = 1024 * 1024
@@ -95,6 +97,7 @@ LOGIN_FAILURE_LIMIT = 5
 LOGIN_BLOCK_SECONDS = 15 * 60
 LOGGER = logging.getLogger("nasdrop")
 LOGGER.addHandler(logging.NullHandler())
+JOB_SECRET_LOCK = threading.RLock()
 
 
 def rotating_log_handler(path: str, max_bytes: int = LOG_MAX_BYTES, backup_count: int = LOG_BACKUP_COUNT):
@@ -488,32 +491,74 @@ def _job_secret_path(job_id: str) -> Path:
     return SECRET_DIR / f"{job_id}.json"
 
 
-def save_job_password(job_id: str, password: object) -> None:
-    normalized = _validate_job_password(password)
+def _load_job_secrets(job_id: str) -> dict[str, str]:
     path = _job_secret_path(job_id)
-    if not normalized:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {str(key): str(value) for key, value in data.items() if isinstance(value, str)}
+
+
+def _write_job_secrets(job_id: str, data: dict[str, str]) -> None:
+    path = _job_secret_path(job_id)
+    cleaned = {str(key): str(value) for key, value in data.items() if str(value)}
+    if not cleaned:
         path.unlink(missing_ok=True)
         return
     SECRET_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     temp = path.with_suffix(".tmp")
-    temp.write_text(json.dumps({"password": normalized}, ensure_ascii=False), encoding="utf-8")
+    temp.write_text(json.dumps(cleaned, ensure_ascii=False), encoding="utf-8")
     temp.chmod(0o600)
     temp.replace(path)
 
 
+def save_job_password(job_id: str, password: object) -> None:
+    normalized = _validate_job_password(password)
+    with JOB_SECRET_LOCK:
+        data = _load_job_secrets(job_id)
+        if normalized:
+            data["password"] = normalized
+        else:
+            data.pop("password", None)
+        _write_job_secrets(job_id, data)
+
+
 def load_job_password(job_id: str) -> str:
-    path = _job_secret_path(job_id)
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return _validate_job_password(data.get("password", ""))
-    except FileNotFoundError:
-        return ""
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return ""
+    with JOB_SECRET_LOCK:
+        try:
+            return _validate_job_password(_load_job_secrets(job_id).get("password", ""))
+        except ValueError:
+            return ""
 
 
 def delete_job_password(job_id: str) -> None:
-    _job_secret_path(job_id).unlink(missing_ok=True)
+    save_job_password(job_id, "")
+
+
+def save_job_download_url(job_id: str, download_url: str) -> None:
+    normalized = str(download_url).strip()
+    with JOB_SECRET_LOCK:
+        data = _load_job_secrets(job_id)
+        if normalized:
+            data["download_url"] = normalized
+        else:
+            data.pop("download_url", None)
+        _write_job_secrets(job_id, data)
+
+
+def load_job_download_url(job_id: str) -> str:
+    with JOB_SECRET_LOCK:
+        return _load_job_secrets(job_id).get("download_url", "")
+
+
+def delete_job_secrets(job_id: str) -> None:
+    with JOB_SECRET_LOCK:
+        _job_secret_path(job_id).unlink(missing_ok=True)
 
 
 @dataclass
@@ -862,6 +907,8 @@ class Controller:
                     "expected_sha256": str(file.get("expected_sha256", "")),
                     "target": destination,
                 }
+                if provider == "buzzheavier":
+                    save_job_download_url(job.id, str(file.get("download_url", "")))
                 if should_extract and normalized_password:
                     save_job_password(job.id, normalized_password)
                 jobs.append(job)
@@ -997,7 +1044,7 @@ class Controller:
     def _apply_response_filename(self, job: Job, workspace: Path, artifact: Path, private: dict[str, str]) -> Path:
         headers_path = workspace / ".response-headers"
         try:
-            if private.get("provider") != "gigafile":
+            if private.get("provider") not in {"gigafile", "buzzheavier"}:
                 return artifact
             actual_name = response_download_name(headers_path)
             if not actual_name or actual_name == job.name:
@@ -1089,7 +1136,7 @@ class Controller:
                 workspace.parent.rmdir()
             except OSError:
                 pass
-            delete_job_password(job_id)
+            delete_job_secrets(job_id)
             with self.lock:
                 job = self.jobs[job_id]
                 job.status = "completed"
@@ -1153,6 +1200,17 @@ class Controller:
                 "target": target_dir,
             }
             self.private_downloads[job_id] = private
+        elif provider == "buzzheavier" and not private.get("download_url"):
+            saved_url = load_job_download_url(job.id)
+            if not saved_url:
+                raise ValueError("Buzzheavier 직접 링크 정보가 없습니다. Copy download link를 다시 등록해 주세요.")
+            direct_url, _file_id, _host = _validate_buzzheavier_download_url(saved_url)
+            private = {
+                "provider": "buzzheavier",
+                "download_url": direct_url,
+                "target": target_dir,
+            }
+            self.private_downloads[job_id] = private
         download_mode = DOWNLOAD_MODE
         private["transfer_mode"] = download_mode
         self.private_downloads[job_id] = private
@@ -1171,6 +1229,11 @@ class Controller:
             script = self._download_script_direct(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 expected_sha256=private.get("expected_sha256", ""), mode=download_mode,
+            )
+        elif provider == "buzzheavier":
+            script = self._download_script_direct(
+                private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
+                mode=download_mode, capture_headers=True,
             )
         else:
             file_id = parsed.path.strip("/")
@@ -1214,7 +1277,10 @@ class Controller:
                 return
             if process.returncode != 0:
                 current_job.status = "failed"
-                current_job.error = (stderr.strip() or "NAS 다운로드가 중단됐습니다.")[-400:]
+                if provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
+                    current_job.error = "Buzzheavier 직접 링크가 만료됐거나 사용할 수 없습니다. Copy download link를 다시 받아 새 작업으로 등록해 주세요."
+                else:
+                    current_job.error = (stderr.strip() or "NAS 다운로드가 중단됐습니다.")[-400:]
                 self.processes.pop(job_id, None)
                 self.private_downloads.pop(job_id, None)
                 self.save()
@@ -1315,18 +1381,22 @@ cleanup
 printf 'SEGMENTS_READY=1\\n'
 """
 
-    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented") -> str:
+    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False) -> str:
         if not download.startswith("https://"):
             raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
         prefix = f"{target_dir}/.{name}.{job_id}.segment"
         header_option = f"-H {shlex.quote('Cookie: ' + cookie)}" if cookie else ""
+        response_headers = f"{target_dir}/.response-headers"
+        header_probe = ""
+        if capture_headers:
+            header_probe = f"(curl -L --fail --silent --show-error -I {header_option} -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})\n"
         if mode == "single":
             part = f"{prefix}.0"
             return f"""#!/bin/sh
 set -eu
 TOTAL={total}
 PART={shlex.quote(part)}
-existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
+{header_probe}existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
 [ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
 if [ "$existing" -lt "$TOTAL" ]; then
   if [ "$existing" -gt 0 ]; then
@@ -1343,7 +1413,7 @@ set -eu
 TOTAL={total}
 COUNT=8
 CHUNK=$(( (TOTAL + COUNT - 1) / COUNT ))
-i=0
+{header_probe}i=0
 while [ "$i" -lt "$COUNT" ]; do
   start=$(( i * CHUNK )); end=$(( start + CHUNK - 1 )); [ "$end" -ge "$TOTAL" ] && end=$(( TOTAL - 1 ))
   part={shlex.quote(prefix)}.$i
@@ -1419,7 +1489,7 @@ printf 'SEGMENTS_READY=%s\\n' "$COUNT"
             for job_id in job_ids:
                 job = self.jobs.pop(job_id, None)
                 self.private_downloads.pop(job_id, None)
-                delete_job_password(job_id)
+                delete_job_secrets(job_id)
                 if job:
                     try:
                         workspace = job_workspace(job.target or NAS_TARGET, job.id)
@@ -1435,7 +1505,7 @@ printf 'SEGMENTS_READY=%s\\n' "$COUNT"
             completed = [job_id for job_id, job in self.jobs.items() if job.status == "completed"]
             for job_id in completed:
                 self.jobs.pop(job_id, None)
-                delete_job_password(job_id)
+                delete_job_secrets(job_id)
             self.save()
             return len(completed)
 
@@ -1499,6 +1569,82 @@ def service_path_id(parsed, prefix: str = "") -> str:
     if not SAFE_SERVICE_ID.fullmatch(value):
         raise ValueError("링크 경로에 사용할 수 없는 문자가 있습니다.")
     return value
+
+
+def _is_buzzheavier_download_host(host: str) -> bool:
+    return bool(BUZZHEAVIER_DOWNLOAD_HOST.fullmatch(host.lower()))
+
+
+def _validate_buzzheavier_download_url(raw_url: str) -> tuple[str, str, str]:
+    value = raw_url.strip()
+    parsed = urlparse(value)
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("Buzzheavier 직접 다운로드 주소의 포트가 올바르지 않습니다.") from exc
+    if (
+        parsed.scheme != "https"
+        or not _is_buzzheavier_download_host(host)
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in {None, 443}
+        or parsed.fragment
+    ):
+        raise ValueError("Buzzheavier의 Copy download link로 복사한 HTTPS 주소가 아닙니다.")
+    file_id = service_path_id(parsed, "d")
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    tokens = query.get("v", [])
+    if set(query) != {"v"} or len(tokens) != 1 or not BUZZHEAVIER_TOKEN.fullmatch(tokens[0]):
+        raise ValueError("Buzzheavier 서명 토큰이 없거나 올바르지 않습니다. Copy download link를 다시 눌러 주세요.")
+    direct_url = parsed._replace(fragment="").geturl()
+    return direct_url, file_id, host
+
+
+class BuzzheavierRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        parsed = urlparse(new_url)
+        if parsed.scheme != "https" or not _is_buzzheavier_download_host(parsed.hostname or ""):
+            raise ValueError("Buzzheavier가 허용되지 않은 서버로 이동을 요청했습니다.")
+        return super().redirect_request(request, file_pointer, code, message, headers, new_url)
+
+
+def inspect_buzzheavier(raw_url: str) -> dict:
+    direct_url, file_id, _host = _validate_buzzheavier_download_url(raw_url)
+    canonical = f"https://buzzheavier.com/{file_id}"
+    opener = build_opener(BuzzheavierRedirectHandler())
+    request = Request(
+        direct_url,
+        method="HEAD",
+        headers={"User-Agent": "NASDrop/0.9.4", "Accept": "*/*"},
+    )
+    with opener.open(request, timeout=30) as response:
+        final = urlparse(response.geturl())
+        if final.scheme != "https" or not _is_buzzheavier_download_host(final.hostname or ""):
+            raise ValueError("Buzzheavier 최종 다운로드 서버가 올바르지 않습니다.")
+        values = [
+            value.encode("latin-1", "replace")
+            for value in response.headers.get_all("Content-Disposition", [])
+        ]
+        name = content_disposition_download_name(values)
+        try:
+            size = int(response.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Buzzheavier 파일 크기를 확인하지 못했습니다.") from exc
+        accepts_ranges = response.headers.get("Accept-Ranges", "").strip().lower()
+        content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+    if not name or size <= 0 or size > MAX_FILE_BYTES or content_type == "text/html":
+        raise ValueError("허용할 수 없는 Buzzheavier 파일 정보입니다.")
+    if accepts_ranges != "bytes":
+        raise ValueError("이 Buzzheavier 링크는 이어받기 가능한 직접 파일 주소가 아닙니다.")
+    return {
+        "url": canonical,
+        "name": name,
+        "size": size,
+        "expires": "서명 링크",
+        "provider": "buzzheavier",
+        "download_url": direct_url,
+    }
 
 
 def parse_gigafile_page(source: str, canonical: str, host: str, file_id: str) -> dict:
@@ -1779,18 +1925,26 @@ def provider_for_url(raw_url: str) -> str:
         return "gofile"
     if host in {"pixeldrain.com", "www.pixeldrain.com", "pixeldrain.net", "pixeldra.in"}:
         return "pixeldrain"
+    if host == "buzzheavier.com" or _is_buzzheavier_download_host(host):
+        return "buzzheavier"
     return "gigafile"
 
 
 def inspect_download(raw_url: str) -> dict:
     host = (urlparse(raw_url.strip()).hostname or "").lower()
     try:
+        if _is_buzzheavier_download_host(host):
+            return inspect_buzzheavier(raw_url)
+        if host in {"buzzheavier.com", "www.buzzheavier.com"}:
+            raise ValueError("Buzzheavier 페이지에서 Copy download link를 누른 뒤 복사된 직접 주소를 입력해 주세요.")
         if host in {"gofile.io", "www.gofile.io"}:
             return inspect_gofile(raw_url)
         if host in {"pixeldrain.com", "www.pixeldrain.com", "pixeldrain.net", "pixeldra.in"}:
             return inspect_pixeldrain(raw_url)
         return inspect_gigafile(raw_url)
     except HTTPError as exc:
+        if _is_buzzheavier_download_host(host) and exc.code in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
+            raise ValueError("Buzzheavier 직접 링크가 만료됐거나 사용할 수 없습니다. Copy download link를 다시 눌러 주세요.") from exc
         if exc.code == HTTPStatus.TOO_MANY_REQUESTS:
             raise ValueError("Gofile 요청이 몰려 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요.") from exc
         raise ValueError(f"다운로드 서비스가 HTTP {exc.code} 응답을 반환했습니다. 링크가 만료됐는지 확인해 주세요.") from exc
