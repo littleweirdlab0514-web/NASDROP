@@ -36,6 +36,44 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
+      - name: Build amd64 smoke-test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: nasdrop:smoke
+          build-args: |
+            NASDROP_VERSION=${{ steps.meta.outputs.version }}
+            VCS_REF=${{ github.sha }}
+
+      - name: Start container and verify health endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_dir="${RUNNER_TEMP}/nasdrop-config"
+          download_dir="${RUNNER_TEMP}/nasdrop-downloads"
+          mkdir -p "$config_dir" "$download_dir"
+          docker run -d --name nasdrop-smoke \
+            --read-only \
+            --security-opt no-new-privileges:true \
+            --tmpfs /tmp:size=256m,mode=1777 \
+            -e PUID="$(id -u)" -e PGID="$(id -g)" \
+            -p 127.0.0.1:18791:8791 \
+            -v "$config_dir:/config" \
+            -v "$download_dir:/downloads" \
+            nasdrop:smoke
+          trap 'docker logs nasdrop-smoke || true; docker rm -f nasdrop-smoke >/dev/null 2>&1 || true' EXIT
+          for attempt in $(seq 1 30); do
+            if response=$(curl --fail --silent http://127.0.0.1:18791/api/auth/status); then
+              printf '%s' "$response" | grep -q '"configured": false'
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "NASDrop health endpoint did not become ready." >&2
+          exit 1
+
       - name: Build and publish amd64/arm64 image
         uses: docker/build-push-action@v6
         with:

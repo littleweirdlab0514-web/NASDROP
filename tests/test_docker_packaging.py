@@ -34,6 +34,7 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertIn('"8791:8791"', compose)
         self.assertIn(":/config", compose)
         self.assertIn(":/downloads", compose)
+        self.assertIn("read_only: true", compose)
         self.assertIn("no-new-privileges:true", compose)
 
     def test_release_workflow_builds_amd64_and_arm64(self):
@@ -41,6 +42,8 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertIn("linux/amd64,linux/arm64", workflow)
         self.assertIn("ghcr.io/littleweirdlab0514-web/nasdrop", workflow)
         self.assertIn("packages: write", workflow)
+        self.assertIn("nasdrop:smoke", workflow)
+        self.assertIn("/api/auth/status", workflow)
 
 
 if __name__ == "__main__":
