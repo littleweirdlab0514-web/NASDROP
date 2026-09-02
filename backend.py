@@ -168,6 +168,24 @@ AUTO_EXTRACT_ARCHIVES = bool_setting("NAS_PORTAL_AUTO_EXTRACT_ARCHIVES", True)
 DISK_PROTECTION = bool_setting("NAS_PORTAL_DISK_PROTECTION", True)
 
 
+def storage_roots_setting() -> tuple[Path, ...]:
+    configured = setting("NAS_PORTAL_STORAGE_ROOTS")
+    candidates = [item.strip() for item in configured.split(",") if item.strip()] if configured else [
+        str(path) for path in Path("/").iterdir() if re.fullmatch(r"volume[0-9]+", path.name) and path.is_dir()
+    ]
+    roots = []
+    for value in candidates:
+        root = Path(value).resolve()
+        if not root.is_absolute() or root == Path(root.anchor) or not root.is_dir():
+            continue
+        if root not in roots:
+            roots.append(root)
+    return tuple(roots)
+
+
+STORAGE_ROOTS = storage_roots_setting()
+
+
 def now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -1809,7 +1827,14 @@ def consume_inspection(payload: dict) -> dict:
     return inspect_download(str(payload.get("url", "")))
 
 
-VOLUME_DIR = re.compile(r"^/volume[0-9]+(?:/.*)?$")
+def storage_root_for(path: Path) -> Path | None:
+    for root in STORAGE_ROOTS:
+        try:
+            path.relative_to(root)
+            return root
+        except ValueError:
+            continue
+    return None
 
 
 def normalize_target(raw_path: str) -> str:
@@ -1818,8 +1843,8 @@ def normalize_target(raw_path: str) -> str:
         raise ValueError("저장 폴더를 선택해 주세요.")
     target = Path(value).resolve()
     normalized = str(target)
-    if not VOLUME_DIR.fullmatch(normalized):
-        raise ValueError("Synology 볼륨 안의 폴더만 선택할 수 있습니다.")
+    if storage_root_for(target) is None:
+        raise ValueError("허용된 저장소 마운트 안의 폴더만 선택할 수 있습니다.")
     if not target.is_dir():
         raise ValueError("선택한 저장 폴더가 없습니다.")
     if not os.access(normalized, os.W_OK | os.X_OK):
@@ -1848,18 +1873,18 @@ def prepare_batch_target(base_path: str, relative_path: str) -> str:
 
 def browse_folders(raw_path: str) -> dict:
     value = str(raw_path or "/").strip() or "/"
-    if value == "/" or re.fullmatch(r"/volume[0-9]+", value.rstrip("/")):
+    if value == "/":
         shares = []
-        volumes = [path for path in Path("/").iterdir() if re.fullmatch(r"volume[0-9]+", path.name)]
-        for volume in sorted(volumes, key=lambda item: item.name):
-            try:
-                candidates = volume.iterdir()
-                for path in candidates:
-                    if not path.is_dir() or path.name.startswith((".", "@")) or path.name == "lost+found":
-                        continue
-                    shares.append(path)
-            except PermissionError:
-                continue
+        for root in STORAGE_ROOTS:
+            if re.fullmatch(r"volume[0-9]+", root.name):
+                try:
+                    for path in root.iterdir():
+                        if path.is_dir() and not path.name.startswith((".", "@")) and path.name != "lost+found":
+                            shares.append(path)
+                except PermissionError:
+                    continue
+            else:
+                shares.append(root)
         return {
             "path": "/", "parent": "", "writable": False,
             "folders": [{
@@ -1870,13 +1895,14 @@ def browse_folders(raw_path: str) -> dict:
         }
     current = Path(value).resolve()
     normalized = str(current)
-    if not VOLUME_DIR.fullmatch(normalized) or not current.is_dir():
+    storage_root = storage_root_for(current)
+    if storage_root is None or not current.is_dir():
         raise ValueError("탐색할 수 없는 폴더입니다.")
     try:
         candidates = [path for path in current.iterdir() if path.is_dir() and not path.name.startswith((".", "@")) and path.name != "lost+found"]
     except PermissionError as exc:
         raise ValueError("이 폴더를 볼 권한이 없습니다.") from exc
-    parent = "/" if re.fullmatch(r"/volume[0-9]+/[^/]+", normalized) else str(current.parent)
+    parent = "/" if current == storage_root or (re.fullmatch(r"volume[0-9]+", storage_root.name) and current.parent == storage_root) else str(current.parent)
     return {
         "path": normalized,
         "parent": parent,
@@ -2065,7 +2091,7 @@ class Handler(BaseHTTPRequestHandler):
                 "target": NAS_TARGET,
                 "target_exists": target_exists,
                 "target_writable": target_exists and os.access(str(target), os.W_OK | os.X_OK),
-                "service_user": os.environ.get("USER", ""),
+                "service_user": os.environ.get("NAS_PORTAL_SERVICE_USER") or os.environ.get("USER", ""),
                 "same_provider_parallel": ALLOW_SAME_PROVIDER_PARALLEL,
                 "same_provider_limit": SAME_PROVIDER_LIMIT,
                 "download_mode": DOWNLOAD_MODE,
@@ -2095,7 +2121,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 payload = self.body()
                 if not credentials_configured():
-                    raise ValueError("계정이 아직 설정되지 않았습니다. DSM 아이콘으로 열어 ID와 비밀번호를 먼저 설정하세요.")
+                    raise ValueError("계정이 아직 설정되지 않았습니다. DSM 아이콘 또는 Docker 계정 설정 명령으로 ID와 비밀번호를 먼저 설정하세요.")
                 client_ip = self.login_client_ip()
                 remaining = login_block_remaining(client_ip)
                 if remaining:

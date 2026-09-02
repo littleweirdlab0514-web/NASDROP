@@ -1,0 +1,13 @@
+**
+!Dockerfile
+!backend.py
+!gofile_wt.mjs
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+!synology/
+!synology/web/
+!synology/web/**
+!docker/
+!docker/entrypoint.sh
+!docker/account.py
+!docker/account-command.sh

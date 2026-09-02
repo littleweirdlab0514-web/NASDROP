@@ -1,7 +1,7 @@
 (() => {
   const messages = {
     en: {
-      language:"Language", loginHint:"Sign in with the NASDrop ID and password configured on this NAS. Opening the DSM icon signs in automatically.", username:"ID", password:"Password", openDashboard:"Open dashboard", accountNotConfigured:"No account is configured. Open NASDrop from its DSM icon and create an ID and password first.", logout:"Sign out",
+      language:"Language", loginHint:"Sign in with the NASDrop ID and password configured on this server. Opening the DSM icon signs in automatically.", username:"ID", password:"Password", openDashboard:"Open dashboard", accountNotConfigured:"No account is configured. Use the DSM icon or the Docker account command to create an ID and password first.", logout:"Sign out",
       dashboard:"Dashboard", settings:"Settings", runningOnNas:"Running on NAS", downloads:"Downloads", linkLabel:"GigaFile, GoFile, or Pixeldrain download link", downloadNow:"Download to NAS",
       destination:"Destination", checking:"Checking…", checkingShort:"Checking", chooseFolder:"Choose folder", jobs:"Jobs", loading:"Loading…", clearCompleted:"Clear completed",
       selected:"{count} selected", selectAll:"Select all", clearSelection:"Clear selection", pause:"Pause", resume:"Resume", delete:"Delete",
@@ -29,7 +29,7 @@
       defaultChanged:"Default destination changed to {target}."
     },
     ko: {
-      language:"언어", loginHint:"이 NAS에 설정한 NASDrop ID와 비밀번호로 로그인하세요. DSM 아이콘으로 열면 자동 로그인됩니다.", username:"ID", password:"비밀번호", openDashboard:"대시보드 열기", accountNotConfigured:"아직 계정이 설정되지 않았습니다. DSM 아이콘으로 NASDrop을 열어 ID와 비밀번호를 먼저 만드세요.", logout:"로그아웃",
+      language:"언어", loginHint:"이 서버에 설정한 NASDrop ID와 비밀번호로 로그인하세요. DSM 아이콘으로 열면 자동 로그인됩니다.", username:"ID", password:"비밀번호", openDashboard:"대시보드 열기", accountNotConfigured:"아직 계정이 설정되지 않았습니다. DSM 아이콘 또는 Docker 계정 설정 명령으로 ID와 비밀번호를 먼저 만드세요.", logout:"로그아웃",
       dashboard:"대시보드", settings:"설정", runningOnNas:"NAS에서 실행 중", downloads:"다운로드", linkLabel:"GigaFile, GoFile 또는 Pixeldrain 다운로드 링크", downloadNow:"NAS로 바로 다운로드",
       destination:"저장 위치", checking:"확인 중…", checkingShort:"검사 중", chooseFolder:"폴더 선택", jobs:"작업 목록", loading:"불러오는 중…", clearCompleted:"완료 항목 정리",
       selected:"{count}개 선택", selectAll:"전체 선택", clearSelection:"선택 해제", pause:"일시정지", resume:"재개", delete:"삭제",
@@ -57,7 +57,7 @@
       defaultChanged:"기본 저장 폴더를 {target}(으)로 변경했습니다."
     },
     ja: {
-      language:"言語", loginHint:"このNASで設定したNASDropのIDとパスワードでログインしてください。DSMアイコンから開くと自動でログインします。", username:"ID", password:"パスワード", openDashboard:"ダッシュボードを開く", accountNotConfigured:"アカウントがまだ設定されていません。DSMアイコンからNASDropを開き、IDとパスワードを作成してください。", logout:"ログアウト",
+      language:"言語", loginHint:"このサーバーで設定したNASDropのIDとパスワードでログインしてください。DSMアイコンから開くと自動でログインします。", username:"ID", password:"パスワード", openDashboard:"ダッシュボードを開く", accountNotConfigured:"アカウントがまだ設定されていません。DSMアイコンまたはDockerのアカウント設定コマンドでIDとパスワードを作成してください。", logout:"ログアウト",
       dashboard:"ダッシュボード", settings:"設定", runningOnNas:"NASで実行中", downloads:"ダウンロード", linkLabel:"GigaFile、GoFile、またはPixeldrainのダウンロードリンク", downloadNow:"NASへダウンロード",
       destination:"保存先", checking:"確認中…", checkingShort:"確認中", chooseFolder:"フォルダーを選択", jobs:"ジョブ一覧", loading:"読み込み中…", clearCompleted:"完了項目を消去",
       selected:"{count}件選択", selectAll:"すべて選択", clearSelection:"選択解除", pause:"一時停止", resume:"再開", delete:"削除",
@@ -85,7 +85,7 @@
       defaultChanged:"既定の保存先を{target}に変更しました。"
     },
     zh: {
-      language:"语言", loginHint:"请使用在此NAS上设置的NASDrop ID和密码登录。从DSM图标打开时会自动登录。", username:"ID", password:"密码", openDashboard:"打开控制面板", accountNotConfigured:"尚未设置账户。请从DSM图标打开NASDrop，并先创建ID和密码。", logout:"退出登录",
+      language:"语言", loginHint:"请使用在此服务器上设置的NASDrop ID和密码登录。从DSM图标打开时会自动登录。", username:"ID", password:"密码", openDashboard:"打开控制面板", accountNotConfigured:"尚未设置账户。请通过DSM图标或Docker账户设置命令先创建ID和密码。", logout:"退出登录",
       dashboard:"控制面板", settings:"设置", runningOnNas:"正在NAS上运行", downloads:"下载", linkLabel:"GigaFile、GoFile或Pixeldrain下载链接", downloadNow:"下载到NAS",
       destination:"保存位置", checking:"正在检查…", checkingShort:"检查中", chooseFolder:"选择文件夹", jobs:"任务列表", loading:"正在加载…", clearCompleted:"清除已完成项",
       selected:"已选择{count}项", selectAll:"全选", clearSelection:"取消选择", pause:"暂停", resume:"继续", delete:"删除",

@@ -24,4 +24,4 @@ Installation questions, unsupported NAS architectures, provider website changes,
 
 ## Deployment note
 
-NASDrop is an unofficial, manually installed Synology DSM package. Keep port `8791` private, use DSM Reverse Proxy with HTTPS for internet access, choose a unique strong password, and consider an additional authentication layer for public deployments.
+NASDrop is distributed as an unofficial Synology DSM package and a Docker image. Keep port `8791` private, use DSM Reverse Proxy or another trusted HTTPS reverse proxy for internet access, choose a unique strong password, and consider an additional authentication layer for public deployments. Docker deployments should use a non-root `PUID:PGID`, mount only required storage folders, and must not use privileged mode.

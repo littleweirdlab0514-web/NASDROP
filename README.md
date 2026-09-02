@@ -5,7 +5,7 @@
 > [!TIP]
 > **DSM 7.1 support is now available.** NASDrop has been verified on real DSM 7.1 and DSM 7.2 hardware. The current SPK supports Intel/AMD 64-bit (`x86_64`) Synology NAS models running DSM 7.1 or later.
 
-NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supported GigaFile, GoFile, or Pixeldrain share link, and the Synology NAS downloads the file directly.
+NASDrop is a self-hosted personal download portal for Synology DSM and Docker hosts. Paste a supported GigaFile, GoFile, or Pixeldrain share link, and the storage server downloads the file directly.
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
 
@@ -39,6 +39,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM. Paste a supp
 - Supports pausing, resuming, and deleting jobs, plus clearing completed jobs in bulk
 - Protects direct browser and client-app access with an ID, hashed password, login throttling, and time-limited sessions
 - Detects GoFile rate limits and uses a persistent cooldown circuit breaker
+- Runs as either a native Synology SPK or a multi-platform Docker container on amd64 and arm64 hosts
 
 ### Download method option
 
@@ -48,9 +49,10 @@ The optional **Single connection** mode writes one resumable temporary file with
 
 ## Repository layout
 
-- `backend.py`: Authentication, link inspection, and the NAS-local download queue
+- `backend.py`: Authentication, link inspection, and the storage-local download queue
 - `gofile_wt.mjs`: Helper for generating GoFile web tokens
 - `synology/`: DSM SPK metadata, web UI, lifecycle scripts, and build tools
+- `Dockerfile`, `compose.yaml`, and `docker/`: Portable container image, Compose example, and startup/account utilities
 - `config.example.json`: Example package configuration
 - `runtime/`: Hashed account credentials, sessions, configuration, logs, and job state; excluded from Git
 
@@ -69,6 +71,67 @@ NASDrop does not select a default download folder during installation. A downloa
 > **After every update, open NASDrop Settings and select the default download folder again before adding new jobs.** Even if the previous path still appears, reselect it once so NASDrop can confirm that the package account still has write permission.
 
 When upgrading from an older release, the former automatically assigned `/volume2/downloads` value is cleared. A different destination that was explicitly selected by the administrator may remain visible, but it should still be selected again after the update as described above.
+
+## Run with Docker
+
+The Docker image is suitable for Synology Container Manager, ordinary Linux servers, home servers, and Docker Desktop. Published images target both `linux/amd64` and `linux/arm64`.
+
+### Docker Compose quick start
+
+1. Download `compose.yaml` and copy `docker/compose.env.example` to `.env`.
+2. Edit `.env` and set `NASDROP_CONFIG_DIR` and `NASDROP_DOWNLOAD_DIR` to persistent host folders.
+3. On Linux or Synology, set `PUID` and `PGID` to the numeric user and group that can write to the download folder. You can find them with `id your-user`.
+4. Create the first NASDrop account interactively. The password is prompted without being placed in the command line or Compose environment:
+
+   ```sh
+   docker compose run --rm nasdrop account set owner
+   ```
+
+5. Start NASDrop and open `http://SERVER-IP:8791`:
+
+   ```sh
+   docker compose up -d
+   ```
+
+6. Sign in, open **Settings**, and select the default download folder once so NASDrop verifies write access.
+
+The default Compose configuration persists application state in `./nasdrop-config`, mounts `./downloads` as `/downloads`, and stores partial files in `/downloads/.nasdrop-tmp`. Recreating or updating the container does not remove those host folders.
+
+To reset the login later, run the account command against the running container and restart it:
+
+```sh
+docker compose exec nasdrop nasdrop-account set owner
+docker compose restart nasdrop
+```
+
+### Additional storage folders
+
+Containers can only browse host folders explicitly mounted into them. To expose more destinations, add each bind mount and list every container path in `NAS_PORTAL_STORAGE_ROOTS`:
+
+```yaml
+services:
+  nasdrop:
+    environment:
+      NAS_PORTAL_NAS_TARGET: /downloads
+      NAS_PORTAL_STORAGE_ROOTS: /downloads,/media,/archive
+    volumes:
+      - /srv/downloads:/downloads
+      - /srv/media:/media
+      - /mnt/archive:/archive
+```
+
+NASDrop never recursively changes permissions on mounted download folders. If the container reports that a folder is not writable, adjust the host folder for the configured `PUID:PGID`; do not run the service as a privileged container. Only `/config` is automatically assigned to that numeric account.
+
+### Docker update and HTTPS
+
+Update without deleting persistent data:
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+After an update, open **Settings** and select the default download folder again. For access outside the local network, place NASDrop behind an HTTPS reverse proxy and do not expose plain HTTP port `8791` directly to the internet.
 
 ## Opening NASDrop and setting up client login
 
