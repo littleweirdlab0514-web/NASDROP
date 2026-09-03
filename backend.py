@@ -29,6 +29,7 @@ import subprocess
 import tarfile
 import threading
 import time
+import unicodedata
 import zipfile
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
@@ -73,7 +74,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.5")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.6")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -704,6 +705,83 @@ def _validate_extracted_tree(destination: Path) -> None:
         _checked_archive_totals(entries, total_size)
 
 
+_ZIP_LEGACY_ENCODINGS = ("utf-8", "cp949", "shift_jis", "gb18030")
+
+
+def _zip_name_score(value: str, encoding: str) -> int:
+    score = 3 if encoding == "utf-8" else 0
+    hangul = 0
+    kana = 0
+    cjk = 0
+    for character in value:
+        codepoint = ord(character)
+        category = unicodedata.category(character)
+        if character in "/\\._- ()[]{}" or character.isascii() and character.isalnum():
+            score += 1
+        elif 0xAC00 <= codepoint <= 0xD7A3 or 0x1100 <= codepoint <= 0x11FF:
+            hangul += 1
+            score += 3
+        elif 0x3040 <= codepoint <= 0x30FF:
+            kana += 1
+            score += 3
+        elif 0x3400 <= codepoint <= 0x9FFF:
+            cjk += 1
+            score += 2
+        elif 0x2500 <= codepoint <= 0x259F:
+            score -= 8
+        elif category.startswith(("L", "N", "P", "Z")):
+            score += 1
+        elif category.startswith("C"):
+            score -= 8
+    if encoding == "cp949":
+        score += hangul * 4
+    elif encoding == "shift_jis":
+        score += kana * 4
+    elif encoding == "gb18030":
+        score += cjk * 2
+    return score
+
+
+def _zip_legacy_encoding(infos: list[zipfile.ZipInfo]) -> str | None:
+    raw_names: list[bytes] = []
+    current_score = 0
+    for info in infos:
+        if info.flag_bits & 0x800:
+            continue
+        try:
+            raw = info.filename.encode("cp437")
+        except UnicodeEncodeError:
+            continue
+        if not any(byte >= 0x80 for byte in raw):
+            continue
+        raw_names.append(raw)
+        current_score += _zip_name_score(info.filename, "cp437")
+    if not raw_names:
+        return None
+
+    best_encoding: str | None = None
+    best_score = current_score
+    for encoding in _ZIP_LEGACY_ENCODINGS:
+        try:
+            decoded = [raw.decode(encoding, errors="strict") for raw in raw_names]
+        except (UnicodeDecodeError, LookupError):
+            continue
+        candidate_score = sum(_zip_name_score(name, encoding) for name in decoded)
+        if candidate_score > best_score + 3:
+            best_encoding = encoding
+            best_score = candidate_score
+    return best_encoding
+
+
+def _zip_entry_name(info: zipfile.ZipInfo, legacy_encoding: str | None) -> str:
+    if not legacy_encoding or info.flag_bits & 0x800:
+        return info.filename
+    try:
+        return info.filename.encode("cp437").decode(legacy_encoding, errors="strict")
+    except (UnicodeEncodeError, UnicodeDecodeError, LookupError):
+        return info.filename
+
+
 def _extract_with_seven_zip(archive: Path, destination: Path, password: str) -> None:
     _validate_seven_zip_listing(archive, password)
     _run_seven_zip(["x", "-y", "-bd", "-bb0", "-sccUTF-8", f"-o{destination}", str(archive)], password)
@@ -720,9 +798,10 @@ def extract_archive_safely(archive: Path, destination: Path, password: str = "")
         try:
             with zipfile.ZipFile(archive) as source:
                 infos = source.infolist()
+                legacy_encoding = _zip_legacy_encoding(infos)
                 _checked_archive_totals(len(infos), sum(max(0, info.file_size) for info in infos))
                 for info in infos:
-                    relative = _archive_relative_path(info.filename)
+                    relative = _archive_relative_path(_zip_entry_name(info, legacy_encoding))
                     if relative is None:
                         continue
                     mode = (info.external_attr >> 16) & 0xFFFF
@@ -1617,7 +1696,7 @@ def inspect_buzzheavier(raw_url: str) -> dict:
     request = Request(
         direct_url,
         method="HEAD",
-        headers={"User-Agent": "NASDrop/0.9.5", "Accept": "*/*"},
+        headers={"User-Agent": "NASDrop/0.9.6", "Accept": "*/*"},
     )
     with opener.open(request, timeout=30) as response:
         final = urlparse(response.geturl())

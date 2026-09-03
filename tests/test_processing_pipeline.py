@@ -216,6 +216,25 @@ class ProcessingPipelineTests(unittest.TestCase):
             self.assertEqual((output / "album" / "two.jpg").read_bytes(), b"two")
             self.assertTrue(artifact.exists(), "archive remains private until workspace cleanup")
 
+    def test_cp949_zip_filename_without_utf8_flag_is_restored(self):
+        with tempfile.TemporaryDirectory() as target_value:
+            target = Path(target_value)
+            workspace = target / ".nasdrop-tmp" / "0123456789ab"
+            workspace.mkdir(parents=True)
+            artifact = workspace / "legacy-korean.zip"
+            with zipfile.ZipFile(artifact, "w") as archive:
+                archive.writestr("ab.txt", b"subtitle")
+
+            encoded = artifact.read_bytes()
+            self.assertEqual(encoded.count(b"ab.txt"), 2)
+            artifact.write_bytes(encoded.replace(b"ab.txt", "가.txt".encode("cp949")))
+
+            output, extracted = backend.promote_download(artifact, target_value, auto_extract=True)
+
+            self.assertTrue(extracted)
+            self.assertEqual((output / "가.txt").read_bytes(), b"subtitle")
+            self.assertFalse((output / "\u2562\u2591.txt").exists())
+
     def test_matching_single_top_level_folder_is_not_double_nested(self):
         with tempfile.TemporaryDirectory() as target_value:
             target = Path(target_value)

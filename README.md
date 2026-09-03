@@ -15,6 +15,10 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
+## What's new in 0.9.6
+
+- Restores Korean CP949, Japanese Shift-JIS, and Chinese GB18030 filenames when legacy ZIP archives omit the UTF-8 filename flag, while preserving UTF-8 names and archive path-safety checks.
+
 ## What's new in 0.9.5
 
 - Buzzheavier signed direct links copied with **Copy download link** are now accepted by the web portal and Android client.
@@ -192,7 +196,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.5-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.6-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
