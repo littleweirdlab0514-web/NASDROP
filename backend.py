@@ -73,7 +73,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.4")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.5")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -1617,7 +1617,7 @@ def inspect_buzzheavier(raw_url: str) -> dict:
     request = Request(
         direct_url,
         method="HEAD",
-        headers={"User-Agent": "NASDrop/0.9.4", "Accept": "*/*"},
+        headers={"User-Agent": "NASDrop/0.9.5", "Accept": "*/*"},
     )
     with opener.open(request, timeout=30) as response:
         final = urlparse(response.geturl())
