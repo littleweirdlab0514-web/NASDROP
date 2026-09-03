@@ -135,19 +135,20 @@ test("Synology language detection falls back to English and persists manual choi
   assert.equal(window.NASDropI18n.t("downloads"), "ダウンロード");
 });
 
-test("DSM launcher keeps LAN HTTP and external HTTPS on port 8791", async () => {
+test("DSM launcher preserves the protocol used to open DSM", async () => {
   const html = await readFile(new URL("synology/package-inner/ui/launcher.html", root), "utf8");
   const script = html.match(/<script>([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script);
 
-  function redirectFor(hostname) {
+  function redirectFor(hostname, protocol) {
     let redirected = "";
-    vm.runInNewContext(script, { location: { hostname, replace: value => { redirected = value; } } });
+    vm.runInNewContext(script, { location: { hostname, protocol, replace: value => { redirected = value; } } });
     return redirected;
   }
 
-  assert.equal(redirectFor("192.168.1.20"), "http://192.168.1.20:8791/");
-  assert.equal(redirectFor("diskstation"), "http://diskstation:8791/");
-  assert.equal(redirectFor("nas.example.com"), "https://nas.example.com:8791/");
-  assert.equal(redirectFor("[2001:db8::20]"), "https://[2001:db8::20]:8791/");
+  assert.equal(redirectFor("192.168.1.20", "http:"), "http://192.168.1.20:8791/");
+  assert.equal(redirectFor("diskstation", "https:"), "https://diskstation:8791/");
+  assert.equal(redirectFor("nas.example.com", "http:"), "http://nas.example.com:8791/");
+  assert.equal(redirectFor("nas.example.com", "https:"), "https://nas.example.com:8791/");
+  assert.equal(redirectFor("[2001:db8::20]", "http:"), "http://[2001:db8::20]:8791/");
 });

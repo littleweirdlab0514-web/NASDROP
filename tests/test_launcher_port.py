@@ -17,6 +17,9 @@ class LauncherPortTests(unittest.TestCase):
     def test_rendered_launcher_keeps_lan_port_and_uses_public_port(self):
         html = backend.render_launcher_html("test-token", 8795)
         self.assertIn("privateHost ? 8791 : 8795", html)
+        self.assertIn('location.protocol === "https:" ? "https://" : "http://"', html)
+        self.assertIn("location.replace(targetProtocol + host", html)
+        self.assertNotIn('privateHost ? "http://" : "https://"', html)
         self.assertIn('var token = "test-token";', html)
         self.assertIn('encodeURIComponent(token)', html)
 
@@ -27,6 +30,7 @@ class LauncherPortTests(unittest.TestCase):
                 backend.write_launcher_file("test-token", 8795)
             contents = launcher.read_text(encoding="utf-8")
             self.assertIn("privateHost ? 8791 : 8795", contents)
+            self.assertIn("location.replace(targetProtocol + host", contents)
             self.assertFalse(launcher.with_suffix(".tmp").exists())
 
 

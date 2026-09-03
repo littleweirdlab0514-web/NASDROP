@@ -374,8 +374,9 @@ def render_launcher_html(token: str, public_port: int) -> str:
     /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(plainHost) ||
     plainHost.endsWith(".local") || plainHost.indexOf(".") === -1));
   var targetPort = privateHost ? {LISTEN_PORT} : {int(public_port)};
+  var targetProtocol = location.protocol === "https:" ? "https://" : "http://";
   var token = {encoded_token};
-  location.replace((privateHost ? "http://" : "https://") + host + ":" + targetPort + "/#token=" + encodeURIComponent(token));
+  location.replace(targetProtocol + host + ":" + targetPort + "/#token=" + encodeURIComponent(token));
 </script></body></html>
 '''
 

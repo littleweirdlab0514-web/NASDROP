@@ -21,6 +21,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 - Buzzheavier link tokens are removed from the public job source and stored separately with restricted permissions so they do not appear in the job list or `jobs.json`.
 - Expired Buzzheavier links now produce a provider-specific message asking for a newly copied link.
 - The settings screen now combines parallel-download and per-file transfer controls into one compact half-width card with a single warning and save action.
+- The DSM launcher now preserves the protocol used to open DSM, so an HTTP domain opens NASDrop over HTTP instead of forcing HTTPS.
 
 ## What's new in 0.9.3
 
@@ -191,7 +192,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.4-4-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.4-5-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 

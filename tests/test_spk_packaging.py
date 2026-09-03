@@ -93,10 +93,10 @@ class SpkPackagingTests(unittest.TestCase):
         ]
         for path in launcher_sources:
             source = path.read_text(encoding="utf-8")
-            self.assertIn('privateHost ? "http://" : "https://"', source, str(path))
-            self.assertIn('var isV6 = plainHost.indexOf(":") !== -1;', source, str(path))
+            self.assertIn('location.protocol === "https:" ? "https://" : "http://"', source, str(path))
+            self.assertIn('location.replace(targetProtocol + host', source, str(path))
             self.assertIn('+ host + ":8791/', source, str(path))
-            self.assertNotIn('location.replace("http://"', source, str(path))
+            self.assertNotIn('privateHost ? "http://" : "https://"', source, str(path))
 
     def test_launcher_port_setting_updates_installed_dsm_launcher(self):
         start_script = (PACKAGE_ROOT / "scripts" / "start-stop-status").read_text(encoding="utf-8")

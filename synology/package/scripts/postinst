@@ -22,13 +22,8 @@ cat > "${SYNOPKG_PKGDEST}/ui/launcher.html" <<EOF
 <html><head><meta charset="utf-8"><title>NASDrop</title></head>
 <body><script>
   var host = location.hostname;
-  var plainHost = host.replace(/^\\[|\\]$/g, "").toLowerCase();
-  var isV6 = plainHost.indexOf(":") !== -1;
-  var privateHost = plainHost === "localhost" || plainHost === "::1" ||
-    (!isV6 && (/^(127\\.|10\\.|192\\.168\\.)/.test(plainHost) ||
-    /^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(plainHost) ||
-    plainHost.endsWith(".local") || plainHost.indexOf(".") === -1));
-  location.replace((privateHost ? "http://" : "https://") + host + ":8791/#token=${token}");
+  var targetProtocol = location.protocol === "https:" ? "https://" : "http://";
+  location.replace(targetProtocol + host + ":8791/#token=${token}");
 </script></body></html>
 EOF
 chmod 644 "${SYNOPKG_PKGDEST}/ui/launcher.html"
