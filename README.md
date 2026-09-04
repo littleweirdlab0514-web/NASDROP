@@ -15,6 +15,22 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
+## What's new in 0.9.9
+
+- NASDrop API and saved job failures now carry stable error categories, so English, Japanese, and Chinese users see localized errors instead of Korean-only backend text.
+- DSM launcher account-reset authority is limited to the first five minutes of its one-hour automatic-login session, and the in-memory session registry is capped at 256 entries.
+- Provider downloads now refuse redirects from HTTPS to plain HTTP. 7-Zip archive passwords are supplied through standard input instead of appearing in the process command line.
+
+## What's new in 0.9.8
+
+- Public hostnames opened over HTTP now show a clear warning before login and inside the dashboard while preserving certificate-free HTTP access.
+
+## What's new in 0.9.7
+
+- DSM icon handoff values are now single-use: the browser exchanges one for a short-lived launcher session and the server rotates the handoff immediately.
+- Login handling now rejects malformed request lengths, safely handles non-ASCII login input, bounds stale failure records, and ignores forwarded client addresses unless a local reverse proxy is explicitly trusted.
+- API routes now behave consistently when a query string is present, job state files use restricted permissions, extraction has a six-hour safety timeout, and concurrent settings writes are serialized.
+
 ## What's new in 0.9.6
 
 - Restores Korean CP949, Japanese Shift-JIS, and Chinese GB18030 filenames when legacy ZIP archives omit the UTF-8 filename flag, while preserving UTF-8 names and archive path-safety checks.
@@ -67,6 +83,10 @@ The optional **Single connection** mode writes one resumable temporary file with
 - `Dockerfile`, `compose.yaml`, and `docker/`: Portable container image, Compose example, and startup/account utilities
 - `config.example.json`: Example package configuration
 - `runtime/`: Hashed account credentials, sessions, configuration, logs, and job state; excluded from Git
+- `tests/`: Python and Node.js regression tests for providers, packaging, authentication, extraction, and the rendered UI
+- `docs/`: Release, provider-filename, and DSM-launcher regression checklists
+- `assets/`: Documentation screenshots and translated setup guides
+- `.github/`: Release and container publishing workflows
 
 ## Install a prebuilt release
 
@@ -90,8 +110,8 @@ The Docker image is suitable for Synology Container Manager, ordinary Linux serv
 
 ### Docker Compose quick start
 
-1. Download `compose.yaml` and copy `docker/compose.env.example` to `.env`.
-2. Edit `.env` and set `NASDROP_CONFIG_DIR` and `NASDROP_DOWNLOAD_DIR` to persistent host folders.
+1. Download `compose.yaml`. Optionally copy `docker/compose.env.example` to `.env` when you want to override the defaults.
+2. If you created `.env`, set `NASDROP_CONFIG_DIR` and `NASDROP_DOWNLOAD_DIR` to persistent host folders.
 3. On Linux or Synology, set `PUID` and `PGID` to the numeric user and group that can write to the download folder. You can find them with `id your-user`.
 4. Create the first NASDrop account interactively. The password is prompted without being placed in the command line or Compose environment:
 
@@ -147,18 +167,18 @@ After an update, open **Settings** and select the default download folder again.
 
 ## Opening NASDrop and setting up client login
 
-- Sign in to DSM with an administrator account, then open NASDrop from its DSM desktop or Package Center icon. This administrator-only launch signs in automatically.
-- After installing or updating, use that DSM administrator launch and create a NASDrop ID and password under **Settings > Client connection**.
+- Sign in to DSM with an account that is allowed to open NASDrop, then launch it from the DSM desktop or Package Center icon. The icon provides a one-time privileged handoff that can create or reset the NASDrop login.
+- After installing or updating, use that DSM icon launch and create a NASDrop ID and password under **Settings > Client connection**. Only grant NASDrop application access to DSM users who are allowed to reset this login.
 - Opening the service address directly, using another browser, or connecting a client app requires that ID and password.
 - If the ID or password is forgotten, sign in to DSM, open NASDrop from its DSM icon, and reset both values under **Settings > Client connection**. The old password cannot be displayed or recovered.
 - Passwords are stored only as salted PBKDF2-SHA256 hashes. Successful logins receive a time-limited session token; changing the account credentials revokes existing sessions.
 - Five consecutive failed login attempts from the same client IP trigger a 15-minute login block.
 
-The DSM launcher uses a separate internal browser handoff value and removes it from the address immediately. It is not displayed in the NASDrop interface or stored as a reusable client credential.
+The DSM launcher uses a separate one-time browser handoff value and removes it from the address immediately. The server exchanges it for a short-lived launcher session, rotates the handoff at once, and never treats the value embedded in the launcher file as a reusable API credential.
 
 ### Client login creation and reset examples
 
-The following guides show how a DSM administrator creates the first NASDrop ID and password, and how the same administrator-only DSM launch can reset existing credentials.
+The following guides show how an authorized DSM user creates the first NASDrop ID and password and how the DSM icon launch can reset existing credentials.
 
 <details open>
 <summary><strong>English</strong></summary>
@@ -196,7 +216,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.6-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.9-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
@@ -217,6 +237,8 @@ See Synology's official guides for [creating a shared folder](https://kb.synolog
 English is the default interface language. NASDrop automatically follows the browser language when it is Korean, Japanese, or Chinese. It falls back to English when the language is unsupported or cannot be detected.
 
 Users can manually select English, Korean, Japanese, or Chinese on the login screen or from the top navigation. The selection is stored in the browser. DSM Package Center descriptions support the same four languages.
+
+The interface chrome is translated, but some provider, validation, and backend error details are still emitted in Korean. Full server-error localization is a known limitation planned separately.
 
 ## Configuring HTTPS with DSM Reverse Proxy
 
@@ -324,14 +346,11 @@ The following screenshots show the new port setting in all four supported interf
 
 Do not forward any external port directly to NAS port `8791`; that would expose login credentials and portal traffic over unencrypted HTTP.
 
-DSM should forward the original host and HTTPS scheme. If the generated public address is incorrect, add or correct these reverse-proxy request headers:
-
-- `X-Forwarded-Proto: https`
-- `X-Forwarded-Host: nas.example.com:8791` when the public URL uses port `8791`
-
 After saving the configuration, test the exact HTTPS address from outside the local network. A request beginning with `http://` will return `400 Bad Request` because plain HTTP was sent to an HTTPS listener.
 
-The DSM launcher uses HTTP with port `8791` for private LAN IP addresses and local hostnames. For public hostnames it uses HTTPS with the external icon port selected in NASDrop settings. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
+The DSM launcher preserves the protocol used to open DSM. It uses port `8791` for private hosts and the external icon port selected in NASDrop settings for public hostnames. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
+
+Login throttling uses the direct peer address by default and does not trust `X-Forwarded-For`. If, and only if, NASDrop is reachable exclusively through one trusted reverse proxy on the same host, set `NAS_PORTAL_TRUST_FORWARDED_FOR=true` (or `NASDROP_TRUST_FORWARDED_FOR=true` with the supplied Compose file). NASDrop then accepts the rightmost forwarded address only from a loopback proxy and records both peer and selected client addresses in its log.
 
 ## Verification
 
@@ -347,9 +366,18 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 - Never commit `runtime/`, `.env*`, signing keys, or device-specific secrets.
 - The local `service.log` records timestamps, client IP addresses, HTTP methods, endpoint paths without query strings, and response status codes for diagnostics. Each log file is limited to 1 MiB and only two rotated backups are retained (about 3 MiB maximum total).
 - Use HTTPS whenever the portal is accessible from the internet.
+- When NASDrop is opened over HTTP on a public hostname, the login screen and dashboard show an unencrypted-connection warning. HTTP remains available for certificate-free or trusted-network setups; the warning does not appear for private IP addresses, localhost, single-label NAS names, or `.local` hosts.
 - Consider an additional access-control layer beyond the NASDrop account login for internet-facing deployments.
 - NASDrop does not require DSM administrator passwords or NAS account credentials in the web interface.
 - Only submit links and download files that you own or are authorized to access. You are responsible for complying with the source service's terms and applicable law.
+
+### Operational limits
+
+- JSON API request bodies are limited to 16 KiB and idle request handling times out after 30 seconds.
+- Login failure tracking retains inactive entries for 15 minutes and is capped at 4,096 client addresses.
+- Browser login sessions last seven days; DSM launcher sessions last one hour, while the handoff that creates them is single-use.
+- Archive extraction is stopped after six hours. Archive safety checks also cap entries at 100,000 and extracted data at 1 TiB.
+- Individual source files are limited to 300 GiB, and the global download scheduler runs at most three jobs concurrently.
 
 ## Supported links and rate-limit protection
 

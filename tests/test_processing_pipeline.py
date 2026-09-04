@@ -1,6 +1,7 @@
 import io
 import os
 from pathlib import Path
+import stat
 import tempfile
 import tarfile
 import unittest
@@ -118,6 +119,31 @@ class ProcessingPipelineTests(unittest.TestCase):
         self.assertNotIn("sha256sum", script)
         self.assertNotIn("cat /volume2", script)
 
+    def test_private_download_values_are_not_passed_in_curl_argv(self):
+        controller = backend.Controller.__new__(backend.Controller)
+        signed_url = "https://ts.buzzheavier.com/d/file?v=private-token"
+        script = controller._download_script_direct(
+            signed_url, "https://buzzheavier.com/file", "file.bin", "0123456789ab", 1024,
+            "/volume2/downloads/.nasdrop-tmp/0123456789ab", cookie="accountToken=private-account",
+        )
+        curl_lines = [line for line in script.splitlines() if "curl " in line]
+        self.assertTrue(curl_lines)
+        self.assertTrue(all("private-token" not in line for line in curl_lines))
+        self.assertTrue(all("private-account" not in line for line in curl_lines))
+        self.assertTrue(all('--config "$CURL_CONFIG"' in line for line in curl_lines))
+        self.assertIn('proto = "=https"', script)
+        self.assertIn('proto-redir = "=https"', script)
+
+    def test_gigafile_download_scripts_reject_non_https_redirects(self):
+        controller = backend.Controller.__new__(backend.Controller)
+        script = controller._download_script(
+            "25.gigafile.nu", "file-id", "file.bin", "0123456789ab", 1024,
+            "/volume2/downloads/.nasdrop-tmp/0123456789ab",
+        )
+        curl_lines = [line for line in script.splitlines() if "curl " in line]
+        self.assertTrue(curl_lines)
+        self.assertTrue(all(backend.CURL_HTTPS_ONLY in line for line in curl_lines))
+
     def test_rar_and_7z_are_recognized_by_external_engine(self):
         self.assertEqual(backend.archive_kind("backup.7z"), "7zip")
         self.assertEqual(backend.archive_kind("BACKUP.RAR"), "7zip")
@@ -139,9 +165,13 @@ class ProcessingPipelineTests(unittest.TestCase):
             engine = Path(temp) / "7zz"
             engine.write_bytes(b"placeholder")
             result = backend.subprocess.CompletedProcess([], 2, "", "ERROR: Wrong password")
-            with mock.patch.object(backend, "SEVEN_ZIP", engine), mock.patch.object(backend.subprocess, "run", return_value=result):
+            with mock.patch.object(backend, "SEVEN_ZIP", engine), mock.patch.object(backend.subprocess, "run", return_value=result) as run:
                 with self.assertRaises(backend.PasswordRequiredError):
                     backend._run_seven_zip(["x", "archive.7z"], "incorrect")
+            command = run.call_args.args[0]
+            self.assertNotIn("incorrect", command)
+            self.assertIn("-p", command)
+            self.assertEqual(run.call_args.kwargs["input"], "incorrect\n")
 
     def test_external_engine_listing_rejects_path_traversal(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -152,6 +182,23 @@ class ProcessingPipelineTests(unittest.TestCase):
             with mock.patch.object(backend, "SEVEN_ZIP", engine), mock.patch.object(backend.subprocess, "run", return_value=result):
                 with self.assertRaisesRegex(ValueError, "벗어나는 경로"):
                     backend._validate_seven_zip_listing(Path(temp) / "archive.rar", "")
+
+    def test_external_engine_extraction_has_a_safety_timeout(self):
+        with mock.patch.object(backend, "_validate_seven_zip_listing"), mock.patch.object(backend, "_validate_extracted_tree"), mock.patch.object(backend, "_run_seven_zip") as run:
+            backend._extract_with_seven_zip(Path("archive.rar"), Path("output"), "")
+        self.assertEqual(run.call_args.kwargs["timeout"], backend.ARCHIVE_EXTRACT_TIMEOUT_SECONDS)
+
+    def test_job_state_file_uses_restricted_permissions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state_file = Path(temp) / "jobs.json"
+            controller = backend.Controller.__new__(backend.Controller)
+            controller.jobs = {}
+            with mock.patch.object(backend, "STATE_DIR", Path(temp)), mock.patch.object(backend, "STATE_FILE", state_file):
+                controller.save()
+            if os.name == "nt":
+                self.assertTrue(state_file.is_file())
+            else:
+                self.assertEqual(stat.S_IMODE(state_file.stat().st_mode), 0o600)
 
     def test_workspace_is_hidden_and_scoped_to_target(self):
         with tempfile.TemporaryDirectory() as target:

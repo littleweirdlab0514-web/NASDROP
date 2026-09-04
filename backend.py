@@ -74,7 +74,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.6")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.9")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -94,11 +94,22 @@ LOG_MAX_BYTES = 1024 * 1024
 LOG_BACKUP_COUNT = 2
 PASSWORD_HASH_ITERATIONS = 600_000
 SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
+MAX_SESSION_ENTRIES = 256
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_BLOCK_SECONDS = 15 * 60
+LOGIN_FAILURE_RETENTION_SECONDS = 15 * 60
+MAX_LOGIN_FAILURE_ENTRIES = 4096
+REQUEST_BODY_LIMIT = 16_384
+REQUEST_TIMEOUT_SECONDS = 30
+LAUNCHER_SESSION_TTL_SECONDS = 60 * 60
+LAUNCHER_ACCOUNT_RESET_WINDOW_SECONDS = 5 * 60
+ARCHIVE_EXTRACT_TIMEOUT_SECONDS = 6 * 60 * 60
+CURL_HTTPS_ONLY = "--proto '=https' --proto-redir '=https'"
 LOGGER = logging.getLogger("nasdrop")
 LOGGER.addHandler(logging.NullHandler())
 JOB_SECRET_LOCK = threading.RLock()
+CONFIG_LOCK = threading.RLock()
+LAUNCHER_TOKEN_LOCK = threading.RLock()
 
 
 def rotating_log_handler(path: str, max_bytes: int = LOG_MAX_BYTES, backup_count: int = LOG_BACKUP_COUNT):
@@ -170,6 +181,36 @@ LAUNCHER_PORT = launcher_port_setting()
 DOWNLOAD_MODE = download_mode_setting()
 AUTO_EXTRACT_ARCHIVES = bool_setting("NAS_PORTAL_AUTO_EXTRACT_ARCHIVES", True)
 DISK_PROTECTION = bool_setting("NAS_PORTAL_DISK_PROTECTION", True)
+TRUST_FORWARDED_FOR = bool_setting("NAS_PORTAL_TRUST_FORWARDED_FOR", False)
+
+
+def public_error_code(message: object) -> str:
+    """Return a stable, non-sensitive category for API and persisted job errors."""
+    value = str(message)
+    rules = (
+        (("로그인이 필요",), "auth_required"),
+        (("ID 또는 비밀번호",), "invalid_credentials"),
+        (("계정이 아직 설정",), "account_not_configured"),
+        (("현재 비밀번호",), "current_password_invalid"),
+        (("DSM 아이콘 연결",), "launcher_expired"),
+        (("권한", "쓰기 권한", "볼 권한"), "permission_denied"),
+        (("암호가 필요", "암호를 입력", "Wrong password", "password"), "password_required"),
+        (("Gofile 요청이 몰려", "429", "제한되었"), "rate_limited"),
+        (("연결하지 못", "HTTP ", "응답을 반환"), "network_error"),
+        (("만료", "링크를 다시", "Copy download link"), "link_expired"),
+        (("무결성", "손상", "크기가 예상값"), "integrity_failed"),
+        (("압축", "7-Zip", "archive"), "archive_error"),
+        (("지원 서비스", "정식 GigaFile", "정식 Gofile", "정식 Pixeldrain", "Buzzheavier"), "invalid_link"),
+        (("작업", "파일 정보가 변경", "파일이 없습니다"), "invalid_job_state"),
+        (("설정", "선택값", "선택해 주세요", "올바르지 않습니다"), "invalid_request"),
+        (("찾을 수 없습니다",), "not_found"),
+        (("재시작",), "service_restarted"),
+        (("내부 처리",), "internal_error"),
+    )
+    for fragments, code in rules:
+        if any(fragment.casefold() in value.casefold() for fragment in fragments):
+            return code
+    return "generic_error"
 
 
 def storage_roots_setting() -> tuple[Path, ...]:
@@ -196,11 +237,11 @@ def now() -> str:
 
 def load_launcher_token() -> str:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    if TOKEN_FILE.exists():
-        return TOKEN_FILE.read_text(encoding="utf-8").strip()
     token = secrets.token_urlsafe(32)
-    TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
-    TOKEN_FILE.chmod(0o600)
+    temporary = TOKEN_FILE.with_suffix(".tmp")
+    temporary.write_text(token + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(TOKEN_FILE)
     return token
 
 
@@ -241,9 +282,9 @@ def load_credentials() -> dict[str, object]:
 
 
 CREDENTIALS = load_credentials()
-SESSIONS: dict[str, tuple[str, float]] = {}
+SESSIONS: dict[str, tuple[str, float, str, float]] = {}
 SESSIONS_LOCK = threading.Lock()
-LOGIN_FAILURES: dict[str, tuple[int, float]] = {}
+LOGIN_FAILURES: dict[str, tuple[int, float, float]] = {}
 LOGIN_FAILURES_LOCK = threading.Lock()
 
 
@@ -259,7 +300,9 @@ def verify_credentials(username: object, password: object) -> bool:
     if not CREDENTIALS or not isinstance(username, str) or not isinstance(password, str):
         return False
     stored_username = str(CREDENTIALS.get("username", ""))
-    username_matches = secrets.compare_digest(username.strip().casefold(), stored_username.casefold())
+    username_matches = secrets.compare_digest(
+        username.strip().casefold().encode("utf-8"), stored_username.casefold().encode("utf-8"),
+    )
     try:
         salt = bytes.fromhex(str(CREDENTIALS["salt"]))
         iterations = int(CREDENTIALS.get("iterations", PASSWORD_HASH_ITERATIONS))
@@ -270,14 +313,19 @@ def verify_credentials(username: object, password: object) -> bool:
     return username_matches and hash_matches
 
 
-def create_session(username: str) -> str:
+def create_session(username: str, kind: str = "session", ttl: int = SESSION_TTL_SECONDS) -> str:
     token = secrets.token_urlsafe(32)
     with SESSIONS_LOCK:
         current = time.time()
-        expired = [value for value, (_, expiry) in SESSIONS.items() if expiry <= current]
+        expired = [value for value, (_, expiry, _, _) in SESSIONS.items() if expiry <= current]
         for value in expired:
             SESSIONS.pop(value, None)
-        SESSIONS[token] = (username, current + SESSION_TTL_SECONDS)
+        overflow = len(SESSIONS) - MAX_SESSION_ENTRIES + 1
+        if overflow > 0:
+            oldest = sorted(SESSIONS, key=lambda value: SESSIONS[value][3])[:overflow]
+            for value in oldest:
+                SESSIONS.pop(value, None)
+        SESSIONS[token] = (username, current + ttl, kind, current)
     return token
 
 
@@ -286,11 +334,36 @@ def session_username(token: str) -> str:
         session = SESSIONS.get(token)
         if not session:
             return ""
-        username, expiry = session
+        username, expiry, _, _ = session
         if expiry <= time.time():
             SESSIONS.pop(token, None)
             return ""
         return username
+
+
+def session_kind(token: str) -> str:
+    with SESSIONS_LOCK:
+        session = SESSIONS.get(token)
+        if not session:
+            return ""
+        _, expiry, kind, _ = session
+        if expiry <= time.time():
+            SESSIONS.pop(token, None)
+            return ""
+        return kind
+
+
+def launcher_account_reset_allowed(token: str) -> bool:
+    with SESSIONS_LOCK:
+        session = SESSIONS.get(token)
+        if not session:
+            return False
+        _, expiry, kind, issued_at = session
+        current = time.time()
+        if expiry <= current:
+            SESSIONS.pop(token, None)
+            return False
+        return kind == "launcher" and current - issued_at <= LAUNCHER_ACCOUNT_RESET_WINDOW_SECONDS
 
 
 def revoke_session(token: str) -> None:
@@ -321,41 +394,62 @@ def replace_credentials(username: object, password: object) -> str:
     return normalized_username
 
 
+def _prune_login_failures(current: float) -> None:
+    expired = [
+        client_ip for client_ip, (_, blocked_until, last_failure) in LOGIN_FAILURES.items()
+        if blocked_until <= current and current - last_failure >= LOGIN_FAILURE_RETENTION_SECONDS
+    ]
+    for client_ip in expired:
+        LOGIN_FAILURES.pop(client_ip, None)
+    overflow = len(LOGIN_FAILURES) - MAX_LOGIN_FAILURE_ENTRIES
+    if overflow > 0:
+        oldest = sorted(LOGIN_FAILURES, key=lambda value: LOGIN_FAILURES[value][2])[:overflow]
+        for client_ip in oldest:
+            LOGIN_FAILURES.pop(client_ip, None)
+
+
 def login_block_remaining(client_ip: str) -> int:
     with LOGIN_FAILURES_LOCK:
-        failures, blocked_until = LOGIN_FAILURES.get(client_ip, (0, 0))
+        current = time.time()
+        _prune_login_failures(current)
+        failures, blocked_until, _ = LOGIN_FAILURES.get(client_ip, (0, 0, 0))
         if not failures or not blocked_until:
             return 0
-        if blocked_until <= time.time():
+        if blocked_until <= current:
             LOGIN_FAILURES.pop(client_ip, None)
             return 0
-        return max(1, int(blocked_until - time.time()))
+        return max(1, int(blocked_until - current))
 
 
 def record_login_result(client_ip: str, success: bool) -> None:
     with LOGIN_FAILURES_LOCK:
+        current = time.time()
+        _prune_login_failures(current)
         if success:
             LOGIN_FAILURES.pop(client_ip, None)
             return
-        failures, blocked_until = LOGIN_FAILURES.get(client_ip, (0, 0))
-        if blocked_until > time.time():
+        failures, blocked_until, _ = LOGIN_FAILURES.get(client_ip, (0, 0, 0))
+        if blocked_until > current:
             return
         failures += 1
         LOGIN_FAILURES[client_ip] = (
             failures,
-            time.time() + LOGIN_BLOCK_SECONDS if failures >= LOGIN_FAILURE_LIMIT else 0,
+            current + LOGIN_BLOCK_SECONDS if failures >= LOGIN_FAILURE_LIMIT else 0,
+            current,
         )
+        _prune_login_failures(current)
 
 
-def trusted_client_ip(peer_ip: str, forwarded_for: str = "") -> str:
-    """Use a forwarded client IP only when DSM's local reverse proxy supplied it."""
+def trusted_client_ip(peer_ip: str, forwarded_for: str = "", trust_forwarded: bool | None = None) -> str:
+    """Use the rightmost forwarded IP only after explicitly trusting a local reverse proxy."""
     try:
         peer = ipaddress.ip_address(peer_ip)
     except ValueError:
         return peer_ip
-    if not peer.is_loopback or not forwarded_for:
+    trust = TRUST_FORWARDED_FOR if trust_forwarded is None else trust_forwarded
+    if not trust or not peer.is_loopback or not forwarded_for:
         return peer_ip
-    candidate = forwarded_for.split(",", 1)[0].strip()
+    candidate = forwarded_for.rsplit(",", 1)[-1].strip()
     try:
         return str(ipaddress.ip_address(candidate))
     except ValueError:
@@ -385,11 +479,30 @@ def render_launcher_html(token: str, public_port: int) -> str:
 def write_launcher_file(token: str | None = None, public_port: int | None = None) -> None:
     if LAUNCHER_FILE is None:
         return
-    port = LAUNCHER_PORT if public_port is None else normalize_launcher_port(public_port)
-    temporary = LAUNCHER_FILE.with_suffix(".tmp")
-    temporary.write_text(render_launcher_html(token or LAUNCHER_TOKEN, port), encoding="utf-8")
-    temporary.chmod(0o644)
-    temporary.replace(LAUNCHER_FILE)
+    with LAUNCHER_TOKEN_LOCK:
+        port = LAUNCHER_PORT if public_port is None else normalize_launcher_port(public_port)
+        temporary = LAUNCHER_FILE.with_suffix(".tmp")
+        temporary.write_text(render_launcher_html(token or LAUNCHER_TOKEN, port), encoding="utf-8")
+        temporary.chmod(0o644)
+        temporary.replace(LAUNCHER_FILE)
+
+
+def rotate_launcher_token() -> str:
+    global LAUNCHER_TOKEN
+    with LAUNCHER_TOKEN_LOCK:
+        previous = LAUNCHER_TOKEN
+        try:
+            LAUNCHER_TOKEN = load_launcher_token()
+            write_launcher_file(LAUNCHER_TOKEN)
+        except OSError:
+            LAUNCHER_TOKEN = previous
+            STATE_DIR.mkdir(parents=True, exist_ok=True)
+            temporary = TOKEN_FILE.with_suffix(".tmp")
+            temporary.write_text(previous + "\n", encoding="utf-8")
+            temporary.chmod(0o600)
+            temporary.replace(TOKEN_FILE)
+            raise
+        return LAUNCHER_TOKEN
 
 
 def refresh_launcher_safely() -> None:
@@ -644,8 +757,10 @@ def _seven_zip_records(output: str) -> list[dict[str, str]]:
     return records
 
 
-def _seven_zip_args(password: str) -> list[str]:
-    return [f"-p{password}"] if password else []
+def _curl_config_value(value: str) -> str:
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError("다운로드 요청 정보에 제어 문자를 사용할 수 없습니다.")
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
@@ -653,11 +768,19 @@ def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = 
         raise ValueError("패키지의 7-Zip 압축 해제 엔진을 찾을 수 없습니다.")
     environment = dict(os.environ)
     environment.update({"LANG": "C", "LC_ALL": "C"})
-    result = subprocess.run(
-        [str(SEVEN_ZIP), *arguments, *_seven_zip_args(password)],
-        stdin=subprocess.DEVNULL, capture_output=True, text=True, errors="replace", env=environment, timeout=timeout,
-    )
+    command = [str(SEVEN_ZIP), *arguments]
+    run_options: dict[str, object] = {
+        "capture_output": True, "text": True, "errors": "replace", "env": environment, "timeout": timeout,
+    }
+    if password:
+        command.append("-p")
+        run_options["input"] = password + "\n"
+    else:
+        run_options["stdin"] = subprocess.DEVNULL
+    result = subprocess.run(command, **run_options)
     message = "\n".join((result.stdout, result.stderr)).strip()
+    if password:
+        message = message.replace(password, "***")
     if result.returncode != 0:
         if _password_failure(message) or not password and "encrypted" in message.lower():
             raise PasswordRequiredError("압축 암호가 필요하거나 입력한 암호가 올바르지 않습니다.")
@@ -784,7 +907,11 @@ def _zip_entry_name(info: zipfile.ZipInfo, legacy_encoding: str | None) -> str:
 
 def _extract_with_seven_zip(archive: Path, destination: Path, password: str) -> None:
     _validate_seven_zip_listing(archive, password)
-    _run_seven_zip(["x", "-y", "-bd", "-bb0", "-sccUTF-8", f"-o{destination}", str(archive)], password)
+    _run_seven_zip(
+        ["x", "-y", "-bd", "-bb0", "-sccUTF-8", f"-o{destination}", str(archive)],
+        password,
+        timeout=ARCHIVE_EXTRACT_TIMEOUT_SECONDS,
+    )
     _validate_extracted_tree(destination)
 
 
@@ -943,11 +1070,17 @@ class Controller:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         temp = STATE_FILE.with_suffix(".tmp")
         temp.write_text(json.dumps([asdict(x) for x in self.jobs.values()], ensure_ascii=False, indent=2), encoding="utf-8")
+        temp.chmod(0o600)
         temp.replace(STATE_FILE)
 
     def public_jobs(self) -> list[dict]:
         with self.lock:
-            return [asdict(job) for job in reversed(list(self.jobs.values()))]
+            jobs = []
+            for job in reversed(list(self.jobs.values())):
+                item = asdict(job)
+                item["error_code"] = public_error_code(job.error) if job.error else ""
+                jobs.append(item)
+            return jobs
 
     def active(self) -> bool:
         return any(job.status in {"ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing"} for job in self.jobs.values())
@@ -1389,15 +1522,15 @@ COOKIE={shlex.quote(cookie)}
 PAGE_COPY=/tmp/nas_download_{job_id}.page
 cleanup() {{ rm -f "$COOKIE" "$PAGE_COPY"; }}
 trap cleanup EXIT HUP INT TERM
-curl -L --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
-(curl -L --fail --silent --show-error -I -b "$COOKIE" -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
+curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
+(curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -I -b "$COOKIE" -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
 existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
 [ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
 if [ "$existing" -lt "$TOTAL" ]; then
   if [ "$existing" -gt 0 ]; then
-    curl -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -C - -o "$PART" {shlex.quote(download)}
+    curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -C - -o "$PART" {shlex.quote(download)}
   else
-    curl -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
+    curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
   fi
 fi
 actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -eq "$TOTAL" ]
@@ -1410,13 +1543,13 @@ set -eu
 TOTAL={total}
 COUNT=8
 CHUNK=$(( (TOTAL + COUNT - 1) / COUNT ))
-curl -L --fail --silent --show-error -c {shlex.quote(cookie)} {shlex.quote(page)} -o /tmp/nas_download_{job_id}.page
-(curl -L --fail --silent --show-error -I -b {shlex.quote(cookie)} -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
+curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -c {shlex.quote(cookie)} {shlex.quote(page)} -o /tmp/nas_download_{job_id}.page
+(curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -I -b {shlex.quote(cookie)} -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
 i=0
 while [ "$i" -lt "$COUNT" ]; do
   start=$(( i * CHUNK )); end=$(( start + CHUNK - 1 )); [ "$end" -ge "$TOTAL" ] && end=$(( TOTAL - 1 ))
   part={shlex.quote(prefix)}.$i
-  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl -L --fail --silent --show-error --retry 8 --retry-delay 5 -b {shlex.quote(cookie)} -e {shlex.quote(page)} -r "$from-$end" -o "$more" {shlex.quote(download)}; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
+  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error --retry 8 --retry-delay 5 -b {shlex.quote(cookie)} -e {shlex.quote(page)} -r "$from-$end" -o "$more" {shlex.quote(download)}; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
   i=$(( i + 1 ))
 done
 wait
@@ -1449,11 +1582,11 @@ PAGE_COPY={shlex.quote(page_copy)}
 PART={shlex.quote(part)}
 cleanup() {{ rm -f "$COOKIE" "$PAGE_COPY"; }}
 trap cleanup EXIT HUP INT TERM
-curl -L --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
+curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
 actual=0; [ -f "$PART" ] && actual=$(wc -c < "$PART" | tr -d ' ')
 if [ "$actual" -lt "$TOTAL" ]; then
   rm -f "$PART"
-  curl -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
+  curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
 fi
 actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -ge "$TOTAL" ]
 trap - EXIT HUP INT TERM
@@ -1465,27 +1598,46 @@ printf 'SEGMENTS_READY=1\\n'
         if not download.startswith("https://"):
             raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
         prefix = f"{target_dir}/.{name}.{job_id}.segment"
-        header_option = f"-H {shlex.quote('Cookie: ' + cookie)}" if cookie else ""
+        curl_config = f"/tmp/nas_download_{job_id}.curl.conf"
+        config_lines = [
+            f'url = "{_curl_config_value(download)}"',
+            f'referer = "{_curl_config_value(page)}"',
+            'proto = "=https"',
+            'proto-redir = "=https"',
+        ]
+        if cookie:
+            config_lines.append(f'header = "{_curl_config_value("Cookie: " + cookie)}"')
+        config_body = "\n".join(config_lines)
+        config_setup = f'''CURL_CONFIG={shlex.quote(curl_config)}
+umask 077
+cat > "$CURL_CONFIG" <<'NASDROP_CURL_CONFIG'
+{config_body}
+NASDROP_CURL_CONFIG
+cleanup() {{ rm -f "$CURL_CONFIG"; }}
+trap cleanup EXIT HUP INT TERM
+'''
         response_headers = f"{target_dir}/.response-headers"
         header_probe = ""
         if capture_headers:
-            header_probe = f"(curl -L --fail --silent --show-error -I {header_option} -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})\n"
+            header_probe = f"(curl --config \"$CURL_CONFIG\" -L --fail --silent --show-error -I -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})\n"
         if mode == "single":
             part = f"{prefix}.0"
             return f"""#!/bin/sh
 set -eu
 TOTAL={total}
 PART={shlex.quote(part)}
-{header_probe}existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
+{config_setup}{header_probe}existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
 [ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
 if [ "$existing" -lt "$TOTAL" ]; then
   if [ "$existing" -gt 0 ]; then
-    curl -L --fail --silent --show-error --retry 8 --retry-delay 5 {header_option} -e {shlex.quote(page)} -C - -o "$PART" {shlex.quote(download)}
+    curl --config "$CURL_CONFIG" -L --fail --silent --show-error --retry 8 --retry-delay 5 -C - -o "$PART"
   else
-    curl -L --fail --silent --show-error --retry 8 --retry-delay 5 {header_option} -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
+    curl --config "$CURL_CONFIG" -L --fail --silent --show-error --retry 8 --retry-delay 5 -o "$PART"
   fi
 fi
 actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -eq "$TOTAL" ]
+trap - EXIT HUP INT TERM
+cleanup
 printf 'SEGMENTS_READY=1\\n'
 """
         return f"""#!/bin/sh
@@ -1493,14 +1645,16 @@ set -eu
 TOTAL={total}
 COUNT=8
 CHUNK=$(( (TOTAL + COUNT - 1) / COUNT ))
-{header_probe}i=0
+{config_setup}{header_probe}i=0
 while [ "$i" -lt "$COUNT" ]; do
   start=$(( i * CHUNK )); end=$(( start + CHUNK - 1 )); [ "$end" -ge "$TOTAL" ] && end=$(( TOTAL - 1 ))
   part={shlex.quote(prefix)}.$i
-  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl -L --fail --silent --show-error --retry 8 --retry-delay 5 {header_option} -e {shlex.quote(page)} -r "$from-$end" -o "$more" {shlex.quote(download)}; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
+  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl --config "$CURL_CONFIG" -L --fail --silent --show-error --retry 8 --retry-delay 5 -r "$from-$end" -o "$more"; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
   i=$(( i + 1 ))
 done
 wait
+trap - EXIT HUP INT TERM
+cleanup
 printf 'SEGMENTS_READY=%s\\n' "$COUNT"
 """
 
@@ -1696,7 +1850,7 @@ def inspect_buzzheavier(raw_url: str) -> dict:
     request = Request(
         direct_url,
         method="HEAD",
-        headers={"User-Agent": "NASDrop/0.9.6", "Accept": "*/*"},
+        headers={"User-Agent": f"NASDrop/{PACKAGE_VERSION}", "Accept": "*/*"},
     )
     with opener.open(request, timeout=30) as response:
         final = urlparse(response.geturl())
@@ -2152,15 +2306,16 @@ def browse_folders(raw_path: str) -> dict:
 def set_default_target(raw_path: str) -> str:
     global NAS_TARGET, CONFIG
     normalized = normalize_target(raw_path)
-    updated = dict(CONFIG)
-    updated["NAS_PORTAL_NAS_TARGET"] = normalized
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    temp = CONFIG_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temp.chmod(0o600)
-    temp.replace(CONFIG_FILE)
-    CONFIG = updated
-    NAS_TARGET = normalized
+    with CONFIG_LOCK:
+        updated = dict(CONFIG)
+        updated["NAS_PORTAL_NAS_TARGET"] = normalized
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        temp = CONFIG_FILE.with_suffix(".tmp")
+        temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temp.chmod(0o600)
+        temp.replace(CONFIG_FILE)
+        CONFIG = updated
+        NAS_TARGET = normalized
     return normalized
 
 
@@ -2174,17 +2329,18 @@ def set_parallel_settings(enabled: object, limit: object) -> dict:
         raise ValueError("동시 작업 수를 선택해 주세요.") from exc
     if normalized_limit not in {2, 3}:
         raise ValueError("같은 서비스 동시 작업 수는 2개 또는 3개만 선택할 수 있습니다.")
-    updated = dict(CONFIG)
-    updated["NAS_PORTAL_ALLOW_SAME_PROVIDER_PARALLEL"] = enabled
-    updated["NAS_PORTAL_SAME_PROVIDER_LIMIT"] = normalized_limit
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    temp = CONFIG_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temp.chmod(0o600)
-    temp.replace(CONFIG_FILE)
-    CONFIG = updated
-    ALLOW_SAME_PROVIDER_PARALLEL = enabled
-    SAME_PROVIDER_LIMIT = normalized_limit
+    with CONFIG_LOCK:
+        updated = dict(CONFIG)
+        updated["NAS_PORTAL_ALLOW_SAME_PROVIDER_PARALLEL"] = enabled
+        updated["NAS_PORTAL_SAME_PROVIDER_LIMIT"] = normalized_limit
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        temp = CONFIG_FILE.with_suffix(".tmp")
+        temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temp.chmod(0o600)
+        temp.replace(CONFIG_FILE)
+        CONFIG = updated
+        ALLOW_SAME_PROVIDER_PARALLEL = enabled
+        SAME_PROVIDER_LIMIT = normalized_limit
     CONTROLLER.settings_changed()
     return {"same_provider_parallel": enabled, "same_provider_limit": normalized_limit}
 
@@ -2192,31 +2348,33 @@ def set_parallel_settings(enabled: object, limit: object) -> dict:
 def set_launcher_port(raw_port: object) -> int:
     global LAUNCHER_PORT, CONFIG
     normalized = normalize_launcher_port(raw_port)
-    updated = dict(CONFIG)
-    updated["NAS_PORTAL_LAUNCHER_PORT"] = normalized
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    temp = CONFIG_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temp.chmod(0o600)
-    temp.replace(CONFIG_FILE)
-    CONFIG = updated
-    LAUNCHER_PORT = normalized
-    write_launcher_file(public_port=normalized)
+    with CONFIG_LOCK:
+        updated = dict(CONFIG)
+        updated["NAS_PORTAL_LAUNCHER_PORT"] = normalized
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        temp = CONFIG_FILE.with_suffix(".tmp")
+        temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temp.chmod(0o600)
+        temp.replace(CONFIG_FILE)
+        CONFIG = updated
+        LAUNCHER_PORT = normalized
+        write_launcher_file(public_port=normalized)
     return normalized
 
 
 def set_download_mode(raw_mode: object) -> str:
     global DOWNLOAD_MODE, CONFIG
     normalized = normalize_download_mode(raw_mode)
-    updated = dict(CONFIG)
-    updated["NAS_PORTAL_DOWNLOAD_MODE"] = normalized
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    temp = CONFIG_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temp.chmod(0o600)
-    temp.replace(CONFIG_FILE)
-    CONFIG = updated
-    DOWNLOAD_MODE = normalized
+    with CONFIG_LOCK:
+        updated = dict(CONFIG)
+        updated["NAS_PORTAL_DOWNLOAD_MODE"] = normalized
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        temp = CONFIG_FILE.with_suffix(".tmp")
+        temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temp.chmod(0o600)
+        temp.replace(CONFIG_FILE)
+        CONFIG = updated
+        DOWNLOAD_MODE = normalized
     return normalized
 
 
@@ -2228,38 +2386,43 @@ def set_processing_settings(auto_extract: object = None, disk_protection: object
         raise ValueError("자동 압축 해제 설정이 올바르지 않습니다.")
     if disk_protection is not None and not isinstance(disk_protection, bool):
         raise ValueError("디스크 보호 설정이 올바르지 않습니다.")
-    updated = dict(CONFIG)
-    if auto_extract is not None:
-        updated["NAS_PORTAL_AUTO_EXTRACT_ARCHIVES"] = auto_extract
-    if disk_protection is not None:
-        updated["NAS_PORTAL_DISK_PROTECTION"] = disk_protection
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    temp = CONFIG_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    temp.chmod(0o600)
-    temp.replace(CONFIG_FILE)
-    CONFIG = updated
-    if auto_extract is not None:
-        AUTO_EXTRACT_ARCHIVES = auto_extract
-    if disk_protection is not None:
-        DISK_PROTECTION = disk_protection
+    with CONFIG_LOCK:
+        updated = dict(CONFIG)
+        if auto_extract is not None:
+            updated["NAS_PORTAL_AUTO_EXTRACT_ARCHIVES"] = auto_extract
+        if disk_protection is not None:
+            updated["NAS_PORTAL_DISK_PROTECTION"] = disk_protection
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        temp = CONFIG_FILE.with_suffix(".tmp")
+        temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temp.chmod(0o600)
+        temp.replace(CONFIG_FILE)
+        CONFIG = updated
+        if auto_extract is not None:
+            AUTO_EXTRACT_ARCHIVES = auto_extract
+        if disk_protection is not None:
+            DISK_PROTECTION = disk_protection
     CONTROLLER.settings_changed()
     return {"auto_extract_archives": AUTO_EXTRACT_ARCHIVES, "disk_protection": DISK_PROTECTION}
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "NasDownloadPortal/1.0"
+    timeout = REQUEST_TIMEOUT_SECONDS
 
     def log_message(self, fmt: str, *args: object) -> None:
         LOGGER.warning("%s %s", self.client_address[0], fmt % args)
 
     def log_request(self, code: int | str = "-", size: int | str = "-") -> None:
         LOGGER.info(
-            "%s %s %s %s %s",
-            self.client_address[0], self.command, urlparse(self.path).path, code, size,
+            "peer=%s client=%s %s %s %s %s",
+            self.client_address[0], self.login_client_ip(), self.command,
+            urlparse(self.path).path, code, size,
         )
 
     def send_json(self, status: int, payload: dict) -> None:
+        if payload.get("error") and not payload.get("code"):
+            payload = {**payload, "code": public_error_code(payload["error"])}
         body = json.dumps(payload, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("content-type", "application/json; charset=utf-8")
@@ -2281,17 +2444,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def auth_kind(self) -> str:
         supplied = self.authorization_token()
-        if not supplied:
-            return ""
-        if secrets.compare_digest(supplied.encode("utf-8"), LAUNCHER_TOKEN.encode("utf-8")):
-            return "launcher"
-        return "session" if session_username(supplied) else ""
+        return session_kind(supplied) if supplied else ""
 
     def authorized(self) -> bool:
         return bool(self.auth_kind())
 
     def body(self) -> dict:
-        length = min(int(self.headers.get("content-length", "0")), 16_384)
+        try:
+            length = int(self.headers.get("content-length", "0"))
+        except ValueError as exc:
+            raise ValueError("Content-Length가 올바르지 않습니다.") from exc
+        if length < 0:
+            raise ValueError("Content-Length는 음수일 수 없습니다.")
+        if length > REQUEST_BODY_LIMIT:
+            raise ValueError(f"요청 본문은 {REQUEST_BODY_LIMIT}바이트를 초과할 수 없습니다.")
         return json.loads(self.rfile.read(length) or b"{}")
 
     def do_OPTIONS(self) -> None:
@@ -2301,9 +2467,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed_path = urlparse(self.path)
-        if self.path == "/api/auth/status":
+        path = parsed_path.path
+        if path == "/api/auth/status":
             return self.send_json(HTTPStatus.OK, {"configured": credentials_configured()})
-        if self.path == "/api/jobs":
+        if path == "/api/jobs":
             if not self.authorized():
                 return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
             return self.send_json(HTTPStatus.OK, {"jobs": CONTROLLER.public_jobs()})
@@ -2315,7 +2482,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(HTTPStatus.OK, browse_folders(requested))
             except ValueError as exc:
                 return self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        if self.path == "/api/status":
+        if path == "/api/status":
             if not self.authorized():
                 return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
             target = Path(NAS_TARGET) if NAS_TARGET else None
@@ -2338,20 +2505,25 @@ class Handler(BaseHTTPRequestHandler):
                 "seven_zip_available": SEVEN_ZIP.is_file(),
                 "gofile_cooldown": _gofile_cooldown_status(),
             })
-        if self.path == "/api/account":
+        if path == "/api/account":
             if not self.authorized():
                 return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
+            token = self.authorization_token()
             return self.send_json(HTTPStatus.OK, {
                 "configured": credentials_configured(),
                 "username": str(CREDENTIALS.get("username", "")),
                 "launcher_session": self.auth_kind() == "launcher",
+                "launcher_reset_available": launcher_account_reset_allowed(token),
             })
+        if path.startswith("/api/"):
+            return self.send_json(HTTPStatus.NOT_FOUND, {"error": "찾을 수 없습니다."})
         self.serve_static()
 
     def do_POST(self) -> None:
-        if not self.path.startswith("/api/"):
+        path = urlparse(self.path).path
+        if not path.startswith("/api/"):
             return self.send_json(HTTPStatus.NOT_FOUND, {"error": "찾을 수 없습니다."})
-        if self.path == "/api/login":
+        if path == "/api/login":
             try:
                 payload = self.body()
                 if not credentials_configured():
@@ -2372,28 +2544,48 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(HTTPStatus.OK, {"token": token, "username": str(CREDENTIALS["username"])})
             except (ValueError, json.JSONDecodeError) as exc:
                 return self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        if path == "/api/launcher/session":
+            supplied = self.authorization_token()
+            with LAUNCHER_TOKEN_LOCK:
+                if not supplied or not secrets.compare_digest(
+                    supplied.encode("utf-8"), LAUNCHER_TOKEN.encode("utf-8"),
+                ):
+                    return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "DSM 아이콘 연결이 만료되었습니다. 아이콘을 다시 열어 주세요."})
+                try:
+                    rotate_launcher_token()
+                except OSError:
+                    LOGGER.exception("DSM launcher handoff could not be rotated")
+                    return self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "DSM 아이콘 연결을 갱신하지 못했습니다."})
+                token = create_session(
+                    str(CREDENTIALS.get("username", "")), kind="launcher", ttl=LAUNCHER_SESSION_TTL_SECONDS,
+                )
+            return self.send_json(HTTPStatus.OK, {"token": token})
         if not self.authorized():
             return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
         try:
             payload = self.body()
-            if self.path == "/api/logout":
-                if self.auth_kind() == "session":
-                    revoke_session(self.authorization_token())
+            if path == "/api/logout":
+                revoke_session(self.authorization_token())
                 return self.send_json(HTTPStatus.OK, {"ok": True})
-            if self.path == "/api/account":
+            if path == "/api/account":
                 auth_kind = self.auth_kind()
-                if credentials_configured() and auth_kind != "launcher":
+                reset_allowed = launcher_account_reset_allowed(self.authorization_token())
+                if credentials_configured() and not reset_allowed:
                     if not verify_credentials(str(CREDENTIALS.get("username", "")), payload.get("current_password")):
                         raise ValueError("현재 비밀번호가 올바르지 않습니다.")
                 username = replace_credentials(payload.get("username"), payload.get("password"))
+                try:
+                    rotate_launcher_token()
+                except OSError:
+                    LOGGER.exception("DSM launcher handoff could not be rotated after account update")
                 result = {"ok": True, "username": username}
-                if auth_kind == "session":
+                if auth_kind in {"session", "launcher"}:
                     result["token"] = create_session(username)
                 return self.send_json(HTTPStatus.OK, result)
-            if self.path == "/api/inspect":
+            if path == "/api/inspect":
                 inspected = inspect_download(str(payload.get("url", "")))
                 return self.send_json(HTTPStatus.OK, {"file": cache_inspection(inspected)})
-            if self.path == "/api/start":
+            if path == "/api/start":
                 inspected = consume_inspection(payload)
                 if (
                     inspected["url"] != payload.get("url")
@@ -2407,7 +2599,7 @@ class Handler(BaseHTTPRequestHandler):
                     files, str(payload.get("target", "")), extraction_choice, str(payload.get("password", "")),
                 )
                 return self.send_json(HTTPStatus.ACCEPTED, {"job": asdict(jobs[0]), "jobs": [asdict(job) for job in jobs], "count": len(jobs)})
-            if self.path == "/api/settings":
+            if path == "/api/settings":
                 result = {"ok": True}
                 if "target" in payload:
                     result["target"] = set_default_target(str(payload.get("target", "")))
@@ -2425,29 +2617,29 @@ class Handler(BaseHTTPRequestHandler):
                 if len(result) == 1:
                     raise ValueError("변경할 설정이 없습니다.")
                 return self.send_json(HTTPStatus.OK, result)
-            cancel_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/cancel", self.path)
+            cancel_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/cancel", path)
             if cancel_match:
                 CONTROLLER.cancel(cancel_match.group(1))
                 return self.send_json(HTTPStatus.OK, {"ok": True})
-            pause_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/pause", self.path)
+            pause_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/pause", path)
             if pause_match:
                 CONTROLLER.pause(pause_match.group(1))
                 return self.send_json(HTTPStatus.OK, {"ok": True})
-            resume_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/resume", self.path)
+            resume_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/resume", path)
             if resume_match:
                 CONTROLLER.resume(resume_match.group(1))
                 return self.send_json(HTTPStatus.OK, {"ok": True})
-            password_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/password", self.path)
+            password_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/password", path)
             if password_match:
                 CONTROLLER.submit_password(password_match.group(1), payload.get("password", ""))
                 return self.send_json(HTTPStatus.OK, {"ok": True})
-            if self.path == "/api/jobs/delete":
+            if path == "/api/jobs/delete":
                 ids = payload.get("ids", [])
                 if not isinstance(ids, list) or not ids or any(not re.fullmatch(r"[a-f0-9]{12}", str(item)) for item in ids):
                     raise ValueError("삭제할 작업을 선택해 주세요.")
                 deleted = CONTROLLER.delete([str(item) for item in ids])
                 return self.send_json(HTTPStatus.OK, {"ok": True, "deleted": deleted})
-            if self.path == "/api/jobs/completed/clear":
+            if path == "/api/jobs/completed/clear":
                 deleted = CONTROLLER.clear_completed()
                 return self.send_json(HTTPStatus.OK, {"ok": True, "deleted": deleted})
             return self.send_json(HTTPStatus.NOT_FOUND, {"error": "찾을 수 없습니다."})

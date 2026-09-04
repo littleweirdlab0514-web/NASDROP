@@ -1,10 +1,27 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
   const t = (key, vars) => window.NASDropI18n.t(key, vars);
+  const serverError = (code, fallback) => window.NASDropI18n.error(code, fallback);
   const launchedToken = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   if (launchedToken) history.replaceState(null, "", location.pathname + location.search);
-  const state = { token: launchedToken || localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, selected: new Set(), extractionInitialized: false };
+  const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, selected: new Set(), extractionInitialized: false };
   const statusKeys = { queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
+
+  function isPrivateHost(rawHost) {
+    const host = String(rawHost || "").replace(/^\[|\]$/g, "").toLowerCase();
+    if (!host || host === "localhost" || host === "::1" || host.endsWith(".local")) return true;
+    if (host.includes(":")) return host.startsWith("fc") || host.startsWith("fd") || host.startsWith("fe80:");
+    if (!host.includes(".")) return true;
+    const octets = host.split(".").map(Number);
+    if (octets.length !== 4 || octets.some(value => !Number.isInteger(value) || value < 0 || value > 255)) return false;
+    return octets[0] === 10 || octets[0] === 127 || (octets[0] === 169 && octets[1] === 254) ||
+      (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168);
+  }
+  function renderTransportWarning() {
+    const visible = location.protocol === "http:" && !isPrivateHost(location.hostname);
+    [$("#login-http-warning"), $("#app-http-warning")].forEach(element => element.classList.toggle("hidden", !visible));
+  }
+  renderTransportWarning();
 
   function bytes(value) {
     if (!Number.isFinite(value) || value <= 0) return "0 B";
@@ -16,13 +33,13 @@
   async function api(path, init = {}) {
     const response = await fetch(path, { ...init, headers:{ "content-type":"application/json", authorization:`Bearer ${state.token}`, ...(init.headers || {}) } });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || t("requestFailed"));
+    if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed")));
     return payload;
   }
   async function publicApi(path, init = {}) {
     const response = await fetch(path, { ...init, headers:{ "content-type":"application/json", ...(init.headers || {}) } });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || t("requestFailed"));
+    if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed")));
     return payload;
   }
   function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); refresh(); state.timer = setInterval(refreshJobs, 2500); }
@@ -79,7 +96,7 @@
   }
   function renderAccount() {
     if (!state.account) return;
-    const launcherResetAvailable = Boolean(state.account.configured && state.account.launcher_session);
+    const launcherResetAvailable = Boolean(state.account.configured && state.account.launcher_reset_available);
     const locked = launcherResetAvailable && !state.accountResetMode;
     const username = $("#account-username");
     const password = $("#new-password");
@@ -96,7 +113,7 @@
     confirmation.placeholder = "";
     $("#save-account").disabled = locked;
     $("#reset-account").classList.toggle("hidden", !launcherResetAvailable);
-    $("#current-password-row").classList.toggle("hidden", !state.account.configured || state.account.launcher_session);
+    $("#current-password-row").classList.toggle("hidden", !state.account.configured || launcherResetAvailable);
   }
   async function loadAccount() {
     try { state.account = await api("/api/account"); renderAccount(); }
@@ -113,7 +130,7 @@
       const pct = job.size ? Math.min(100, Math.round(job.downloaded / job.size * 100)) : 0;
       const statusLabel = job.status === "queued" && job.not_before > Date.now() / 1000 ? t("scheduled") : (statusKeys[job.status] ? t(statusKeys[job.status]) : esc(job.status));
       const passwordForm = job.status === "password_required" ? `<form class="job-password" data-id="${job.id}"><input type="password" name="password" autocomplete="new-password" maxlength="256" required placeholder="${esc(t("archivePassword"))}"><button type="submit" class="ghost">${esc(t("retryExtraction"))}</button></form>` : "";
-      return `<article class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${job.error ? `<p class="error">${esc(job.error)}</p>` : ""}${passwordForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
+      return `<article class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${job.error ? `<p class="error">${esc(serverError(job.error_code, job.error))}</p>` : ""}${passwordForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
     }).join("");
     renderSelectionToolbar();
   }
@@ -269,6 +286,19 @@
     if (state.folder) loadFolder(state.folder.path);
   });
   async function bootstrap() {
+    if (launchedToken) {
+      try {
+        const result = await publicApi("/api/launcher/session", {method:"POST",headers:{authorization:`Bearer ${launchedToken}`},body:"{}"});
+        state.token = result.token;
+        showApp();
+        return;
+      } catch (error) {
+        state.token = "";
+        localStorage.removeItem("nasdrop-session-token");
+        showLogin(error.message);
+        return;
+      }
+    }
     if (state.token) { showApp(); return; }
     try { const auth = await publicApi("/api/auth/status"); $("#login-setup-hint").classList.toggle("hidden", auth.configured); }
     catch (_) {}

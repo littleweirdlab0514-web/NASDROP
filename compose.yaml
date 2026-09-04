@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        NASDROP_VERSION: "0.9.6"
+        NASDROP_VERSION: "0.9.9"
     container_name: nasdrop
     restart: unless-stopped
     read_only: true
@@ -16,6 +16,7 @@ services:
       TZ: "${TZ:-Asia/Seoul}"
       NAS_PORTAL_NAS_TARGET: /downloads
       NAS_PORTAL_STORAGE_ROOTS: /downloads
+      NAS_PORTAL_TRUST_FORWARDED_FOR: "${NASDROP_TRUST_FORWARDED_FOR:-false}"
     volumes:
       - "${NASDROP_CONFIG_DIR:-./nasdrop-config}:/config"
       - "${NASDROP_DOWNLOAD_DIR:-./downloads}:/downloads"

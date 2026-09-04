@@ -29,6 +29,7 @@ class SpkPackagingTests(unittest.TestCase):
         self.assertIn("RotatingFileHandler", backend)
         self.assertIn("LOG_MAX_BYTES = 1024 * 1024", backend)
         self.assertIn("LOG_BACKUP_COUNT = 2", backend)
+        self.assertIn("temp.chmod(0o600)\n        temp.replace(STATE_FILE)", backend)
 
     def test_versions_are_synchronized(self):
         info = (PACKAGE_ROOT / "INFO").read_text(encoding="utf-8")

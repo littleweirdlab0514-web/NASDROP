@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#17201e">
   <title>NASDrop</title>
-  <link rel="icon" type="image/png" href="/nasdrop-icon.png?v=0.9.6">
-  <link rel="stylesheet" href="/style.css?v=0.9.6">
-  <link rel="stylesheet" href="/folder.css?v=0.9.6">
+  <link rel="icon" type="image/png" href="/nasdrop-icon.png?v=0.9.9">
+  <link rel="stylesheet" href="/style.css?v=0.9.9">
+  <link rel="stylesheet" href="/folder.css?v=0.9.9">
 </head>
 <body>
   <main id="login" class="login-shell">
@@ -15,6 +15,7 @@
       <div class="mark"><img src="/nasdrop-icon.png" alt="NASDrop"></div>
       <h1>NASDrop</h1>
       <p class="muted" data-i18n="loginHint">Sign in with the NASDrop ID and password configured on this NAS. Opening the DSM icon signs in automatically.</p>
+      <div id="login-http-warning" class="transport-warning hidden" role="alert"><strong data-i18n="httpWarningTitle">Unencrypted HTTP connection</strong><span data-i18n="httpWarningBody">Your NASDrop ID, password, and session are not encrypted. Use HTTP only on a trusted network; configure HTTPS for internet access.</span></div>
       <form id="login-form" class="login-form">
         <label for="login-username" data-i18n="username">ID</label>
         <input id="login-username" type="text" autocomplete="username" minlength="3" maxlength="32" required>
@@ -30,12 +31,13 @@
 
   <main id="app" class="shell hidden">
     <header class="topbar">
-      <div class="brand"><span class="mark small"><img src="/nasdrop-icon.png?v=0.9.6" alt=""></span><div><strong>NASDrop</strong></div></div>
+      <div class="brand"><span class="mark small"><img src="/nasdrop-icon.png?v=0.9.9" alt=""></span><div><strong>NASDrop</strong></div></div>
       <nav><button data-view="dashboard" class="nav active" data-i18n="dashboard">Dashboard</button><button data-view="settings" class="nav" data-i18n="settings">Settings</button></nav>
       <label class="language-setting compact"><span data-i18n="language">Language</span><select data-language-select><option value="en">English</option><option value="ko">한국어</option><option value="ja">日本語</option><option value="zh">简体中文</option></select></label>
       <button id="logout-button" class="ghost" type="button" data-i18n="logout">Sign out</button>
       <div id="connection" class="connection"><i></i><span data-i18n="runningOnNas">Running on NAS</span></div>
     </header>
+    <div id="app-http-warning" class="transport-warning app-transport-warning hidden" role="alert"><strong data-i18n="httpWarningTitle">Unencrypted HTTP connection</strong><span data-i18n="httpWarningBody">Your NASDrop ID, password, and session are not encrypted. Use HTTP only on a trusted network; configure HTTPS for internet access.</span></div>
 
     <section id="dashboard-view">
       <section class="page-heading"><h1 data-i18n="downloads">Downloads</h1></section>
@@ -79,7 +81,7 @@
       <div class="modal-actions"><button id="folder-cancel" class="ghost" data-i18n="cancel">Cancel</button><button id="folder-select" class="primary" data-i18n="chooseThisFolder">Choose this folder</button></div>
     </section>
   </div>
-  <script src="/i18n.js?v=0.9.6"></script>
-  <script src="/app.js?v=0.9.6"></script>
+  <script src="/i18n.js?v=0.9.9"></script>
+  <script src="/app.js?v=0.9.9"></script>
 </body>
 </html>

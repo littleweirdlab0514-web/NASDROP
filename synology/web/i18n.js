@@ -1,7 +1,7 @@
 (() => {
   const messages = {
     en: {
-      language:"Language", loginHint:"Sign in with the NASDrop ID and password configured on this server. Opening the DSM icon signs in automatically.", username:"ID", password:"Password", openDashboard:"Open dashboard", accountNotConfigured:"No account is configured. Use the DSM icon or the Docker account command to create an ID and password first.", logout:"Sign out",
+      language:"Language", loginHint:"Sign in with the NASDrop ID and password configured on this server. Opening the DSM icon signs in automatically.", httpWarningTitle:"Unencrypted HTTP connection", httpWarningBody:"Your NASDrop ID, password, and session are not encrypted. Use HTTP only on a trusted network; configure HTTPS for internet access.", username:"ID", password:"Password", openDashboard:"Open dashboard", accountNotConfigured:"No account is configured. Use the DSM icon or the Docker account command to create an ID and password first.", logout:"Sign out",
       dashboard:"Dashboard", settings:"Settings", runningOnNas:"Running on NAS", downloads:"Downloads", linkLabel:"Supported services: GigaFile · GoFile · Pixeldrain · Buzzheavier", downloadNow:"Download to NAS",
       destination:"Destination", checking:"Checking…", checkingShort:"Checking", chooseFolder:"Choose folder", jobs:"Jobs", loading:"Loading…", clearCompleted:"Clear completed",
       selected:"{count} selected", selectAll:"Select all", clearSelection:"Clear selection", pause:"Pause", resume:"Resume", delete:"Delete",
@@ -16,6 +16,7 @@
       singleModeWarningTitle:"Single-connection trade-off", singleModeWarning:"One connection lowers provider request pressure. The completed file is still size-checked and hashed, so disk reading continues during verification.", saveDownloadMethod:"Save download method", singleModeShort:"Single connection", segmentedModeShort:"8 parts + verification", downloadBehavior:"Download behavior", downloadBehaviorHint:"Configure concurrency and the connection method in one place.", combinedDownloadWarning:"Parallel or 8-part downloads can increase NAS and network load.", saveDownloadBehavior:"Save download behavior", downloadBehaviorSaved:"Download behavior settings were saved.",
       sponsorTitle:"Support NASDrop", sponsorHint:"If NASDrop is useful to you, you can support its continued development on GitHub Sponsors.", sponsorAction:"Sponsor on GitHub",
       folderTitle:"Choose destination folder", close:"Close", up:"Up", cancel:"Cancel", chooseThisFolder:"Choose this folder", requestFailed:"The request could not be completed.",
+      error_auth_required:"Sign in to continue.", error_invalid_credentials:"The ID or password is incorrect.", error_account_not_configured:"No NASDrop account is configured yet.", error_current_password_invalid:"The current password is incorrect.", error_launcher_expired:"The DSM icon connection expired. Open the icon again.", error_permission_denied:"The package account does not have permission for this folder.", error_password_required:"An archive password is required or the password is incorrect.", error_rate_limited:"The download service is temporarily rate-limiting requests. Please try again later.", error_network_error:"Could not connect to the download service.", error_link_expired:"The link expired or is no longer available. Add a fresh link.", error_integrity_failed:"Integrity verification failed. Damaged temporary data was removed.", error_archive_error:"The archive could not be processed safely.", error_invalid_link:"This is not a supported download link.", error_invalid_job_state:"This job cannot perform that action in its current state.", error_invalid_request:"Check the entered values and try again.", error_not_found:"The requested item was not found.", error_service_restarted:"The service restarted and paused this job. It can be resumed.", error_internal_error:"An internal error occurred.", error_generic_error:"The request could not be completed.",
       statusQueued:"Queued", statusReady:"Ready", statusDownloading:"Downloading", statusWaitingProcessing:"Waiting for disk processing", statusVerifying:"Verifying", statusExtracting:"Extracting", statusPublishing:"Moving to destination", statusPasswordRequired:"Password required", statusPaused:"Paused", statusCompleted:"Completed", statusFailed:"Error", statusCancelled:"Stopped",
       writable:"Writable", permissionRequired:"Permission required", notSelected:"Not selected", packageWritable:"Package account can write", dedicatedAccount:"Dedicated package account",
       gofileCooldown:"GoFile protection pause · automatically resumes after {time}. Do not retry repeatedly.", sameServiceSummary:"Up to {count} from the same service", qrAlt:"NASDrop client connection QR", qrFailed:"Could not create QR: {error}",
@@ -29,7 +30,7 @@
       defaultChanged:"Default destination changed to {target}."
     },
     ko: {
-      language:"언어", loginHint:"이 서버에 설정한 NASDrop ID와 비밀번호로 로그인하세요. DSM 아이콘으로 열면 자동 로그인됩니다.", username:"ID", password:"비밀번호", openDashboard:"대시보드 열기", accountNotConfigured:"아직 계정이 설정되지 않았습니다. DSM 아이콘 또는 Docker 계정 설정 명령으로 ID와 비밀번호를 먼저 만드세요.", logout:"로그아웃",
+      language:"언어", loginHint:"이 서버에 설정한 NASDrop ID와 비밀번호로 로그인하세요. DSM 아이콘으로 열면 자동 로그인됩니다.", httpWarningTitle:"암호화되지 않은 HTTP 연결", httpWarningBody:"NASDrop ID, 비밀번호와 세션이 암호화되지 않습니다. 신뢰할 수 있는 네트워크에서만 HTTP를 사용하고, 인터넷 접속에는 HTTPS를 설정하세요.", username:"ID", password:"비밀번호", openDashboard:"대시보드 열기", accountNotConfigured:"아직 계정이 설정되지 않았습니다. DSM 아이콘 또는 Docker 계정 설정 명령으로 ID와 비밀번호를 먼저 만드세요.", logout:"로그아웃",
       dashboard:"대시보드", settings:"설정", runningOnNas:"NAS에서 실행 중", downloads:"다운로드", linkLabel:"지원 서비스: GigaFile · GoFile · Pixeldrain · Buzzheavier", downloadNow:"NAS로 바로 다운로드",
       destination:"저장 위치", checking:"확인 중…", checkingShort:"검사 중", chooseFolder:"폴더 선택", jobs:"작업 목록", loading:"불러오는 중…", clearCompleted:"완료 항목 정리",
       selected:"{count}개 선택", selectAll:"전체 선택", clearSelection:"선택 해제", pause:"일시정지", resume:"재개", delete:"삭제",
@@ -44,6 +45,7 @@
       singleModeWarningTitle:"단일 연결 사용 시 주의", singleModeWarning:"한 개 연결로 서비스 요청 부담을 줄입니다. 완료 파일의 크기와 해시는 계속 검사하므로 검증 중 디스크 읽기는 발생합니다.", saveDownloadMethod:"다운로드 방식 저장", singleModeShort:"단일 연결", segmentedModeShort:"8분할 + 검증", downloadBehavior:"다운로드 동작", downloadBehaviorHint:"동시 실행 수와 파일별 연결 방식을 한곳에서 설정합니다.", combinedDownloadWarning:"동시 다운로드 또는 8분할 다운로드는 NAS와 네트워크에 부하를 높일 수 있습니다.", saveDownloadBehavior:"다운로드 동작 저장", downloadBehaviorSaved:"다운로드 동작 설정을 저장했습니다.",
       sponsorTitle:"NASDrop 후원", sponsorHint:"NASDrop이 유용했다면 GitHub Sponsors에서 지속적인 개발을 후원할 수 있습니다.", sponsorAction:"GitHub에서 후원하기",
       folderTitle:"저장 폴더 선택", close:"닫기", up:"상위", cancel:"취소", chooseThisFolder:"이 폴더 선택", requestFailed:"요청을 처리하지 못했습니다.",
+      error_auth_required:"로그인이 필요합니다.", error_invalid_credentials:"ID 또는 비밀번호가 올바르지 않습니다.", error_account_not_configured:"아직 NASDrop 계정이 설정되지 않았습니다.", error_current_password_invalid:"현재 비밀번호가 올바르지 않습니다.", error_launcher_expired:"DSM 아이콘 연결이 만료되었습니다. 아이콘을 다시 열어 주세요.", error_permission_denied:"패키지 계정에 이 폴더의 권한이 없습니다.", error_password_required:"압축 암호가 필요하거나 입력한 암호가 올바르지 않습니다.", error_rate_limited:"다운로드 서비스가 요청을 일시 제한했습니다. 잠시 후 다시 시도해 주세요.", error_network_error:"다운로드 서비스에 연결하지 못했습니다.", error_link_expired:"링크가 만료됐거나 사용할 수 없습니다. 새 링크를 등록해 주세요.", error_integrity_failed:"무결성 검사에 실패하여 손상된 임시 데이터를 삭제했습니다.", error_archive_error:"압축 파일을 안전하게 처리하지 못했습니다.", error_invalid_link:"지원하는 다운로드 링크가 아닙니다.", error_invalid_job_state:"현재 상태에서는 이 작업을 수행할 수 없습니다.", error_invalid_request:"입력값을 확인한 뒤 다시 시도해 주세요.", error_not_found:"요청한 항목을 찾을 수 없습니다.", error_service_restarted:"서비스가 재시작되어 작업을 일시정지했습니다. 다시 시작할 수 있습니다.", error_internal_error:"내부 처리 중 오류가 발생했습니다.", error_generic_error:"요청을 처리하지 못했습니다.",
       statusQueued:"대기 중", statusReady:"준비", statusDownloading:"다운로드 중", statusWaitingProcessing:"디스크 작업 대기", statusVerifying:"검증 중", statusExtracting:"압축 해제 중", statusPublishing:"최종 폴더로 이동 중", statusPasswordRequired:"암호 입력 필요", statusPaused:"일시정지", statusCompleted:"완료", statusFailed:"오류", statusCancelled:"중지됨",
       writable:"쓰기 가능", permissionRequired:"권한 필요", notSelected:"선택되지 않음", packageWritable:"패키지 계정 쓰기 가능", dedicatedAccount:"패키지 전용 계정",
       gofileCooldown:"GoFile 보호 대기 중 · {time} 이후 자동 해제됩니다. 반복 시도하지 마세요.", sameServiceSummary:"같은 서비스 최대 {count}개", qrAlt:"NASDrop 클라이언트 연결 QR", qrFailed:"QR 생성 실패: {error}",
@@ -57,7 +59,7 @@
       defaultChanged:"기본 저장 폴더를 {target}(으)로 변경했습니다."
     },
     ja: {
-      language:"言語", loginHint:"このサーバーで設定したNASDropのIDとパスワードでログインしてください。DSMアイコンから開くと自動でログインします。", username:"ID", password:"パスワード", openDashboard:"ダッシュボードを開く", accountNotConfigured:"アカウントがまだ設定されていません。DSMアイコンまたはDockerのアカウント設定コマンドでIDとパスワードを作成してください。", logout:"ログアウト",
+      language:"言語", loginHint:"このサーバーで設定したNASDropのIDとパスワードでログインしてください。DSMアイコンから開くと自動でログインします。", httpWarningTitle:"暗号化されていないHTTP接続", httpWarningBody:"NASDropのID、パスワード、セッションは暗号化されません。HTTPは信頼できるネットワーク内だけで使用し、インターネット接続にはHTTPSを設定してください。", username:"ID", password:"パスワード", openDashboard:"ダッシュボードを開く", accountNotConfigured:"アカウントがまだ設定されていません。DSMアイコンまたはDockerのアカウント設定コマンドでIDとパスワードを作成してください。", logout:"ログアウト",
       dashboard:"ダッシュボード", settings:"設定", runningOnNas:"NASで実行中", downloads:"ダウンロード", linkLabel:"対応サービス: GigaFile · GoFile · Pixeldrain · Buzzheavier", downloadNow:"NASへダウンロード",
       destination:"保存先", checking:"確認中…", checkingShort:"確認中", chooseFolder:"フォルダーを選択", jobs:"ジョブ一覧", loading:"読み込み中…", clearCompleted:"完了項目を消去",
       selected:"{count}件選択", selectAll:"すべて選択", clearSelection:"選択解除", pause:"一時停止", resume:"再開", delete:"削除",
@@ -72,6 +74,7 @@
       singleModeWarningTitle:"単一接続の注意点", singleModeWarning:"1接続でサービスへの要求負荷を下げます。完了ファイルのサイズとハッシュは引き続き検証するため、検証中のディスク読み取りは発生します。", saveDownloadMethod:"ダウンロード方式を保存", singleModeShort:"単一接続", segmentedModeShort:"8分割 + 検証", downloadBehavior:"ダウンロード動作", downloadBehaviorHint:"同時実行数とファイルごとの接続方式をまとめて設定します。", combinedDownloadWarning:"並列または8分割ダウンロードはNASとネットワークの負荷を高める場合があります。", saveDownloadBehavior:"ダウンロード動作を保存", downloadBehaviorSaved:"ダウンロード動作の設定を保存しました。",
       sponsorTitle:"NASDropを支援", sponsorHint:"NASDropがお役に立った場合は、GitHub Sponsorsで継続的な開発を支援できます。", sponsorAction:"GitHubで支援する",
       folderTitle:"保存先フォルダーを選択", close:"閉じる", up:"上へ", cancel:"キャンセル", chooseThisFolder:"このフォルダーを選択", requestFailed:"リクエストを処理できませんでした。",
+      error_auth_required:"ログインしてください。", error_invalid_credentials:"IDまたはパスワードが正しくありません。", error_account_not_configured:"NASDropアカウントがまだ設定されていません。", error_current_password_invalid:"現在のパスワードが正しくありません。", error_launcher_expired:"DSMアイコンの接続期限が切れました。アイコンを開き直してください。", error_permission_denied:"パッケージアカウントにこのフォルダーの権限がありません。", error_password_required:"アーカイブのパスワードが必要か、入力したパスワードが正しくありません。", error_rate_limited:"ダウンロードサービスが一時的に要求を制限しています。しばらくしてから再試行してください。", error_network_error:"ダウンロードサービスに接続できませんでした。", error_link_expired:"リンクの期限が切れているか利用できません。新しいリンクを追加してください。", error_integrity_failed:"整合性検証に失敗し、破損した一時データを削除しました。", error_archive_error:"アーカイブを安全に処理できませんでした。", error_invalid_link:"対応しているダウンロードリンクではありません。", error_invalid_job_state:"現在の状態ではこの操作を実行できません。", error_invalid_request:"入力内容を確認して再試行してください。", error_not_found:"要求された項目が見つかりません。", error_service_restarted:"サービスが再起動したためジョブを一時停止しました。再開できます。", error_internal_error:"内部処理中にエラーが発生しました。", error_generic_error:"リクエストを処理できませんでした。",
       statusQueued:"待機中", statusReady:"準備完了", statusDownloading:"ダウンロード中", statusWaitingProcessing:"ディスク処理待ち", statusVerifying:"検証中", statusExtracting:"展開中", statusPublishing:"保存先へ移動中", statusPasswordRequired:"パスワードが必要", statusPaused:"一時停止", statusCompleted:"完了", statusFailed:"エラー", statusCancelled:"停止済み",
       writable:"書き込み可", permissionRequired:"権限が必要", notSelected:"未選択", packageWritable:"パッケージアカウントで書き込み可", dedicatedAccount:"パッケージ専用アカウント",
       gofileCooldown:"GoFile保護待機中 · {time}以降に自動再開します。繰り返し試行しないでください。", sameServiceSummary:"同一サービス最大{count}件", qrAlt:"NASDropクライアント接続QR", qrFailed:"QRを作成できません: {error}",
@@ -85,7 +88,7 @@
       defaultChanged:"既定の保存先を{target}に変更しました。"
     },
     zh: {
-      language:"语言", loginHint:"请使用在此服务器上设置的NASDrop ID和密码登录。从DSM图标打开时会自动登录。", username:"ID", password:"密码", openDashboard:"打开控制面板", accountNotConfigured:"尚未设置账户。请通过DSM图标或Docker账户设置命令先创建ID和密码。", logout:"退出登录",
+      language:"语言", loginHint:"请使用在此服务器上设置的NASDrop ID和密码登录。从DSM图标打开时会自动登录。", httpWarningTitle:"未加密的HTTP连接", httpWarningBody:"NASDrop ID、密码和会话不会被加密。请仅在可信网络中使用HTTP；通过互联网访问时请配置HTTPS。", username:"ID", password:"密码", openDashboard:"打开控制面板", accountNotConfigured:"尚未设置账户。请通过DSM图标或Docker账户设置命令先创建ID和密码。", logout:"退出登录",
       dashboard:"控制面板", settings:"设置", runningOnNas:"正在NAS上运行", downloads:"下载", linkLabel:"支持的服务：GigaFile · GoFile · Pixeldrain · Buzzheavier", downloadNow:"下载到NAS",
       destination:"保存位置", checking:"正在检查…", checkingShort:"检查中", chooseFolder:"选择文件夹", jobs:"任务列表", loading:"正在加载…", clearCompleted:"清除已完成项",
       selected:"已选择{count}项", selectAll:"全选", clearSelection:"取消选择", pause:"暂停", resume:"继续", delete:"删除",
@@ -100,6 +103,7 @@
       singleModeWarningTitle:"单连接注意事项", singleModeWarning:"单个连接可降低服务请求压力。完成文件仍会检查大小和哈希，因此验证期间仍会读取磁盘。", saveDownloadMethod:"保存下载方式", singleModeShort:"单连接", segmentedModeShort:"8段 + 验证", downloadBehavior:"下载行为", downloadBehaviorHint:"统一设置并行数量和单文件连接方式。", combinedDownloadWarning:"并行或8段下载可能会增加NAS和网络负载。", saveDownloadBehavior:"保存下载行为", downloadBehaviorSaved:"下载行为设置已保存。",
       sponsorTitle:"支持NASDrop", sponsorHint:"如果NASDrop对您有帮助，可以通过GitHub Sponsors支持项目的持续开发。", sponsorAction:"在GitHub上支持",
       folderTitle:"选择保存文件夹", close:"关闭", up:"上一级", cancel:"取消", chooseThisFolder:"选择此文件夹", requestFailed:"无法完成请求。",
+      error_auth_required:"请先登录。", error_invalid_credentials:"ID或密码不正确。", error_account_not_configured:"尚未配置NASDrop账户。", error_current_password_invalid:"当前密码不正确。", error_launcher_expired:"DSM图标连接已过期，请重新打开图标。", error_permission_denied:"套件账户没有此文件夹的权限。", error_password_required:"压缩包需要密码，或输入的密码不正确。", error_rate_limited:"下载服务暂时限制请求，请稍后重试。", error_network_error:"无法连接下载服务。", error_link_expired:"链接已过期或不可用，请添加新链接。", error_integrity_failed:"完整性验证失败，损坏的临时数据已删除。", error_archive_error:"无法安全处理压缩包。", error_invalid_link:"这不是受支持的下载链接。", error_invalid_job_state:"当前状态下无法执行此操作。", error_invalid_request:"请检查输入内容后重试。", error_not_found:"找不到请求的项目。", error_service_restarted:"服务已重启并暂停此任务，可以继续运行。", error_internal_error:"内部处理发生错误。", error_generic_error:"无法完成请求。",
       statusQueued:"等待中", statusReady:"准备就绪", statusDownloading:"下载中", statusWaitingProcessing:"等待磁盘处理", statusVerifying:"验证中", statusExtracting:"正在解压", statusPublishing:"正在移至保存位置", statusPasswordRequired:"需要密码", statusPaused:"已暂停", statusCompleted:"已完成", statusFailed:"错误", statusCancelled:"已停止",
       writable:"可写", permissionRequired:"需要权限", notSelected:"未选择", packageWritable:"套件账户可写", dedicatedAccount:"套件专用账户",
       gofileCooldown:"GoFile保护等待中 · 将在{time}后自动恢复。请勿反复重试。", sameServiceSummary:"同一服务最多{count}项", qrAlt:"NASDrop客户端连接二维码", qrFailed:"无法生成二维码：{error}",
@@ -134,6 +138,11 @@
     Object.entries(vars).forEach(([name, replacement]) => { value = value.replaceAll(`{${name}}`, String(replacement)); });
     return value;
   }
+  function error(code, fallback = "") {
+    if (language === "ko" && fallback) return String(fallback);
+    const key = `error_${String(code || "generic_error")}`;
+    return messages[language][key] ?? messages.en[key] ?? t("error_generic_error");
+  }
   function apply() {
     document.documentElement.lang = language === "zh" ? "zh-CN" : language;
     document.querySelectorAll("[data-i18n]").forEach(node => { node.textContent = t(node.dataset.i18n); });
@@ -147,7 +156,7 @@
     apply();
     window.dispatchEvent(new CustomEvent("nasdrop-language-change"));
   }
-  window.NASDropI18n = { t, apply, setLanguage, get language() { return language; } };
+  window.NASDropI18n = { t, error, apply, setLanguage, get language() { return language; } };
   document.querySelectorAll("[data-language-select]").forEach(node => node.addEventListener("change", event => setLanguage(event.target.value)));
   apply();
 })();
