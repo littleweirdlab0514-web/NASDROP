@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from email.message import Message
@@ -10,6 +11,7 @@ from email.utils import parsedate_to_datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
+from http.cookiejar import CookieJar
 import hashlib
 import html
 import ipaddress
@@ -33,7 +35,7 @@ import unicodedata
 import zipfile
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
-from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener
 
 
 ROOT = Path(__file__).resolve().parent
@@ -74,7 +76,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.9")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.11")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -95,21 +97,34 @@ LOG_BACKUP_COUNT = 2
 PASSWORD_HASH_ITERATIONS = 600_000
 SESSION_TTL_SECONDS = 7 * 24 * 60 * 60
 MAX_SESSION_ENTRIES = 256
+MAX_INSPECTION_CACHE_ENTRIES = 64
 LOGIN_FAILURE_LIMIT = 5
 LOGIN_BLOCK_SECONDS = 15 * 60
 LOGIN_FAILURE_RETENTION_SECONDS = 15 * 60
 MAX_LOGIN_FAILURE_ENTRIES = 4096
+GLOBAL_LOGIN_FAILURE_WINDOW_SECONDS = 60
+GLOBAL_LOGIN_FAILURE_LIMIT = 30
+GLOBAL_LOGIN_COOLDOWN_SECONDS = 5
 REQUEST_BODY_LIMIT = 16_384
 REQUEST_TIMEOUT_SECONDS = 30
 LAUNCHER_SESSION_TTL_SECONDS = 60 * 60
 LAUNCHER_ACCOUNT_RESET_WINDOW_SECONDS = 5 * 60
 ARCHIVE_EXTRACT_TIMEOUT_SECONDS = 6 * 60 * 60
 CURL_HTTPS_ONLY = "--proto '=https' --proto-redir '=https'"
+CURL_NO_REDIRECTS = "--location --max-redirs 0"
+CURL_PAGE_TIMEOUT = "--connect-timeout 15 --max-time 60"
+CURL_PROBE_TIMEOUT = "--connect-timeout 10 --max-time 30"
+CURL_STALL_GUARD = "--connect-timeout 15 --speed-limit 1024 --speed-time 120"
+GIGAFILE_NAME_PROBE_TIMEOUT_SECONDS = 30
+GIGAFILE_NAME_PROBE_WORKERS = 3
 LOGGER = logging.getLogger("nasdrop")
 LOGGER.addHandler(logging.NullHandler())
 JOB_SECRET_LOCK = threading.RLock()
 CONFIG_LOCK = threading.RLock()
 LAUNCHER_TOKEN_LOCK = threading.RLock()
+FORWARDED_HEADER_LOCK = threading.Lock()
+UNTRUSTED_FORWARDED_HEADER_SEEN = False
+UNTRUSTED_FORWARDED_HEADER_WARNED = False
 
 
 def rotating_log_handler(path: str, max_bytes: int = LOG_MAX_BYTES, backup_count: int = LOG_BACKUP_COUNT):
@@ -190,13 +205,16 @@ def public_error_code(message: object) -> str:
     rules = (
         (("로그인이 필요",), "auth_required"),
         (("ID 또는 비밀번호",), "invalid_credentials"),
+        (("ID는 영문, 숫자",), "invalid_username"),
+        (("비밀번호는 10~128자", "비밀번호에는 제어 문자"), "invalid_password"),
+        (("로그인 시도가 너무 많",), "too_many_attempts"),
         (("계정이 아직 설정",), "account_not_configured"),
         (("현재 비밀번호",), "current_password_invalid"),
         (("DSM 아이콘 연결",), "launcher_expired"),
         (("권한", "쓰기 권한", "볼 권한"), "permission_denied"),
         (("암호가 필요", "암호를 입력", "Wrong password", "password"), "password_required"),
         (("Gofile 요청이 몰려", "429", "제한되었"), "rate_limited"),
-        (("연결하지 못", "HTTP ", "응답을 반환"), "network_error"),
+        (("연결하지 못", "HTTP ", "응답을 반환", "응답이 일정 시간 멈춰"), "network_error"),
         (("만료", "링크를 다시", "Copy download link"), "link_expired"),
         (("무결성", "손상", "크기가 예상값"), "integrity_failed"),
         (("압축", "7-Zip", "archive"), "archive_error"),
@@ -286,6 +304,9 @@ SESSIONS: dict[str, tuple[str, float, str, float]] = {}
 SESSIONS_LOCK = threading.Lock()
 LOGIN_FAILURES: dict[str, tuple[int, float, float]] = {}
 LOGIN_FAILURES_LOCK = threading.Lock()
+GLOBAL_LOGIN_FAILURES: list[float] = []
+GLOBAL_LOGIN_BLOCKED_UNTIL = 0.0
+GLOBAL_LOGIN_FAILURES_LOCK = threading.Lock()
 
 
 def credentials_configured() -> bool:
@@ -440,6 +461,32 @@ def record_login_result(client_ip: str, success: bool) -> None:
         _prune_login_failures(current)
 
 
+def global_login_retry_after() -> int:
+    with GLOBAL_LOGIN_FAILURES_LOCK:
+        current = time.time()
+        GLOBAL_LOGIN_FAILURES[:] = [
+            value for value in GLOBAL_LOGIN_FAILURES
+            if current - value < GLOBAL_LOGIN_FAILURE_WINDOW_SECONDS
+        ]
+        if GLOBAL_LOGIN_BLOCKED_UNTIL <= current:
+            return 0
+        return max(1, int(GLOBAL_LOGIN_BLOCKED_UNTIL - current + 0.999))
+
+
+def record_global_login_failure() -> None:
+    global GLOBAL_LOGIN_BLOCKED_UNTIL
+    with GLOBAL_LOGIN_FAILURES_LOCK:
+        current = time.time()
+        GLOBAL_LOGIN_FAILURES[:] = [
+            value for value in GLOBAL_LOGIN_FAILURES
+            if current - value < GLOBAL_LOGIN_FAILURE_WINDOW_SECONDS
+        ]
+        GLOBAL_LOGIN_FAILURES.append(current)
+        if len(GLOBAL_LOGIN_FAILURES) >= GLOBAL_LOGIN_FAILURE_LIMIT:
+            GLOBAL_LOGIN_BLOCKED_UNTIL = current + GLOBAL_LOGIN_COOLDOWN_SECONDS
+            GLOBAL_LOGIN_FAILURES.clear()
+
+
 def trusted_client_ip(peer_ip: str, forwarded_for: str = "", trust_forwarded: bool | None = None) -> str:
     """Use the rightmost forwarded IP only after explicitly trusting a local reverse proxy."""
     try:
@@ -454,6 +501,27 @@ def trusted_client_ip(peer_ip: str, forwarded_for: str = "", trust_forwarded: bo
         return str(ipaddress.ip_address(candidate))
     except ValueError:
         return peer_ip
+
+
+def note_forwarded_header(peer_ip: str, forwarded_for: str) -> None:
+    """Warn once when a local reverse proxy is present but proxy mode is disabled."""
+    global UNTRUSTED_FORWARDED_HEADER_SEEN, UNTRUSTED_FORWARDED_HEADER_WARNED
+    if TRUST_FORWARDED_FOR or not forwarded_for:
+        return
+    try:
+        if not ipaddress.ip_address(peer_ip).is_loopback:
+            return
+    except ValueError:
+        return
+    with FORWARDED_HEADER_LOCK:
+        UNTRUSTED_FORWARDED_HEADER_SEEN = True
+        if UNTRUSTED_FORWARDED_HEADER_WARNED:
+            return
+        UNTRUSTED_FORWARDED_HEADER_WARNED = True
+    LOGGER.warning(
+        "reverse proxy header detected from loopback while NAS_PORTAL_TRUST_FORWARDED_FOR is disabled; "
+        "clients share one login-throttle bucket"
+    )
 
 
 def render_launcher_html(token: str, public_port: int) -> str:
@@ -1382,7 +1450,10 @@ class Controller:
         provider = private.get("provider") or provider_for_url(job.source)
         if provider == "gigafile" and not private.get("download_url"):
             refreshed = inspect_gigafile(job.source)
-            if refreshed["name"] != job.name or int(refreshed["size"]) != job.size:
+            name_changed = refreshed["name"] != job.name
+            if int(refreshed["size"]) != job.size or (
+                name_changed and not is_gigafile_fallback_name(job.name, job.source)
+            ):
                 raise ValueError("대기 중 파일 정보가 변경되었습니다. 링크를 다시 등록해 주세요.")
             private = {
                 "provider": "gigafile",
@@ -1492,6 +1563,10 @@ class Controller:
                 current_job.status = "failed"
                 if provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
                     current_job.error = "Buzzheavier 직접 링크가 만료됐거나 사용할 수 없습니다. Copy download link를 다시 받아 새 작업으로 등록해 주세요."
+                elif re.search(r"maximum \(0\) redirects|too many redirects", stderr, re.I):
+                    current_job.error = "다운로드 서버가 다른 주소로 이동을 요청해 보안을 위해 중단했습니다. 링크를 다시 확인해 주세요."
+                elif re.search(r"operation timed out|speed below|timed out", stderr, re.I):
+                    current_job.error = "다운로드 서버 응답이 일정 시간 멈춰 작업을 중단했습니다. 다시 시작하면 이어받기를 시도합니다."
                 else:
                     current_job.error = (stderr.strip() or "NAS 다운로드가 중단됐습니다.")[-400:]
                 self.processes.pop(job_id, None)
@@ -1522,15 +1597,15 @@ COOKIE={shlex.quote(cookie)}
 PAGE_COPY=/tmp/nas_download_{job_id}.page
 cleanup() {{ rm -f "$COOKIE" "$PAGE_COPY"; }}
 trap cleanup EXIT HUP INT TERM
-curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
-(curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -I -b "$COOKIE" -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
+curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
+(curl {CURL_HTTPS_ONLY} {CURL_PROBE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -I -b "$COOKIE" -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
 existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
 [ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
 if [ "$existing" -lt "$TOTAL" ]; then
   if [ "$existing" -gt 0 ]; then
-    curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -C - -o "$PART" {shlex.quote(download)}
+    curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -C - -o "$PART" {shlex.quote(download)}
   else
-    curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
+    curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
   fi
 fi
 actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -eq "$TOTAL" ]
@@ -1543,13 +1618,13 @@ set -eu
 TOTAL={total}
 COUNT=8
 CHUNK=$(( (TOTAL + COUNT - 1) / COUNT ))
-curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -c {shlex.quote(cookie)} {shlex.quote(page)} -o /tmp/nas_download_{job_id}.page
-(curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -I -b {shlex.quote(cookie)} -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
+curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -c {shlex.quote(cookie)} {shlex.quote(page)} -o /tmp/nas_download_{job_id}.page
+(curl {CURL_HTTPS_ONLY} {CURL_PROBE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -I -b {shlex.quote(cookie)} -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
 i=0
 while [ "$i" -lt "$COUNT" ]; do
   start=$(( i * CHUNK )); end=$(( start + CHUNK - 1 )); [ "$end" -ge "$TOTAL" ] && end=$(( TOTAL - 1 ))
   part={shlex.quote(prefix)}.$i
-  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error --retry 8 --retry-delay 5 -b {shlex.quote(cookie)} -e {shlex.quote(page)} -r "$from-$end" -o "$more" {shlex.quote(download)}; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
+  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -b {shlex.quote(cookie)} -e {shlex.quote(page)} -r "$from-$end" -o "$more" {shlex.quote(download)}; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
   i=$(( i + 1 ))
 done
 wait
@@ -1582,11 +1657,11 @@ PAGE_COPY={shlex.quote(page_copy)}
 PART={shlex.quote(part)}
 cleanup() {{ rm -f "$COOKIE" "$PAGE_COPY"; }}
 trap cleanup EXIT HUP INT TERM
-curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
+curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
 actual=0; [ -f "$PART" ] && actual=$(wc -c < "$PART" | tr -d ' ')
 if [ "$actual" -lt "$TOTAL" ]; then
   rm -f "$PART"
-  curl {CURL_HTTPS_ONLY} -L --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
+  curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
 fi
 actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -ge "$TOTAL" ]
 trap - EXIT HUP INT TERM
@@ -1619,7 +1694,7 @@ trap cleanup EXIT HUP INT TERM
         response_headers = f"{target_dir}/.response-headers"
         header_probe = ""
         if capture_headers:
-            header_probe = f"(curl --config \"$CURL_CONFIG\" -L --fail --silent --show-error -I -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})\n"
+            header_probe = f"(curl --config \"$CURL_CONFIG\" {CURL_PROBE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -I -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})\n"
         if mode == "single":
             part = f"{prefix}.0"
             return f"""#!/bin/sh
@@ -1630,9 +1705,9 @@ PART={shlex.quote(part)}
 [ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
 if [ "$existing" -lt "$TOTAL" ]; then
   if [ "$existing" -gt 0 ]; then
-    curl --config "$CURL_CONFIG" -L --fail --silent --show-error --retry 8 --retry-delay 5 -C - -o "$PART"
+    curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -C - -o "$PART"
   else
-    curl --config "$CURL_CONFIG" -L --fail --silent --show-error --retry 8 --retry-delay 5 -o "$PART"
+    curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -o "$PART"
   fi
 fi
 actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -eq "$TOTAL" ]
@@ -1649,7 +1724,7 @@ CHUNK=$(( (TOTAL + COUNT - 1) / COUNT ))
 while [ "$i" -lt "$COUNT" ]; do
   start=$(( i * CHUNK )); end=$(( start + CHUNK - 1 )); [ "$end" -ge "$TOTAL" ] && end=$(( TOTAL - 1 ))
   part={shlex.quote(prefix)}.$i
-  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl --config "$CURL_CONFIG" -L --fail --silent --show-error --retry 8 --retry-delay 5 -r "$from-$end" -o "$more"; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
+  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -r "$from-$end" -o "$more"; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
   i=$(( i + 1 ))
 done
 wait
@@ -1843,6 +1918,28 @@ class BuzzheavierRedirectHandler(HTTPRedirectHandler):
         return super().redirect_request(request, file_pointer, code, message, headers, new_url)
 
 
+class GigaFileRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, expected_host: str):
+        super().__init__()
+        self.expected_host = expected_host.lower()
+
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        parsed = urlparse(new_url)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("GigaFile이 올바르지 않은 주소로 이동을 요청했습니다.") from exc
+        if (
+            parsed.scheme != "https"
+            or (parsed.hostname or "").lower() != self.expected_host
+            or parsed.username is not None
+            or parsed.password is not None
+            or port not in {None, 443}
+        ):
+            raise ValueError("GigaFile이 허용되지 않은 서버로 이동을 요청했습니다.")
+        return super().redirect_request(request, file_pointer, code, message, headers, new_url)
+
+
 def inspect_buzzheavier(raw_url: str) -> dict:
     direct_url, file_id, _host = _validate_buzzheavier_download_url(raw_url)
     canonical = f"https://buzzheavier.com/{file_id}"
@@ -1892,20 +1989,60 @@ def parse_gigafile_page(source: str, canonical: str, host: str, file_id: str) ->
         name = _clean_download_name(name_match.group(1))
     else:
         files_match = re.search(r"var\s+files\s*=\s*(\[.*?\])\s*;", source, re.S)
-        bundle_name_match = re.search(r'id="matomete_zip_filename"[^>]*>\s*(.*?)\s*</span>', source, re.S | re.I)
-        if not files_match or not bundle_name_match:
+        individual_name_matches = re.findall(
+            r'<span\b(?=[^>]*\bclass\s*=\s*["\'][^"\']*\bmatomete_file_name\b)'
+            r'[^>]*>\s*(.*?)\s*</span>',
+            source,
+            re.S | re.I,
+        )
+        if not files_match:
             raise ValueError("파일 정보를 읽지 못했습니다. 링크가 만료됐는지 확인해 주세요.")
         try:
             files = json.loads(files_match.group(1))
-            sizes = [int(item["size"]) for item in files if isinstance(item, dict)]
         except (ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
-            raise ValueError("GigaFile 묶음 파일 정보를 읽지 못했습니다.") from exc
-        if not files or len(sizes) != len(files) or any(value <= 0 for value in sizes):
-            raise ValueError("GigaFile 묶음에 받을 수 있는 파일이 없습니다.")
-        size = sum(sizes)
-        name = _clean_download_name(bundle_name_match.group(1))
-        download_mode = "gigafile_zip"
-        download_url = f"https://{host}/dl_zip.php?file={file_id}"
+            raise ValueError("GigaFile 개별 파일 정보를 읽지 못했습니다.") from exc
+        names = [_clean_download_name(value) for value in individual_name_matches]
+        if not files or len(names) != len(files) or any(not name for name in names):
+            raise ValueError("GigaFile 개별 파일 이름을 읽지 못했습니다.")
+        expires = ""
+        if expires_match:
+            expires = html.unescape(re.sub(r"<[^>]+>", "", expires_match.group(1))).strip()
+        individual_files = []
+        try:
+            for item, individual_name in zip(files, names):
+                if not isinstance(item, dict):
+                    raise ValueError
+                individual_id = str(item.get("file", ""))
+                individual_size = int(item.get("size", 0))
+                if not SAFE_SERVICE_ID.fullmatch(individual_id):
+                    raise ValueError
+                if individual_size <= 0 or individual_size > MAX_FILE_BYTES:
+                    raise ValueError
+                individual_files.append({
+                    "url": f"https://{host}/{individual_id}",
+                    "name": individual_name,
+                    "size": individual_size,
+                    "expires": expires,
+                    "provider": "gigafile",
+                    "download_mode": "gigafile_file",
+                    "download_url": f"https://{host}/download.php?file={individual_id}",
+                })
+        except (TypeError, ValueError, KeyError) as exc:
+            raise ValueError("GigaFile 개별 파일 정보가 올바르지 않습니다.") from exc
+        if len(individual_files) == 1:
+            result = individual_files[0]
+            return result
+        size = sum(int(item["size"]) for item in individual_files)
+        return {
+            "url": canonical,
+            "name": f"GigaFile ×{len(individual_files)}",
+            "size": size,
+            "expires": expires,
+            "provider": "gigafile",
+            "batch": True,
+            "file_count": len(individual_files),
+            "files": individual_files,
+        }
     if not name or size <= 0 or size > MAX_FILE_BYTES:
         raise ValueError("허용할 수 없는 파일 정보입니다.")
     expires = ""
@@ -1917,6 +2054,87 @@ def parse_gigafile_page(source: str, canonical: str, host: str, file_id: str) ->
     }
 
 
+def _gigafile_cookie_header(cookie_jar: CookieJar, url: str) -> str:
+    request = Request(url)
+    cookie_jar.add_cookie_header(request)
+    return request.get_header("Cookie", "")
+
+
+def _probe_gigafile_file(file_info: dict, host: str, cookie_header: str) -> tuple[str, int | None]:
+    headers = {
+        "User-Agent": "Mozilla/5.0 NAS Download Portal",
+        "Referer": str(file_info["url"]),
+        "Range": "bytes=0-0",
+    }
+    if cookie_header:
+        headers["Cookie"] = cookie_header
+    request = Request(str(file_info["download_url"]), headers=headers)
+    opener = build_opener(GigaFileRedirectHandler(host))
+    with opener.open(request, timeout=GIGAFILE_NAME_PROBE_TIMEOUT_SECONDS) as response:
+        final = urlparse(response.geturl())
+        if final.scheme != "https" or (final.hostname or "").lower() != host:
+            raise ValueError("GigaFile 최종 다운로드 서버가 올바르지 않습니다.")
+        values = [
+            value.encode("latin-1", "replace")
+            for value in response.headers.get_all("Content-Disposition", [])
+        ]
+        actual_name = content_disposition_download_name(values)
+        content_range = response.headers.get("Content-Range", "")
+        range_match = re.search(r"/(\d+)$", content_range)
+        actual_size = int(range_match.group(1)) if range_match else None
+        response.read(1)
+    return actual_name, actual_size
+
+
+def resolve_gigafile_batch_names(inspected: dict, host: str, cookie_jar: CookieJar) -> dict:
+    files = inspected.get("files")
+    if not isinstance(files, list):
+        return inspected
+    cookie_headers = {
+        str(item.get("download_url", "")): _gigafile_cookie_header(cookie_jar, str(item.get("download_url", "")))
+        for item in files
+        if isinstance(item, dict)
+    }
+    with ThreadPoolExecutor(max_workers=min(GIGAFILE_NAME_PROBE_WORKERS, len(files))) as executor:
+        futures = {
+            executor.submit(
+                _probe_gigafile_file,
+                item,
+                host,
+                cookie_headers.get(str(item.get("download_url", "")), ""),
+            ): item
+            for item in files
+            if isinstance(item, dict)
+        }
+        for future in as_completed(futures):
+            item = futures[future]
+            try:
+                actual_name, actual_size = future.result()
+            except (HTTPError, OSError, TimeoutError, ValueError):
+                continue
+            if actual_name:
+                item["name"] = actual_name
+            if actual_size is not None and actual_size != int(item["size"]):
+                raise ValueError("GigaFile 개별 파일 크기가 페이지 정보와 일치하지 않습니다.")
+    for item in files:
+        if "ファイル名が置換されました" not in str(item.get("name", "")):
+            continue
+        try:
+            individual_id = service_path_id(urlparse(str(item["url"])))
+        except (KeyError, ValueError):
+            individual_id = "file"
+        item["name"] = f"GigaFile {individual_id}"
+    return inspected
+
+
+def is_gigafile_fallback_name(name: str, source: str) -> bool:
+    try:
+        individual_id = service_path_id(urlparse(source))
+    except ValueError:
+        return False
+    return name == f"GigaFile {individual_id}"
+
+
 def inspect_gigafile(raw_url: str) -> dict:
     parsed = urlparse(raw_url.strip())
     host = (parsed.hostname or "").lower()
@@ -1924,11 +2142,14 @@ def inspect_gigafile(raw_url: str) -> dict:
         raise ValueError("정식 GigaFile HTTPS 링크가 아닙니다.")
     file_id = service_path_id(parsed)
     canonical = f"https://{host}/{file_id}"
-    opener = build_opener(HTTPCookieProcessor())
+    cookie_jar = CookieJar()
+    opener = build_opener(GigaFileRedirectHandler(host), HTTPCookieProcessor(cookie_jar))
     request = Request(canonical, headers={"User-Agent": "Mozilla/5.0 NAS Download Portal"})
     with opener.open(request, timeout=30) as response:
         source = response.read(2_000_000).decode("utf-8", "replace")
     inspected = parse_gigafile_page(source, canonical, host, file_id)
+    if inspected.get("batch"):
+        return resolve_gigafile_batch_names(inspected, host, cookie_jar)
     try:
         head_request = Request(
             str(inspected["download_url"]), method="HEAD",
@@ -1952,6 +2173,28 @@ def _retry_delay(exc: HTTPError, attempt: int) -> float:
     return min(30.0, max(1.0, retry_after))
 
 
+class SameHostHTTPSRedirectHandler(HTTPRedirectHandler):
+    def __init__(self, expected_host: str):
+        super().__init__()
+        self.expected_host = expected_host.lower()
+
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        parsed = urlparse(new_url)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("외부 서비스가 올바르지 않은 주소로 이동을 요청했습니다.") from exc
+        if (
+            parsed.scheme != "https"
+            or (parsed.hostname or "").lower() != self.expected_host
+            or parsed.username is not None
+            or parsed.password is not None
+            or port not in {None, 443}
+        ):
+            raise ValueError("외부 서비스가 허용되지 않은 서버로 이동을 요청했습니다.")
+        return super().redirect_request(request, file_pointer, code, message, headers, new_url)
+
+
 def _json_request(
     url: str, *, method: str = "GET", headers: dict[str, str] | None = None, retry_429: bool = True,
 ) -> dict:
@@ -1959,7 +2202,9 @@ def _json_request(
     for attempt in range(attempts):
         request = Request(url, method=method, headers=headers or {})
         try:
-            with urlopen(request, timeout=30) as response:
+            host = (urlparse(url).hostname or "").lower()
+            opener = build_opener(SameHostHTTPSRedirectHandler(host))
+            with opener.open(request, timeout=30) as response:
                 return json.loads(response.read(4_000_000))
         except HTTPError as exc:
             if exc.code != HTTPStatus.TOO_MANY_REQUESTS or attempt == attempts - 1:
@@ -1990,7 +2235,8 @@ def _gofile_website_token(account_token: str) -> str:
     _gofile_guard()
     request = Request("https://gofile.io/js/wt.obf.js", headers={"User-Agent": GOFILE_USER_AGENT})
     try:
-        with urlopen(request, timeout=30) as response:
+        opener = build_opener(SameHostHTTPSRedirectHandler("gofile.io"))
+        with opener.open(request, timeout=30) as response:
             script = response.read(2_000_000).decode("utf-8")
     except HTTPError as exc:
         if exc.code == HTTPStatus.TOO_MANY_REQUESTS:
@@ -2135,7 +2381,7 @@ def inspect_pixeldrain(raw_url: str) -> dict:
     file_id = service_path_id(parsed, "u")
     metadata = _json_request(
         f"https://pixeldrain.com/api/file/{file_id}/info",
-        headers={"User-Agent": "NAS Download Portal/0.4.2"},
+        headers={"User-Agent": f"NASDrop/{PACKAGE_VERSION}"},
     )
     if not metadata.get("success") or not metadata.get("can_download", True):
         message = str(metadata.get("availability_message") or "파일을 다운로드할 수 없습니다.")
@@ -2198,6 +2444,8 @@ def cache_inspection(inspected: dict) -> dict:
         expired = [key for key, (expires, _) in INSPECTION_CACHE.items() if expires <= current]
         for key in expired:
             INSPECTION_CACHE.pop(key, None)
+        while len(INSPECTION_CACHE) >= MAX_INSPECTION_CACHE_ENTRIES:
+            INSPECTION_CACHE.pop(next(iter(INSPECTION_CACHE)))
         INSPECTION_CACHE[inspection_id] = (current + INSPECTION_TTL_SECONDS, inspected)
     result = public_inspection(inspected)
     result["inspection_id"] = inspection_id
@@ -2406,9 +2654,44 @@ def set_processing_settings(auto_extract: object = None, disk_protection: object
     return {"auto_extract_archives": AUTO_EXTRACT_ARCHIVES, "disk_protection": DISK_PROTECTION}
 
 
+def set_reverse_proxy_setting(enabled: object) -> bool:
+    global CONFIG, TRUST_FORWARDED_FOR, UNTRUSTED_FORWARDED_HEADER_SEEN, UNTRUSTED_FORWARDED_HEADER_WARNED
+    if not isinstance(enabled, bool):
+        raise ValueError("DSM 역방향 프록시 설정이 올바르지 않습니다.")
+    with CONFIG_LOCK:
+        updated = dict(CONFIG)
+        updated["NAS_PORTAL_TRUST_FORWARDED_FOR"] = enabled
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        temp = CONFIG_FILE.with_suffix(".tmp")
+        temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temp.chmod(0o600)
+        temp.replace(CONFIG_FILE)
+        CONFIG = updated
+        TRUST_FORWARDED_FOR = enabled
+    with FORWARDED_HEADER_LOCK:
+        UNTRUSTED_FORWARDED_HEADER_SEEN = False
+        UNTRUSTED_FORWARDED_HEADER_WARNED = False
+    LOGGER.warning("DSM reverse proxy mode %s", "enabled" if enabled else "disabled")
+    return enabled
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NasDownloadPortal/1.0"
+    server_version = "NASDrop"
+    sys_version = ""
     timeout = REQUEST_TIMEOUT_SECONDS
+
+    def end_headers(self) -> None:
+        self.send_header(
+            "Content-Security-Policy",
+            "default-src 'self'; base-uri 'none'; connect-src 'self'; "
+            "form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; "
+            "object-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+        )
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        super().end_headers()
 
     def log_message(self, fmt: str, *args: object) -> None:
         LOGGER.warning("%s %s", self.client_address[0], fmt % args)
@@ -2438,9 +2721,9 @@ class Handler(BaseHTTPRequestHandler):
         return supplied.strip()
 
     def login_client_ip(self) -> str:
-        return trusted_client_ip(
-            self.client_address[0], self.headers.get("x-forwarded-for", "")
-        )
+        forwarded_for = self.headers.get("x-forwarded-for", "")
+        note_forwarded_header(self.client_address[0], forwarded_for)
+        return trusted_client_ip(self.client_address[0], forwarded_for)
 
     def auth_kind(self) -> str:
         supplied = self.authorization_token()
@@ -2504,6 +2787,8 @@ class Handler(BaseHTTPRequestHandler):
                 "archive_formats": ["zip", "7z", "rar", "tar", "tar.gz", "tgz", "tar.bz2", "tbz2", "tar.xz", "txz"],
                 "seven_zip_available": SEVEN_ZIP.is_file(),
                 "gofile_cooldown": _gofile_cooldown_status(),
+                "reverse_proxy_mode": TRUST_FORWARDED_FOR,
+                "untrusted_forwarded_header_seen": UNTRUSTED_FORWARDED_HEADER_SEEN,
             })
         if path == "/api/account":
             if not self.authorized():
@@ -2529,16 +2814,27 @@ class Handler(BaseHTTPRequestHandler):
                 if not credentials_configured():
                     raise ValueError("계정이 아직 설정되지 않았습니다. DSM 아이콘 또는 Docker 계정 설정 명령으로 ID와 비밀번호를 먼저 설정하세요.")
                 client_ip = self.login_client_ip()
+                global_retry = global_login_retry_after()
+                if global_retry:
+                    return self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {
+                        "error": f"로그인 요청이 잠시 제한되었습니다. {global_retry}초 후 다시 시도하세요.",
+                        "code": "login_temporarily_limited",
+                        "params": {"seconds": global_retry},
+                    })
                 remaining = login_block_remaining(client_ip)
                 if remaining:
+                    minutes = max(1, (remaining + 59) // 60)
                     return self.send_json(HTTPStatus.TOO_MANY_REQUESTS, {
-                        "error": f"로그인 시도가 너무 많습니다. 약 {max(1, (remaining + 59) // 60)}분 후 다시 시도하세요."
+                        "error": f"로그인 시도가 너무 많습니다. 약 {minutes}분 후 다시 시도하세요.",
+                        "code": "too_many_attempts",
+                        "params": {"minutes": minutes},
                     })
                 username = payload.get("username")
                 password = payload.get("password")
                 valid = verify_credentials(username, password)
                 record_login_result(client_ip, valid)
                 if not valid:
+                    record_global_login_failure()
                     return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "ID 또는 비밀번호가 올바르지 않습니다."})
                 token = create_session(str(CREDENTIALS["username"]))
                 return self.send_json(HTTPStatus.OK, {"token": token, "username": str(CREDENTIALS["username"])})
@@ -2614,6 +2910,8 @@ class Handler(BaseHTTPRequestHandler):
                         payload.get("auto_extract_archives") if "auto_extract_archives" in payload else None,
                         payload.get("disk_protection") if "disk_protection" in payload else None,
                     ))
+                if "reverse_proxy_mode" in payload:
+                    result["reverse_proxy_mode"] = set_reverse_proxy_setting(payload.get("reverse_proxy_mode"))
                 if len(result) == 1:
                     raise ValueError("변경할 설정이 없습니다.")
                 return self.send_json(HTTPStatus.OK, result)

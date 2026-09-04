@@ -31,6 +31,9 @@ class AccountAuthTests(unittest.TestCase):
             backend.SESSIONS.clear()
         with backend.LOGIN_FAILURES_LOCK:
             backend.LOGIN_FAILURES.clear()
+        with backend.GLOBAL_LOGIN_FAILURES_LOCK:
+            backend.GLOBAL_LOGIN_FAILURES.clear()
+            backend.GLOBAL_LOGIN_BLOCKED_UNTIL = 0.0
         self.server = backend.ThreadingHTTPServer(("127.0.0.1", 0), backend.Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -50,6 +53,9 @@ class AccountAuthTests(unittest.TestCase):
             backend.SESSIONS.clear()
         with backend.LOGIN_FAILURES_LOCK:
             backend.LOGIN_FAILURES.clear()
+        with backend.GLOBAL_LOGIN_FAILURES_LOCK:
+            backend.GLOBAL_LOGIN_FAILURES.clear()
+            backend.GLOBAL_LOGIN_BLOCKED_UNTIL = 0.0
         self.temporary.cleanup()
 
     def request(self, path, *, method="GET", payload=None, token=""):
@@ -185,6 +191,22 @@ class AccountAuthTests(unittest.TestCase):
         backend.login_block_remaining("192.0.2.45")
         self.assertNotIn("192.0.2.44", backend.LOGIN_FAILURES)
 
+    def test_distributed_failures_trigger_only_short_global_throttle(self):
+        with mock.patch.object(backend.time, "time", return_value=1000.0):
+            for _ in range(backend.GLOBAL_LOGIN_FAILURE_LIMIT):
+                backend.record_global_login_failure()
+            self.assertEqual(
+                backend.global_login_retry_after(),
+                backend.GLOBAL_LOGIN_COOLDOWN_SECONDS,
+            )
+
+        with mock.patch.object(
+            backend.time,
+            "time",
+            return_value=1000.0 + backend.GLOBAL_LOGIN_COOLDOWN_SECONDS + 1,
+        ):
+            self.assertEqual(backend.global_login_retry_after(), 0)
+
     def test_forwarded_client_ip_is_trusted_only_from_local_proxy(self):
         self.assertEqual(
             backend.trusted_client_ip("127.0.0.1", "198.51.100.23, 127.0.0.1"),
@@ -205,6 +227,34 @@ class AccountAuthTests(unittest.TestCase):
             "127.0.0.1",
         )
 
+    def test_disabled_proxy_mode_warns_once_when_loopback_forwards_clients(self):
+        with mock.patch.object(backend, "TRUST_FORWARDED_FOR", False), \
+             mock.patch.object(backend, "UNTRUSTED_FORWARDED_HEADER_SEEN", False), \
+             mock.patch.object(backend, "UNTRUSTED_FORWARDED_HEADER_WARNED", False), \
+             self.assertLogs(backend.LOGGER, level="WARNING") as logs:
+            backend.note_forwarded_header("127.0.0.1", "198.51.100.7")
+            backend.note_forwarded_header("127.0.0.1", "198.51.100.8")
+            self.assertTrue(backend.UNTRUSTED_FORWARDED_HEADER_SEEN)
+        self.assertEqual(sum("share one login-throttle bucket" in line for line in logs.output), 1)
+
+    def test_reverse_proxy_setting_is_persisted_and_applies_immediately(self):
+        config_file = backend.STATE_DIR / "proxy-config.json"
+        with mock.patch.object(backend, "CONFIG_FILE", config_file), \
+             mock.patch.object(backend, "CONFIG", {}), \
+             mock.patch.object(backend, "TRUST_FORWARDED_FOR", False), \
+             mock.patch.object(backend, "UNTRUSTED_FORWARDED_HEADER_SEEN", True), \
+             mock.patch.object(backend, "UNTRUSTED_FORWARDED_HEADER_WARNED", True):
+            self.assertTrue(backend.set_reverse_proxy_setting(True))
+            self.assertTrue(backend.TRUST_FORWARDED_FOR)
+            self.assertFalse(backend.UNTRUSTED_FORWARDED_HEADER_SEEN)
+            self.assertEqual(
+                backend.trusted_client_ip("127.0.0.1", "203.0.113.1, 198.51.100.9"),
+                "198.51.100.9",
+            )
+            self.assertTrue(json.loads(config_file.read_text(encoding="utf-8"))["NAS_PORTAL_TRUST_FORWARDED_FOR"])
+        with self.assertRaises(ValueError):
+            backend.set_reverse_proxy_setting("true")
+
     def test_query_strings_route_to_json_api(self):
         backend.replace_credentials("owner", "original password")
         token = backend.create_session("owner")
@@ -218,6 +268,23 @@ class AccountAuthTests(unittest.TestCase):
         self.assertEqual(status, 401)
         self.assertEqual(payload["code"], "auth_required")
         self.assertEqual(backend.public_error_code("정식 GigaFile HTTPS 링크가 아닙니다."), "invalid_link")
+        self.assertEqual(
+            backend.public_error_code("ID는 영문, 숫자, 마침표, 밑줄, 하이픈을 사용해 3~32자로 입력하세요."),
+            "invalid_username",
+        )
+        self.assertEqual(backend.public_error_code("비밀번호는 10~128자로 입력하세요."), "invalid_password")
+
+    def test_login_throttle_error_includes_localizable_remaining_minutes(self):
+        backend.replace_credentials("owner", "original password")
+        for _ in range(backend.LOGIN_FAILURE_LIMIT):
+            backend.record_login_result("127.0.0.1", False)
+        status, payload = self.request(
+            "/api/login", method="POST",
+            payload={"username": "owner", "password": "original password"},
+        )
+        self.assertEqual(status, 429)
+        self.assertEqual(payload["code"], "too_many_attempts")
+        self.assertGreaterEqual(payload["params"]["minutes"], 1)
 
     def test_negative_and_oversized_content_lengths_are_rejected(self):
         for length in (-1, backend.REQUEST_BODY_LIMIT + 1):

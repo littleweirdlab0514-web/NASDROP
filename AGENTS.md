@@ -11,6 +11,7 @@
 - Filename discovery must not download the file body a second time. Use a supported HEAD request or headers captured from the real transfer; failure must fall back safely without failing the download.
 - Preserve the GigaFile masked-name regression fixture exactly:
   `●ファイル名が置換されました※DLしたファイルは、原題まま表示されます。●`
+- On a GigaFile multi-file page, queue every individual file rather than the synthesized bundle ZIP. Resolve each child's response filename before queueing; if that probe fails, use a neutral child-ID label and let transfer-time headers correct it—never expose the masked fixture as a filename and never block the download only because name discovery failed.
 - Any provider or download-pipeline change must test at least one ordinary file and one archive, multilingual `filename*`, redirects or repeated headers, missing headers, malicious path-like names, and duplicate destinations.
 
 See `docs/PROVIDER_FILENAME_GUIDE.md` for the rationale and release checklist.

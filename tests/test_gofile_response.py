@@ -115,6 +115,15 @@ class GoFileResponseTest(unittest.TestCase):
         self.assertIs(consumed, inspected)
         provider_lookup.assert_not_called()
 
+    def test_inspection_cache_is_bounded(self):
+        for index in range(backend.MAX_INSPECTION_CACHE_ENTRIES + 10):
+            backend.cache_inspection({"url": f"https://example.invalid/{index}", "name": str(index)})
+
+        self.assertEqual(len(backend.INSPECTION_CACHE), backend.MAX_INSPECTION_CACHE_ENTRIES)
+        cached_names = {value[1]["name"] for value in backend.INSPECTION_CACHE.values()}
+        self.assertNotIn("0", cached_names)
+        self.assertIn(str(backend.MAX_INSPECTION_CACHE_ENTRIES + 9), cached_names)
+
     @patch("backend._gofile_website_token", return_value="a" * 64)
     @patch("backend._json_request")
     def test_preserves_nested_folder_as_a_relative_target(self, request, _website_token):

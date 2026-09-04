@@ -1,7 +1,7 @@
 (() => {
   const $ = (selector) => document.querySelector(selector);
   const t = (key, vars) => window.NASDropI18n.t(key, vars);
-  const serverError = (code, fallback) => window.NASDropI18n.error(code, fallback);
+  const serverError = (code, fallback, vars) => window.NASDropI18n.error(code, fallback, vars);
   const launchedToken = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   if (launchedToken) history.replaceState(null, "", location.pathname + location.search);
   const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, selected: new Set(), extractionInitialized: false };
@@ -33,13 +33,13 @@
   async function api(path, init = {}) {
     const response = await fetch(path, { ...init, headers:{ "content-type":"application/json", authorization:`Bearer ${state.token}`, ...(init.headers || {}) } });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed")));
+    if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed"), payload.params));
     return payload;
   }
   async function publicApi(path, init = {}) {
     const response = await fetch(path, { ...init, headers:{ "content-type":"application/json", ...(init.headers || {}) } });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed")));
+    if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed"), payload.params));
     return payload;
   }
   function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); refresh(); state.timer = setInterval(refreshJobs, 2500); }
@@ -62,7 +62,12 @@
     $("#setting-write").className = `badge ${s.target && s.target_writable ? "ok" : "bad"}`;
     $("#service-user").textContent = s.service_user || t("dedicatedAccount");
     $("#service-url").textContent = location.origin;
-    $("#launcher-port").value = String(s.launcher_port || 8791);
+    const launcherPort = Number(s.launcher_port || 8791);
+    $("#launcher-port").value = String(launcherPort);
+    renderConnectionRoute(launcherPort);
+    $("#reverse-proxy-mode").checked = Boolean(s.reverse_proxy_mode);
+    $("#proxy-detected-warning").classList.toggle("hidden", !s.untrusted_forwarded_header_seen || s.reverse_proxy_mode);
+    $("#proxy-enabled-warning").classList.toggle("hidden", !s.reverse_proxy_mode);
     $("#version").textContent = s.version;
     const gofileCooldown = s.gofile_cooldown || {};
     const gofileNotice = $("#gofile-cooldown");
@@ -191,15 +196,29 @@
     } catch (error) { $("#download-behavior-message").textContent = error.message; }
     finally { button.disabled = false; }
   });
-  $("#save-launcher-port").addEventListener("click", async () => {
+  $("#reverse-proxy-mode").addEventListener("change", event => {
+    $("#proxy-enabled-warning").classList.toggle("hidden", !event.target.checked);
+  });
+  function renderConnectionRoute(port) {
+    const host = location.hostname.includes(":") ? `[${location.hostname}]` : location.hostname;
+    $("#launcher-url").textContent = `${location.protocol}//${host}:${port}`;
+    $("#connection-route").textContent = t("connectionRoute", {publicPort:port, appPort:8791});
+  }
+  $("#launcher-port").addEventListener("input", event => {
+    const port = Number(event.target.value);
+    if (Number.isInteger(port) && port >= 1 && port <= 65535) renderConnectionRoute(port);
+  });
+  $("#save-service-settings").addEventListener("click", async () => {
     const rawPort = $("#launcher-port").value.trim();
     const port = rawPort ? Number(rawPort) : 8791;
-    const button = $("#save-launcher-port"); button.disabled = true; $("#launcher-port-message").textContent = t("saving");
+    const reverseProxyMode = $("#reverse-proxy-mode").checked;
+    if (reverseProxyMode && !confirm(t("confirmReverseProxy"))) return;
+    const button = $("#save-service-settings"); button.disabled = true; $("#service-settings-message").textContent = t("saving");
     try {
-      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({launcher_port:port})});
+      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({launcher_port:port,reverse_proxy_mode:reverseProxyMode})});
       state.status = await api("/api/status"); renderStatus();
-      $("#launcher-port-message").textContent = t("launcherPortSaved", {port:result.launcher_port});
-    } catch (error) { $("#launcher-port-message").textContent = error.message; }
+      $("#service-settings-message").textContent = t("connectionSettingsSaved", {port:result.launcher_port});
+    } catch (error) { $("#service-settings-message").textContent = error.message; }
     finally { button.disabled = false; }
   });
   $("#save-processing").addEventListener("click", async () => {

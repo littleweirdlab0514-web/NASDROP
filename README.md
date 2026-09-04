@@ -15,6 +15,21 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
+## What's new in 0.9.11
+
+- Distributed sign-in failures now trigger only a five-second global pause after 30 failures in 60 seconds; the existing per-client five-failure/15-minute protection remains unchanged.
+- Settings now include an explicit DSM reverse-proxy mode. It trusts the rightmost forwarded client address only from a loopback proxy and applies changes without restarting NASDrop.
+- When a loopback proxy sends forwarded headers while the mode is disabled, NASDrop warns in both Settings and the service log that clients share one login-throttle bucket.
+- GigaFile pages containing multiple files now queue each original file instead of the provider-generated combined ZIP, and resolve each file's real response name before it enters the queue whenever possible.
+- GigaFile markup variations and malformed size metadata now fail safely, while large batches are staggered without an artificial three-file or combined-size limit.
+- Provider page and header probes now have bounded timeouts, stalled transfers stop cleanly and can be resumed, and redirects cannot escape to another host or protocol.
+- Web responses now include browser security headers, and the temporary inspection cache is bounded to prevent unrestrained memory growth.
+
+## What's new in 0.9.10
+
+- Pixeldrain metadata requests now identify the active NASDrop package version instead of the obsolete `NAS Download Portal/0.4.2` value.
+- Invalid ID and password rules and login-throttle wait times now have dedicated English, Korean, Japanese, and Chinese error messages.
+
 ## What's new in 0.9.9
 
 - NASDrop API and saved job failures now carry stable error categories, so English, Japanese, and Chinese users see localized errors instead of Korean-only backend text.
@@ -216,7 +231,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.9-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.11-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
@@ -238,7 +253,7 @@ English is the default interface language. NASDrop automatically follows the bro
 
 Users can manually select English, Korean, Japanese, or Chinese on the login screen or from the top navigation. The selection is stored in the browser. DSM Package Center descriptions support the same four languages.
 
-The interface chrome is translated, but some provider, validation, and backend error details are still emitted in Korean. Full server-error localization is a known limitation planned separately.
+The interface and categorized server errors are translated into all four supported languages. Unclassified provider diagnostics use a localized generic fallback outside the Korean interface.
 
 ## Configuring HTTPS with DSM Reverse Proxy
 
@@ -254,7 +269,8 @@ NASDrop listens on plain HTTP port `8791` inside the NAS. For internet access, k
    - Hostname: `127.0.0.1`
    - Port: `8791`
 4. Save the rule.
-5. Open **Control Panel > Security > Certificate > Settings** and assign a valid certificate for the public hostname to the new reverse-proxy service.
+5. Open **NASDrop > Settings > Service address**, enable **Use DSM reverse proxy**, confirm that NAS port `8791` is not exposed directly to the internet, and save the connection settings. This separates login throttling by the client address supplied by the local DSM proxy.
+6. Open **Control Panel > Security > Certificate > Settings** and assign a valid certificate for the public hostname to the new reverse-proxy service.
 
 ### Real-world example from the maintainer's environment
 
@@ -350,7 +366,9 @@ After saving the configuration, test the exact HTTPS address from outside the lo
 
 The DSM launcher preserves the protocol used to open DSM. It uses port `8791` for private hosts and the external icon port selected in NASDrop settings for public hostnames. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
 
-Login throttling uses the direct peer address by default and does not trust `X-Forwarded-For`. If, and only if, NASDrop is reachable exclusively through one trusted reverse proxy on the same host, set `NAS_PORTAL_TRUST_FORWARDED_FOR=true` (or `NASDROP_TRUST_FORWARDED_FOR=true` with the supplied Compose file). NASDrop then accepts the rightmost forwarded address only from a loopback proxy and records both peer and selected client addresses in its log.
+Login throttling uses the direct peer address by default and does not trust `X-Forwarded-For`. Behind DSM Reverse Proxy, enable **Use DSM reverse proxy** under **NASDrop > Settings > Service address**; otherwise every proxied client shares the loopback address and therefore one login-throttle bucket. NASDrop accepts the rightmost forwarded address only from a loopback proxy and records both peer and selected client addresses in its log. Docker users can set `NASDROP_TRUST_FORWARDED_FOR=true` instead. Never enable this mode when untrusted clients can reach NASDrop port `8791` directly.
+
+Five consecutive failures from one client still block that client for 15 minutes. Separately, a distributed burst of 30 failed sign-ins within 60 seconds pauses all new sign-in attempts for only five seconds; it never creates a global 15-minute account lock.
 
 ## Verification
 

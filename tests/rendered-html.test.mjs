@@ -46,16 +46,20 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("download-behavior-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "launcherPort", "launcherPortHint", "saveLauncherPort", "launcherPortSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "downloadBehavior", "downloadBehaviorHint", "combinedDownloadWarning", "saveDownloadBehavior", "downloadBehaviorSaved", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction", "httpWarningTitle", "httpWarningBody", "error_auth_required", "error_invalid_credentials", "error_permission_denied", "error_password_required", "error_rate_limited", "error_link_expired", "error_integrity_failed", "error_archive_error", "error_invalid_link", "error_invalid_job_state", "error_internal_error", "error_generic_error"]) {
+  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "currentAccessAddress", "launcherAddress", "launcherPort", "launcherPortHint", "connectionRouteTitle", "connectionRoute", "connectionRouteHint", "saveLauncherPort", "launcherPortSaved", "reverseProxyMode", "reverseProxyHint", "proxyDetectedTitle", "proxyDetectedWarning", "proxyEnabledWarning", "confirmReverseProxy", "saveConnectionSettings", "connectionSettingsSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "downloadBehavior", "downloadBehaviorHint", "combinedDownloadWarning", "saveDownloadBehavior", "downloadBehaviorSaved", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction", "httpWarningTitle", "httpWarningBody", "error_auth_required", "error_invalid_credentials", "error_invalid_username", "error_invalid_password", "error_too_many_attempts", "error_permission_denied", "error_password_required", "error_rate_limited", "error_link_expired", "error_integrity_failed", "error_archive_error", "error_invalid_link", "error_invalid_job_state", "error_internal_error", "error_generic_error"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
   assert.match(i18n, /function error\(code, fallback/);
   assert.match(app, /serverError\(payload\.code/);
+  assert.match(app, /payload\.params/);
   assert.match(app, /serverError\(job\.error_code, job\.error\)/);
   assert.match(html, /data-i18n="accessMethodHint"/);
   assert.match(html, /id="launcher-port"[^>]*min="1"[^>]*max="65535"/);
-  assert.match(html, /id="save-launcher-port"/);
-  assert.match(app, /launcher_port:port/);
+  assert.match(html, /id="save-service-settings"/);
+  assert.match(html, /id="reverse-proxy-mode"/);
+  assert.match(html, /id="proxy-detected-warning"[^>]*role="alert"/);
+  assert.match(app, /launcher_port:port,reverse_proxy_mode:reverseProxyMode/);
+  assert.match(app, /connectionRoute.*publicPort:port.*appPort:8791/);
   assert.match(html, /id="download-mode"/);
   assert.match(html, /value="segmented"/);
   assert.match(html, /value="single"/);

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#17201e">
   <title>NASDrop</title>
-  <link rel="icon" type="image/png" href="/nasdrop-icon.png?v=0.9.9">
-  <link rel="stylesheet" href="/style.css?v=0.9.9">
-  <link rel="stylesheet" href="/folder.css?v=0.9.9">
+  <link rel="icon" type="image/png" href="/nasdrop-icon.png?v=0.9.11">
+  <link rel="stylesheet" href="/style.css?v=0.9.11">
+  <link rel="stylesheet" href="/folder.css?v=0.9.11">
 </head>
 <body>
   <main id="login" class="login-shell">
@@ -31,7 +31,7 @@
 
   <main id="app" class="shell hidden">
     <header class="topbar">
-      <div class="brand"><span class="mark small"><img src="/nasdrop-icon.png?v=0.9.9" alt=""></span><div><strong>NASDrop</strong></div></div>
+      <div class="brand"><span class="mark small"><img src="/nasdrop-icon.png?v=0.9.11" alt=""></span><div><strong>NASDrop</strong></div></div>
       <nav><button data-view="dashboard" class="nav active" data-i18n="dashboard">Dashboard</button><button data-view="settings" class="nav" data-i18n="settings">Settings</button></nav>
       <label class="language-setting compact"><span data-i18n="language">Language</span><select data-language-select><option value="en">English</option><option value="ko">한국어</option><option value="ja">日本語</option><option value="zh">简体中文</option></select></label>
       <button id="logout-button" class="ghost" type="button" data-i18n="logout">Sign out</button>
@@ -66,7 +66,21 @@
         <article class="card setting-card download-behavior-card"><h3 data-i18n="downloadBehavior">Download behavior</h3><p class="muted" data-i18n="downloadBehaviorHint">Set same-service concurrency and the connection method used for each file.</p><div class="download-behavior-controls"><label class="toggle-setting"><input id="same-provider-parallel" type="checkbox"><span data-i18n="allowParallel">Allow parallel downloads</span></label><label class="limit-setting"><span data-i18n="sameServiceMax">Maximum per service</span><select id="same-provider-limit"><option value="2" data-i18n="twoJobs">2 jobs</option><option value="3" data-i18n="threeJobs">3 jobs</option></select></label><label class="limit-setting"><span data-i18n="method">Method</span><select id="download-mode"><option value="segmented" data-i18n="segmentedMode">8-part download + verification</option><option value="single" data-i18n="singleMode">Single connection + verification</option></select></label></div><div class="parallel-warning compact-warning"><strong data-i18n="warning">Warning</strong><p data-i18n="combinedDownloadWarning">Parallel or 8-part downloads can increase NAS and network load.</p></div><div class="setting-actions download-behavior-actions"><span id="concurrency-summary" class="badge" data-i18n="off">Off</span><span id="download-mode-summary" class="badge">—</span><p id="download-behavior-message" class="muted"></p><button id="save-download-behavior" class="ghost" type="button" data-i18n="saveDownloadBehavior">Save download behavior</button></div></article>
         <article class="card setting-card processing-card"><h3 data-i18n="processingTitle">Temporary files and extraction</h3><p class="muted" data-i18n="processingHint">Parts are downloaded and assembled in a hidden workspace, so the destination only shows complete results.</p><dl><div><dt data-i18n="temporaryFolder">Temporary folder</dt><dd><code id="temp-folder-name">.nasdrop-tmp</code></dd></div><div><dt data-i18n="archiveEngine">Archive engine</dt><dd><span id="archive-engine" class="badge">—</span></dd></div></dl><label class="toggle-setting"><input id="auto-extract-archives" type="checkbox"><span data-i18n="autoExtract">Extract new jobs by default</span></label><label class="toggle-setting"><input id="disk-protection" type="checkbox"><span data-i18n="diskProtection">Pause new downloads during disk processing</span></label><p class="muted" data-i18n="archiveFormats">ZIP, AES ZIP, 7z, RAR, and TAR families are extracted into a same-name folder.</p><div class="setting-actions"><span id="processing-summary" class="badge">—</span><button id="save-processing" class="ghost" type="button" data-i18n="saveProcessing">Save processing settings</button></div><p id="processing-message" class="muted"></p></article>
         <article class="card setting-card folder-card"><h3 data-i18n="defaultFolder">Default destination</h3><p class="muted" data-i18n="defaultFolderHint">Jobs are saved here unless another folder is selected.</p><code id="setting-target">—</code><div class="setting-actions"><div id="setting-write" class="badge" data-i18n="checkingShort">Checking</div><button id="change-default-folder" class="ghost" data-i18n="change">Change</button></div><section class="setting-subsection"><h4 data-i18n="folderPermissions">Folder permissions</h4><p class="muted" data-i18n="folderPermissionsHint">Locked shared folders are not accessible. Grant read/write access to this package's internal system user in DSM.</p><dl><div><dt data-i18n="serviceAccount">Service account</dt><dd id="service-user">—</dd></div></dl></section></article>
-        <article class="card setting-card service-card"><h3 data-i18n="serviceAddress">Service address</h3><p class="muted" data-i18n="serviceAddressHint">Use this address with the configured ID and password from connected clients.</p><p class="muted" data-i18n="accessMethodHint">The DSM icon signs in automatically. Direct browser access and client apps must enter the ID and password.</p><code id="service-url">—</code><label class="launcher-port-setting"><span data-i18n="launcherPort">DSM icon external port</span><input id="launcher-port" type="number" min="1" max="65535" inputmode="numeric"></label><p class="muted launcher-port-hint" data-i18n="launcherPortHint">Used when the DSM icon is opened through a public hostname. LAN access continues to use port 8791.</p><div class="setting-actions"><div class="badge ok"><span data-i18n="version">Version</span> <span id="version">—</span></div><button id="save-launcher-port" class="ghost" type="button" data-i18n="saveLauncherPort">Save icon port</button></div><p id="launcher-port-message" class="muted"></p></article>
+        <article class="card setting-card service-card">
+          <h3 data-i18n="serviceAddress">Connection path</h3>
+          <p class="muted" data-i18n="serviceAddressHint">The public router port, DSM reverse proxy port, and NASDrop internal port have different roles.</p>
+          <p class="muted" data-i18n="accessMethodHint">The DSM icon signs in automatically. Direct browser access and client apps must enter the ID and password.</p>
+          <dl class="connection-map"><div><dt data-i18n="currentAccessAddress">Current address</dt><dd><code id="service-url">—</code></dd></div><div><dt data-i18n="launcherAddress">DSM icon address on this hostname</dt><dd><code id="launcher-url">—</code></dd></div></dl>
+          <label class="launcher-port-setting"><span data-i18n="launcherPort">Public router port (DSM icon address)</span><input id="launcher-port" type="number" min="1" max="65535" inputmode="numeric"></label>
+          <p class="muted launcher-port-hint" data-i18n="launcherPortHint">This is the port visible on the internet, not DSM's reverse proxy source port or NASDrop's internal port.</p>
+          <div class="connection-route"><strong data-i18n="connectionRouteTitle">Reverse proxy route example</strong><span id="connection-route">—</span><small data-i18n="connectionRouteHint">Even if both ends use 8791, the public router port and NASDrop internal port are separate roles.</small></div>
+          <label class="toggle-setting proxy-toggle"><input id="reverse-proxy-mode" type="checkbox"><span data-i18n="reverseProxyMode">Trust client IP from DSM reverse proxy</span></label>
+          <p class="muted proxy-hint" data-i18n="reverseProxyHint">Enable when the router sends the public port to DSM HTTPS and DSM then proxies to NASDrop HTTP port 8791. LAN access to 192.168.x.x:8791 can remain available.</p>
+          <div id="proxy-detected-warning" class="compact-warning hidden" role="alert"><strong data-i18n="proxyDetectedTitle">Reverse proxy detected</strong><span data-i18n="proxyDetectedWarning">Clients currently share one login-throttle bucket. Enable this after confirming the router does not forward directly to NASDrop port 8791.</span></div>
+          <div id="proxy-enabled-warning" class="compact-warning hidden"><strong data-i18n="warning">Warning</strong><span data-i18n="proxyEnabledWarning">The public router port must lead to DSM's reverse proxy source port, not directly to NASDrop's internal port 8791.</span></div>
+          <div class="setting-actions"><div class="badge ok"><span data-i18n="version">Version</span> <span id="version">—</span></div><button id="save-service-settings" class="ghost" type="button" data-i18n="saveConnectionSettings">Save connection settings</button></div>
+          <p id="service-settings-message" class="muted"></p>
+        </article>
       </div>
     </section>
 
@@ -81,7 +95,7 @@
       <div class="modal-actions"><button id="folder-cancel" class="ghost" data-i18n="cancel">Cancel</button><button id="folder-select" class="primary" data-i18n="chooseThisFolder">Choose this folder</button></div>
     </section>
   </div>
-  <script src="/i18n.js?v=0.9.9"></script>
-  <script src="/app.js?v=0.9.9"></script>
+  <script src="/i18n.js?v=0.9.11"></script>
+  <script src="/app.js?v=0.9.11"></script>
 </body>
 </html>

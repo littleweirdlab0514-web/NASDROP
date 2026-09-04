@@ -24,6 +24,9 @@ class DownloadModeTests(unittest.TestCase):
         self.assertNotIn("COUNT=8", script)
         self.assertNotIn("sha256sum", script)
         self.assertNotIn("python3 -m zipfile", script)
+        self.assertIn("--connect-timeout 15 --max-time 60", script)
+        self.assertIn("--connect-timeout 10 --max-time 30", script)
+        self.assertIn("--speed-limit 1024 --speed-time 120", script)
 
     def test_direct_single_mode_skips_segments_and_hash_even_with_expected_hash(self):
         script = self.controller._download_script_direct(
@@ -33,6 +36,7 @@ class DownloadModeTests(unittest.TestCase):
         self.assertIn("segment.0", script)
         self.assertIn('actual=$(wc -c < "$PART"', script)
         self.assertNotIn("COUNT=8", script)
+        self.assertIn("--speed-limit 1024 --speed-time 120", script)
         self.assertNotIn("sha256sum", script)
         self.assertNotIn("python3 -m zipfile", script)
 
@@ -45,6 +49,16 @@ class DownloadModeTests(unittest.TestCase):
         self.assertIn("printf 'SEGMENTS_READY=%s\\n' \"$COUNT\"", script)
         self.assertNotIn("sha256sum", script)
         self.assertNotIn("python3 -m zipfile", script)
+
+    def test_gigafile_child_uses_its_own_page_and_download_identifier(self):
+        script = self.controller._download_script(
+            "15.gigafile.nu", "1110-child", "season.zip", "abc123", 4096,
+            "/volume2/downloads/.nasdrop-tmp/abc123", mode="segmented",
+        )
+
+        self.assertIn("https://15.gigafile.nu/1110-child", script)
+        self.assertIn("https://15.gigafile.nu/download.php?file=1110-child", script)
+        self.assertNotIn("dl_zip.php", script)
 
     def test_gigafile_bundle_can_skip_deep_verification(self):
         script = self.controller._download_script_gigafile_zip(

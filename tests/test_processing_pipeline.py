@@ -133,6 +133,7 @@ class ProcessingPipelineTests(unittest.TestCase):
         self.assertTrue(all('--config "$CURL_CONFIG"' in line for line in curl_lines))
         self.assertIn('proto = "=https"', script)
         self.assertIn('proto-redir = "=https"', script)
+        self.assertIn("--location --max-redirs 0", script)
 
     def test_gigafile_download_scripts_reject_non_https_redirects(self):
         controller = backend.Controller.__new__(backend.Controller)
@@ -143,6 +144,7 @@ class ProcessingPipelineTests(unittest.TestCase):
         curl_lines = [line for line in script.splitlines() if "curl " in line]
         self.assertTrue(curl_lines)
         self.assertTrue(all(backend.CURL_HTTPS_ONLY in line for line in curl_lines))
+        self.assertTrue(all(backend.CURL_NO_REDIRECTS in line for line in curl_lines))
 
     def test_rar_and_7z_are_recognized_by_external_engine(self):
         self.assertEqual(backend.archive_kind("backup.7z"), "7zip")
