@@ -19,13 +19,13 @@ class DownloadModeTests(unittest.TestCase):
         script = self.controller._download_script(
             "example.gigafile.nu", "file-id", "movie.mkv", "abc123", 1024, "/volume1/downloads", mode="single",
         )
-        self.assertIn("segment.0", script)
-        self.assertIn("-C -", script)
+        self.assertIn("COUNT=1", script)
+        self.assertIn('from=$(( start + existing ))', script)
         self.assertNotIn("COUNT=8", script)
         self.assertNotIn("sha256sum", script)
         self.assertNotIn("python3 -m zipfile", script)
         self.assertIn("--connect-timeout 15 --max-time 60", script)
-        self.assertIn("--connect-timeout 10 --max-time 30", script)
+        self.assertIn('--dump-header "$part.headers"', script)
         self.assertIn("--speed-limit 1024 --speed-time 120", script)
 
     def test_direct_single_mode_skips_segments_and_hash_even_with_expected_hash(self):
@@ -33,8 +33,8 @@ class DownloadModeTests(unittest.TestCase):
             "https://cdn.example/file", "https://example/file", "archive.zip", "abc123", 2048,
             "/volume1/downloads", expected_sha256="a" * 64, mode="single",
         )
-        self.assertIn("segment.0", script)
-        self.assertIn('actual=$(wc -c < "$PART"', script)
+        self.assertIn("COUNT=1", script)
+        self.assertIn('actual=$(wc -c < "$part"', script)
         self.assertNotIn("COUNT=8", script)
         self.assertIn("--speed-limit 1024 --speed-time 120", script)
         self.assertNotIn("sha256sum", script)

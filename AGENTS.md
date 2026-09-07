@@ -24,3 +24,14 @@ See `docs/PROVIDER_FILENAME_GUIDE.md` for the rationale and release checklist.
 - Every release must test the DSM desktop/start-menu label before and after opening the app, including a browser refresh or new DSM session.
 
 See `docs/DSM_LAUNCHER_GUIDE.md` for the packaging rule and regression checklist.
+
+## Transfer lifecycle invariants
+
+- Never resume a `.more` fragment without validating its HTTP range. Replay at its original offset, not by blind append. Preserve validated data on local I/O errors and strip secret headers.
+- Persist the transfer layout per job. Collect every child exit code; do not use a bare shell `wait` as proof of successful transfer.
+- Pause is not complete until the worker exits. Block resume/delete while stopping, check cancellation after postprocessing gates and before publication, and never run the same job ID twice.
+- On service shutdown, stop scheduling, terminate process groups, interrupt disk processing, then persist recoverable state. Test real DSM stop/update separately from local tests.
+- GoFile transfer HTTP 429 responses must use the same service cooldown as metadata requests. Do not blindly retry all segments into a rate limit.
+- Polling must preserve password form nodes, focus and verification detail state without storing passwords in browser persistence.
+- Run `tests/test_transfer_reliability.py` and `tests/job-refresh.test.mjs` alongside the full regression suite after changing these paths.
+- Bound stored filenames by UTF-8 bytes, not character count. Preserve extensions and deterministic disambiguation when shortening; enforce the same bound on collision suffixes. Temporary parts must use only a short job ID. Test legacy part migration and long Korean/emoji ordinary files and archives (`tests/test_filename_length.py`).

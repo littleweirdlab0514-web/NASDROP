@@ -97,6 +97,7 @@ def validate(spk_path: Path, expected_version: str) -> None:
             "LICENSE",
             "THIRD_PARTY_NOTICES.md",
             "backend.py",
+            "transfer_parts.py",
             "bin/node",
             "bin/7zz",
             "7zip-LICENSE.txt",

@@ -46,8 +46,8 @@ class ProcessingPipelineTests(unittest.TestCase):
             "110.gigafile.nu", "example", "placeholder", "0123456789ab", 1024,
             "/volume2/downloads/.nasdrop-tmp/0123456789ab",
         )
-        self.assertIn(".response-headers", script)
-        self.assertIn(" -I ", script)
+        self.assertIn('--dump-header "$part.headers"', script)
+        self.assertNotIn(" -I ", script)
 
     def test_response_filename_uses_last_redirect_header_and_sanitizes_paths(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -101,7 +101,7 @@ class ProcessingPipelineTests(unittest.TestCase):
             workspace = Path(temp)
             job = backend.Job("0123456789ab", "joined.bin", "https://example.com", 16, 16, "verifying", "now")
             for index in range(8):
-                (workspace / f".{job.name}.{job.id}.segment.{index}").write_bytes(bytes([index]) * 2)
+                (workspace / f".{job.id}.segment.{index}").write_bytes(bytes([index]) * 2)
             controller = backend.Controller.__new__(backend.Controller)
 
             artifact, digest = controller._assemble_artifact(job, workspace, {})
@@ -167,7 +167,7 @@ class ProcessingPipelineTests(unittest.TestCase):
             engine = Path(temp) / "7zz"
             engine.write_bytes(b"placeholder")
             result = backend.subprocess.CompletedProcess([], 2, "", "ERROR: Wrong password")
-            with mock.patch.object(backend, "SEVEN_ZIP", engine), mock.patch.object(backend.subprocess, "run", return_value=result) as run:
+            with mock.patch.object(backend, "SEVEN_ZIP", engine), mock.patch.object(backend, "_run_interruptible", return_value=result) as run:
                 with self.assertRaises(backend.PasswordRequiredError):
                     backend._run_seven_zip(["x", "archive.7z"], "incorrect")
             command = run.call_args.args[0]
@@ -181,7 +181,7 @@ class ProcessingPipelineTests(unittest.TestCase):
             engine.write_bytes(b"placeholder")
             listing = "Path = ../escape.txt\nSize = 4\nAttributes = A\n\n"
             result = backend.subprocess.CompletedProcess([], 0, listing, "")
-            with mock.patch.object(backend, "SEVEN_ZIP", engine), mock.patch.object(backend.subprocess, "run", return_value=result):
+            with mock.patch.object(backend, "SEVEN_ZIP", engine), mock.patch.object(backend, "_run_interruptible", return_value=result):
                 with self.assertRaisesRegex(ValueError, "벗어나는 경로"):
                     backend._validate_seven_zip_listing(Path(temp) / "archive.rar", "")
 
@@ -226,8 +226,8 @@ class ProcessingPipelineTests(unittest.TestCase):
             moved = backend.migrate_legacy_workspace(target_value, name, job_id, workspace)
 
             self.assertEqual(moved, 2)
-            self.assertEqual((workspace / old_part.name).read_bytes(), b"part")
-            self.assertEqual((workspace / old_more.name).read_bytes(), b"more")
+            self.assertEqual((workspace / f".{job_id}.segment.0").read_bytes(), b"part")
+            self.assertEqual((workspace / f".{job_id}.segment.0.more").read_bytes(), b"more")
             self.assertFalse(old_part.exists())
             self.assertTrue(unrelated.exists())
 

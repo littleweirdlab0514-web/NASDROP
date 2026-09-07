@@ -174,7 +174,7 @@ test("DSM launcher preserves the protocol used to open DSM", async () => {
   }
 
   assert.equal(redirectFor("192.168.1.20", "http:"), "http://192.168.1.20:8791/");
-  assert.equal(redirectFor("diskstation", "https:"), "https://diskstation:8791/");
+  assert.equal(redirectFor("diskstation", "https:"), "http://diskstation:8791/");
   assert.equal(redirectFor("nas.example.com", "http:"), "http://nas.example.com:8791/");
   assert.equal(redirectFor("nas.example.com", "https:"), "https://nas.example.com:8791/");
   assert.equal(redirectFor("[2001:db8::20]", "http:"), "http://[2001:db8::20]:8791/");

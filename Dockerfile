@@ -1,6 +1,6 @@
 FROM debian:bookworm-slim
 
-ARG NASDROP_VERSION=0.9.11
+ARG NASDROP_VERSION=0.9.13
 ARG VCS_REF=unknown
 
 LABEL org.opencontainers.image.title="NASDrop" \
@@ -22,7 +22,7 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY backend.py gofile_wt.mjs LICENSE THIRD_PARTY_NOTICES.md ./
+COPY backend.py transfer_parts.py gofile_wt.mjs LICENSE THIRD_PARTY_NOTICES.md ./
 COPY synology/web ./synology/web
 COPY docker/account.py /app/docker/account.py
 COPY docker/entrypoint.sh /usr/local/bin/nasdrop-entrypoint

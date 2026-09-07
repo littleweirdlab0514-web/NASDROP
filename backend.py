@@ -28,6 +28,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import sys
 import tarfile
 import threading
 import time
@@ -36,6 +37,7 @@ import zipfile
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener
+from transfer_parts import commit_fragment, segment_count
 
 
 ROOT = Path(__file__).resolve().parent
@@ -76,7 +78,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.11")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.13")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -123,6 +125,7 @@ JOB_SECRET_LOCK = threading.RLock()
 CONFIG_LOCK = threading.RLock()
 LAUNCHER_TOKEN_LOCK = threading.RLock()
 FORWARDED_HEADER_LOCK = threading.Lock()
+SHUTDOWN_EVENT = threading.Event()
 UNTRUSTED_FORWARDED_HEADER_SEEN = False
 UNTRUSTED_FORWARDED_HEADER_WARNED = False
 
@@ -538,6 +541,7 @@ def render_launcher_html(token: str, public_port: int) -> str:
     plainHost.endsWith(".local") || plainHost.indexOf(".") === -1));
   var targetPort = privateHost ? {LISTEN_PORT} : {int(public_port)};
   var targetProtocol = location.protocol === "https:" ? "https://" : "http://";
+  if (privateHost) targetProtocol = "http://";
   var token = {encoded_token};
   location.replace(targetProtocol + host + ":" + targetPort + "/#token=" + encodeURIComponent(token));
 </script></body></html>
@@ -760,6 +764,7 @@ class Job:
     output: str = ""
     extracted: bool = False
     extract: bool = True
+    transfer_mode: str = ""
 
 
 ARCHIVE_SUFFIXES = (
@@ -845,7 +850,7 @@ def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = 
         run_options["input"] = password + "\n"
     else:
         run_options["stdin"] = subprocess.DEVNULL
-    result = subprocess.run(command, **run_options)
+    result = _run_interruptible(command, **run_options)
     message = "\n".join((result.stdout, result.stderr)).strip()
     if password:
         message = message.replace(password, "***")
@@ -854,6 +859,42 @@ def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = 
             raise PasswordRequiredError("압축 암호가 필요하거나 입력한 암호가 올바르지 않습니다.")
         raise ValueError((message or "7-Zip 압축 해제 엔진이 작업을 완료하지 못했습니다.")[-400:])
     return result
+
+
+def _run_interruptible(command, *, input=None, timeout=None, capture_output=True, **options):
+    options.pop("stdin", None)
+    process = subprocess.Popen(command, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **options)
+    deadline = time.monotonic() + timeout if timeout else float("inf")
+    try:
+        while True:
+            if SHUTDOWN_EVENT.is_set():
+                raise InterruptedError("서비스 중지로 압축 해제를 일시정지했습니다.")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("압축 해제 제한시간을 초과했습니다.")
+            try:
+                out, err = process.communicate(input=input, timeout=0.25)
+                return subprocess.CompletedProcess(command, process.returncode, out, err)
+            except subprocess.TimeoutExpired:
+                input = None
+    finally:
+        if process.poll() is None:
+            Controller._terminate(process)
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+
+
+def _copy_checked(source, output, length, cancelled=None):
+    while True:
+        if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+            raise InterruptedError("서비스 중지로 후처리를 일시정지했습니다.")
+        block = source.read(length)
+        if not block:
+            return
+        output.write(block)
 
 
 def _validate_seven_zip_listing(archive: Path, password: str) -> None:
@@ -1008,7 +1049,7 @@ def extract_archive_safely(archive: Path, destination: Path, password: str = "")
                         continue
                     output.parent.mkdir(parents=True, exist_ok=True)
                     with source.open(info) as reader, output.open("xb") as writer:
-                        shutil.copyfileobj(reader, writer, length=1024 * 1024)
+                        _copy_checked(reader, writer, length=1024 * 1024)
         except (NotImplementedError, RuntimeError) as exc:
             shutil.rmtree(destination, ignore_errors=True)
             destination.mkdir(mode=0o700)
@@ -1035,16 +1076,34 @@ def extract_archive_safely(archive: Path, destination: Path, password: str = "")
                 if reader is None:
                     raise ValueError("압축 항목을 읽을 수 없습니다.")
                 with reader, output.open("xb") as writer:
-                    shutil.copyfileobj(reader, writer, length=1024 * 1024)
+                    _copy_checked(reader, writer, length=1024 * 1024)
         return
     raise ValueError("자동 압축 해제를 지원하지 않는 형식입니다.")
 
 
+def fit_download_name(name: str, limit: int = 240) -> str:
+    """Bound a filename component in UTF-8 bytes, retaining a useful suffix."""
+    if len(name.encode("utf-8")) <= limit:
+        return name
+    suffix = next((s for s, _ in ARCHIVE_SUFFIXES if name.lower().endswith(s)), "")
+    if not suffix:
+        candidate = Path(name).suffix
+        suffix = candidate if re.fullmatch(r"\.[A-Za-z0-9]{1,16}", candidate) else ""
+    if suffix:
+        suffix = name[-len(suffix):]
+    tag = "~" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
+    budget = limit - len((tag + suffix).encode("utf-8"))
+    stem = name[:-len(suffix)] if suffix else name
+    return stem.encode("utf-8")[:budget].decode("utf-8", "ignore").rstrip(". ") + tag + suffix
+
+
 def unique_destination(path: Path) -> Path:
+    path = path.with_name(fit_download_name(path.name))
     if not path.exists():
         return path
     for number in range(1, 10_000):
         candidate = path.with_name(f"{path.name} ({number})") if path.is_dir() or not path.suffix else path.with_name(f"{path.stem} ({number}){path.suffix}")
+        candidate = candidate.with_name(fit_download_name(candidate.name))
         if not candidate.exists():
             return candidate
     raise ValueError("같은 이름의 결과가 너무 많아 저장할 수 없습니다.")
@@ -1063,19 +1122,15 @@ def migrate_legacy_workspace(target_dir: str, name: str, job_id: str, workspace:
     target = Path(target_dir).resolve()
     prefix = f".{name}.{job_id}."
     moved = 0
-    for source in target.iterdir():
+    for source in list(target.iterdir()) + list(workspace.iterdir()):
         if not source.is_file() or not source.name.startswith(prefix):
             continue
         remainder = source.name[len(prefix):]
-        if remainder != "assembling" and not remainder.startswith("segment."):
+        if remainder != "assembling" and not re.fullmatch(r"segment\.[0-7](?:\.(?:more|headers))?", remainder):
             continue
-        destination = workspace / source.name
+        destination = workspace / f".{job_id}.{remainder}"
         if destination.exists():
-            if source.stat().st_size > destination.stat().st_size:
-                destination.unlink()
-                source.rename(destination)
-            else:
-                source.unlink()
+            raise ValueError("이전 다운로드 조각과 새 조각이 충돌합니다. 기존 데이터를 보존했습니다.")
         else:
             source.rename(destination)
         moved += 1
@@ -1093,6 +1148,8 @@ def promote_download(artifact: Path, target_dir: str, auto_extract: bool, passwo
             shutil.rmtree(extracted)
         extracted.mkdir(mode=0o700)
         extract_archive_safely(artifact, extracted, password)
+        if SHUTDOWN_EVENT.is_set():
+            raise InterruptedError("서비스 중지로 후처리를 일시정지했습니다.")
         base_name = archive_output_name(artifact.name)
         output = unique_destination(target / base_name)
         children = list(extracted.iterdir())
@@ -1109,6 +1166,7 @@ def promote_download(artifact: Path, target_dir: str, auto_extract: bool, passwo
 
 class Controller:
     def __init__(self) -> None:
+        self.stopping = False
         self.lock = threading.RLock()
         self.condition = threading.Condition(self.lock)
         self.jobs: dict[str, Job] = {}
@@ -1126,7 +1184,7 @@ class Controller:
         try:
             data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
             for item in data:
-                if item.get("status") in {"downloading", "waiting_processing", "verifying", "extracting", "publishing", "ready"}:
+                if item.get("status") in {"downloading", "waiting_processing", "verifying", "extracting", "publishing", "ready", "stopping"}:
                     item["status"] = "paused"
                     item["error"] = "서비스가 재시작되어 작업을 일시정지했습니다. 다시 시작할 수 있습니다."
                 job = Job(**item)
@@ -1205,9 +1263,13 @@ class Controller:
         return SAME_PROVIDER_LIMIT if ALLOW_SAME_PROVIDER_PARALLEL else 1
 
     def _can_start(self, job: Job) -> bool:
+        if getattr(self, "stopping", False) or any(job.id in ids for ids in self.running_providers.values()):
+            return False
         if DISK_PROTECTION and (self.postprocess_waiting or self.processing_job):
             return False
         provider = self._provider_for_job(job)
+        if provider == "gofile" and _gofile_cooldown_status()["active"]:
+            return False
         running_total = sum(len(job_ids) for job_ids in self.running_providers.values())
         return running_total < MAX_PARALLEL_DOWNLOADS and len(self.running_providers.get(provider, set())) < self._provider_limit()
 
@@ -1218,6 +1280,8 @@ class Controller:
     def _dispatcher(self) -> None:
         while True:
             with self.condition:
+                if getattr(self, "stopping", False):
+                    return
                 current = time.time()
                 queued = next(
                     (
@@ -1231,7 +1295,7 @@ class Controller:
                         job.not_before - current for job in self.jobs.values()
                         if job.status == "queued" and job.not_before > current
                     ]
-                    self.condition.wait(timeout=max(0.1, min(delays)) if delays else None)
+                    self.condition.wait(timeout=max(0.1, min([*delays, 1.0])))
                     continue
                 provider = self._provider_for_job(queued)
                 queued.status = "ready"
@@ -1250,10 +1314,17 @@ class Controller:
         try:
             self._run(job_id)
         except Exception as exc:
+            process = self.processes.get(job_id)
+            if process is not None:
+                self._stop_process(process)
             with self.lock:
                 job = self.jobs.get(job_id)
-                if job and job.status not in {"paused", "cancelled"}:
-                    job.status = "failed"
+                if job and job.status not in {"paused", "cancelled", "stopping"}:
+                    if isinstance(exc, GofileCooldownError):
+                        job.status = "queued"
+                        job.not_before = _gofile_cooldown_status()["until"]
+                    else:
+                        job.status = "paused" if SHUTDOWN_EVENT.is_set() else "failed"
                     job.error = (str(exc) or "다운로드 준비 중 오류가 발생했습니다.")[-400:]
                 self.processes.pop(job_id, None)
                 self.private_downloads.pop(job_id, None)
@@ -1265,6 +1336,10 @@ class Controller:
                     running.discard(job_id)
                     if not running:
                         self.running_providers.pop(provider, None)
+                job = self.jobs.get(job_id)
+                if job and job.status == "stopping":
+                    job.status = "paused"
+                    self.save()
                 self.condition.notify_all()
 
     def _local_size(self, prefix: str) -> int:
@@ -1281,35 +1356,38 @@ class Controller:
         return total
 
     @staticmethod
-    def _file_sha256(path: Path) -> str:
+    def _file_sha256(path: Path, cancelled=None) -> str:
         digest = hashlib.sha256()
         with path.open("rb") as source:
             for block in iter(lambda: source.read(4 * 1024 * 1024), b""):
+                if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+                    raise InterruptedError("서비스 중지로 후처리를 일시정지했습니다.")
                 digest.update(block)
         return digest.hexdigest()
 
     def _assemble_artifact(self, job: Job, workspace: Path, private: dict[str, str]) -> tuple[Path, str]:
+        cancelled = lambda: job.status in {"paused", "cancelled", "stopping"}
         artifact = workspace / job.name
         if artifact.is_file() and job.sha256:
             return artifact, job.sha256
-        segment_count = 1 if private.get("download_mode") == "gigafile_zip" or private.get("transfer_mode") == "single" else 8
-        parts = [workspace / f".{job.name}.{job.id}.segment.{index}" for index in range(segment_count)]
+        count = segment_count(job.size, "single" if private.get("download_mode") == "gigafile_zip" else private.get("transfer_mode") or job.transfer_mode or "segmented")
+        parts = [workspace / f".{job.id}.segment.{index}" for index in range(count)]
         if any(not part.is_file() for part in parts):
             raise ValueError("다운로드 조각이 모두 준비되지 않았습니다.")
-        assembling = workspace / f".{job.name}.{job.id}.assembling"
-        if segment_count == 1:
-            parts[0].replace(assembling)
+        assembling = workspace / f".{job.id}.assembling"
+        if count == 1:
+            assembling = parts[0]
         else:
             with assembling.open("wb") as output:
                 for part in parts:
                     with part.open("rb") as source:
-                        shutil.copyfileobj(source, output, length=4 * 1024 * 1024)
+                        _copy_checked(source, output, length=4 * 1024 * 1024, cancelled=cancelled)
         actual_size = assembling.stat().st_size
-        size_valid = actual_size >= job.size if segment_count == 1 else actual_size == job.size
+        size_valid = actual_size >= job.size if private.get("download_mode") == "gigafile_zip" else actual_size == job.size
         if not size_valid:
             assembling.unlink(missing_ok=True)
             raise ValueError("결합된 파일 크기가 예상값과 일치하지 않습니다.")
-        digest = self._file_sha256(assembling)
+        digest = self._file_sha256(assembling, cancelled=cancelled)
         expected_sha256 = private.get("expected_sha256", "").lower()
         if re.fullmatch(r"[0-9a-f]{64}", expected_sha256) and digest != expected_sha256:
             assembling.unlink(missing_ok=True)
@@ -1347,12 +1425,15 @@ class Controller:
             if job_id not in self.postprocess_waiting:
                 self.postprocess_waiting.append(job_id)
             job = self.jobs[job_id]
+            if job.status in {"paused", "cancelled", "stopping"}:
+                self.postprocess_waiting.remove(job_id)
+                return False
             job.status = "waiting_processing"
             job.error = ""
             self.save()
             self.condition.notify_all()
             while True:
-                if job.status in {"paused", "cancelled"}:
+                if job.status in {"paused", "cancelled", "stopping"} or SHUTDOWN_EVENT.is_set():
                     if job_id in self.postprocess_waiting:
                         self.postprocess_waiting.remove(job_id)
                     self.condition.notify_all()
@@ -1382,6 +1463,8 @@ class Controller:
             with self.lock:
                 job = self.jobs[job_id]
                 private = self.private_downloads.get(job_id, {})
+                if job.status in {"paused", "cancelled", "stopping"} or SHUTDOWN_EVENT.is_set():
+                    return
                 job.status = "verifying"
                 self.save()
             if not artifact.is_file():
@@ -1389,7 +1472,7 @@ class Controller:
                 with self.lock:
                     job.sha256 = digest
                     self.save()
-            elif verify_artifact and job.sha256 and self._file_sha256(artifact) != job.sha256:
+            elif verify_artifact and job.sha256 and self._file_sha256(artifact, cancelled=lambda: job.status in {"paused", "cancelled", "stopping"}) != job.sha256:
                 with self.lock:
                     artifact.unlink(missing_ok=True)
                     shutil.rmtree(workspace / "extracted", ignore_errors=True)
@@ -1397,6 +1480,8 @@ class Controller:
                     raise ValueError("임시 완성 파일이 손상되어 삭제했습니다. 작업을 재개하면 처음부터 다시 다운로드합니다.")
             artifact = self._apply_response_filename(job, workspace, artifact, private)
             with self.lock:
+                if job.status in {"paused", "cancelled", "stopping"}:
+                    return
                 job.status = "extracting" if job.extract and archive_kind(job.name) else "publishing"
                 self.save()
             try:
@@ -1432,16 +1517,29 @@ class Controller:
     def _run(self, job_id: str) -> None:
         with self.lock:
             job = self.jobs[job_id]
-            if job.status in {"paused", "cancelled"}:
+            if job.status in {"paused", "cancelled", "stopping"}:
                 return
             job.status = "downloading"
             self.save()
         private = self.private_downloads.get(job_id, {})
+        private.pop("rate_limited", None)
         target_dir = private.get("target") or job.target or NAS_TARGET
         safe_name = job.name
         workspace = job_workspace(target_dir, job.id)
         workspace.mkdir(parents=True, exist_ok=True, mode=0o700)
         migrate_legacy_workspace(target_dir, safe_name, job.id, workspace)
+        safe_name = _clean_download_name(safe_name)
+        if safe_name != job.name:
+            # Enumerate instead of stat-ing a too-long legacy name.
+            for entry in workspace.iterdir():
+                if entry.name == job.name:
+                    destination = workspace / safe_name
+                    if destination.exists():
+                        raise ValueError("파일명 변경 대상이 이미 존재합니다. 기존 파일을 보존했습니다.")
+                    entry.rename(destination)
+            with self.lock:
+                job.name = safe_name
+                self.save()
         artifact = workspace / safe_name
         if artifact.is_file() and job.sha256:
             self._postprocess(job_id, workspace, artifact, target_dir, verify_artifact=True)
@@ -1495,11 +1593,16 @@ class Controller:
                 "target": target_dir,
             }
             self.private_downloads[job_id] = private
-        download_mode = DOWNLOAD_MODE
+        # Persist layout so a later settings change cannot reinterpret fragments.
+        if not job.transfer_mode:
+            has_legacy_parts = any(workspace.glob(f".{job.id}.segment.*"))
+            job.transfer_mode = "segmented" if has_legacy_parts else DOWNLOAD_MODE
+            self.save()
+        download_mode = job.transfer_mode
         private["transfer_mode"] = download_mode
         self.private_downloads[job_id] = private
         workspace_dir = str(workspace)
-        prefix = f"{workspace_dir}/.{safe_name}.{job.id}.segment."
+        prefix = f"{workspace_dir}/.{job.id}.segment."
         if provider == "gigafile" and private.get("download_mode") == "gigafile_zip":
             script = self._download_script_gigafile_zip(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
@@ -1524,11 +1627,13 @@ class Controller:
             host = parsed.hostname or ""
             script = self._download_script(host, file_id, safe_name, job.id, job.size, workspace_dir, mode=download_mode)
         command = ["sh", "-s"]
-        process = subprocess.Popen(
-            command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, start_new_session=True,
-        )
         with self.condition:
+            if SHUTDOWN_EVENT.is_set() or job.status in {"paused", "cancelled", "stopping"}:
+                return
+            process = subprocess.Popen(
+                command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, start_new_session=True,
+            )
             self.processes[job_id] = process
             self.condition.notify_all()
         assert process.stdin is not None
@@ -1537,13 +1642,16 @@ class Controller:
 
         while process.poll() is None:
             time.sleep(2.5)
+            if provider == "gofile" and (workspace / ".rate-limit").exists():
+                with self.condition:
+                    self._defer_gofile(job, workspace, active=True)
             try:
                 current = self._local_size(prefix)
             except Exception:
                 current = 0
             with self.lock:
-                if self.jobs[job_id].status in {"paused", "cancelled"}:
-                    self._terminate(process)
+                if self.jobs[job_id].status in {"paused", "cancelled", "stopping"}:
+                    self._stop_process(process)
                     break
                 self.jobs[job_id].downloaded = min(job.size, current)
                 if download_mode == "segmented" and current >= job.size:
@@ -1552,16 +1660,20 @@ class Controller:
 
         stdout = process.stdout.read() if process.stdout else ""
         stderr = process.stderr.read() if process.stderr else ""
+        process.wait()
+        self._recover_fragments(job, workspace, download_mode)
         with self.lock:
             current_job = self.jobs[job_id]
-            if current_job.status in {"paused", "cancelled"}:
+            if current_job.status in {"paused", "cancelled", "stopping"}:
                 self.processes.pop(job_id, None)
                 self.private_downloads.pop(job_id, None)
                 self.save()
                 return
             if process.returncode != 0:
                 current_job.status = "failed"
-                if provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
+                if provider == "gofile" and ((workspace / ".rate-limit").exists() or private.get("rate_limited")):
+                    self._defer_gofile(job, workspace)
+                elif provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
                     current_job.error = "Buzzheavier 직접 링크가 만료됐거나 사용할 수 없습니다. Copy download link를 다시 받아 새 작업으로 등록해 주세요."
                 elif re.search(r"maximum \(0\) redirects|too many redirects", stderr, re.I):
                     current_job.error = "다운로드 서버가 다른 주소로 이동을 요청해 보안을 위해 중단했습니다. 링크를 다시 확인해 주세요."
@@ -1581,60 +1693,158 @@ class Controller:
 
         self._postprocess(job_id, workspace, artifact, target_dir)
 
+    def _recover_fragments(self, job: Job, workspace: Path, mode: str) -> None:
+        chunk = job.size if mode == "single" else max(1, (job.size + 7) // 8)
+        for i in range(segment_count(job.size, mode)):
+            part = workspace / f".{job.id}.segment.{i}"
+            if part.with_name(part.name + ".headers").exists():
+                commit_fragment(part, i * chunk, min(job.size - 1, (i + 1) * chunk - 1), job.size)
+        for name in (".cookies", ".page", ".curl.conf"):
+            (workspace / name).unlink(missing_ok=True)
+
+    def _defer_gofile(self, job: Job, workspace: Path, active: bool = False) -> None:
+        status = _gofile_cooldown_status()
+        if not status["active"]:
+            seconds = GOFILE_RATE_LIMIT_COOLDOWN_SECONDS
+            try:
+                raw = json.loads((workspace / ".rate-limit").read_text(encoding="utf-8")).get("retry_after", "")
+                seconds = float(raw) if str(raw).isdigit() else parsedate_to_datetime(raw).timestamp() - time.time()
+            except (OSError, ValueError, TypeError, OverflowError):
+                pass
+            _trip_gofile_cooldown(max(5, min(seconds, GOFILE_MAX_COOLDOWN_SECONDS)), "GoFile 요청 제한(HTTP 429)이 감지되었습니다.")
+        until = _gofile_cooldown_status()["until"]
+        (workspace / ".rate-limit").unlink(missing_ok=True)
+        for other in self.jobs.values():
+            if self._provider_for_job(other) != "gofile":
+                continue
+            if other.status in {"queued", "ready", "downloading"}:
+                other.not_before = until
+                self.private_downloads.setdefault(other.id, {})["rate_limited"] = "1"
+                process = self.processes.get(other.id)
+                if process:
+                    self._terminate(process)
+        if not active:
+            job.status = "queued"
+            job.not_before = until
+            job.error = "GoFile 요청 제한으로 잠시 대기합니다."
+
+    def shutdown(self, timeout: float = 10) -> None:
+        SHUTDOWN_EVENT.set()
+        with self.condition:
+            self.stopping = True
+            for job in self.jobs.values():
+                if job.status in {"ready", "downloading", "waiting_processing", "verifying"}:
+                    job.status = "stopping"
+            processes = list(self.processes.values())
+            self.condition.notify_all()
+        for process in processes:
+            self._terminate(process)
+        deadline = time.monotonic() + timeout
+        with self.condition:
+            while self.running_providers and time.monotonic() < deadline:
+                self.condition.wait(timeout=0.1)
+            remaining = list(self.processes.values())
+        for process in remaining:
+            self._stop_process(process)
+        with self.condition:
+            for job in self.jobs.values():
+                if job.status in {"stopping", "extracting", "publishing"}:
+                    job.status = "paused"
+            self.save()
+
+    @staticmethod
+    def _transfer_loop(prefix: str, total: int, mode: str, curl: str) -> str:
+        count = segment_count(total, mode)
+        chunk = total if mode == "single" else max(1, (total + 7) // 8)
+        merger = f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'transfer_parts.py'))}"
+        return f'''TOTAL={total}
+COUNT={count}
+CHUNK={chunk}
+PREFIX={shlex.quote(prefix)}
+pids=""
+i=0
+while [ "$i" -lt "$COUNT" ]; do
+  start=$(( i * CHUNK )); end=$(( start + CHUNK - 1 ))
+  [ "$end" -lt "$TOTAL" ] || end=$(( TOTAL - 1 ))
+  part="$PREFIX.$i"
+  (
+    expected=$(( end - start + 1 ))
+    if [ -f "$part.more" ]; then
+      {merger} "$part" "$start" "$end" "$TOTAL" || true
+    fi
+    existing=0; [ ! -f "$part" ] || existing=$(wc -c < "$part" | tr -d ' ')
+    [ "$existing" -le "$expected" ] || {{ rm -f "$part"; existing=0; }}
+    if [ "$existing" -lt "$expected" ]; then
+      from=$(( start + existing )); more="$part.more"
+      rc=0
+      {curl} --retry 0 -r "$from-$end" --dump-header "$part.headers" -o "$more" || rc=$?
+      merged=0
+      {merger} "$part" "$start" "$end" "$TOTAL" || merged=$?
+      [ "$rc" -eq 0 ] && [ "$merged" -eq 0 ] || exit 1
+    fi
+    actual=$(wc -c < "$part" | tr -d ' ')
+    [ "$actual" -eq "$expected" ]
+  ) &
+  pids="$pids $!"
+  i=$(( i + 1 ))
+done
+failed=0
+for child in $pids; do wait "$child" || failed=1; done
+[ "$failed" -eq 0 ] || exit 1
+printf 'SEGMENTS_READY=%s\\n' "$COUNT"
+'''
+
     def _download_script(self, host: str, file_id: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented") -> str:
         page = f"https://{host}/{file_id}"
         download = f"https://{host}/download.php?file={file_id}"
-        prefix = f"{target_dir}/.{name}.{job_id}.segment"
-        cookie = f"/tmp/nas_download_{job_id}.cookies"
-        response_headers = f"{target_dir}/.response-headers"
-        if mode == "single":
-            part = f"{prefix}.0"
-            return f"""#!/bin/sh
+        prefix = f"{target_dir}/.{job_id}.segment"
+        cookie = f"{target_dir}/.cookies"
+        page_copy = f"{target_dir}/.page"
+        curl = f'curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error -b "$COOKIE" -e {shlex.quote(page)} {shlex.quote(download)}'
+        setup = f'''#!/bin/sh
 set -eu
-TOTAL={total}
-PART={shlex.quote(part)}
+umask 077
 COOKIE={shlex.quote(cookie)}
-PAGE_COPY=/tmp/nas_download_{job_id}.page
+PAGE_COPY={shlex.quote(page_copy)}
 cleanup() {{ rm -f "$COOKIE" "$PAGE_COPY"; }}
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 143' HUP INT TERM
 curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
-(curl {CURL_HTTPS_ONLY} {CURL_PROBE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -I -b "$COOKIE" -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
-existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
-[ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
-if [ "$existing" -lt "$TOTAL" ]; then
-  if [ "$existing" -gt 0 ]; then
-    curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -C - -o "$PART" {shlex.quote(download)}
-  else
-    curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -b "$COOKIE" -e {shlex.quote(page)} -o "$PART" {shlex.quote(download)}
-  fi
-fi
-actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -eq "$TOTAL" ]
-trap - EXIT HUP INT TERM
-cleanup
-printf 'SEGMENTS_READY=1\n'
-"""
-        return f"""#!/bin/sh
-set -eu
-TOTAL={total}
-COUNT=8
-CHUNK=$(( (TOTAL + COUNT - 1) / COUNT ))
-curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -c {shlex.quote(cookie)} {shlex.quote(page)} -o /tmp/nas_download_{job_id}.page
-(curl {CURL_HTTPS_ONLY} {CURL_PROBE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -I -b {shlex.quote(cookie)} -e {shlex.quote(page)} {shlex.quote(download)} -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})
-i=0
-while [ "$i" -lt "$COUNT" ]; do
-  start=$(( i * CHUNK )); end=$(( start + CHUNK - 1 )); [ "$end" -ge "$TOTAL" ] && end=$(( TOTAL - 1 ))
-  part={shlex.quote(prefix)}.$i
-  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -b {shlex.quote(cookie)} -e {shlex.quote(page)} -r "$from-$end" -o "$more" {shlex.quote(download)}; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
-  i=$(( i + 1 ))
-done
-wait
-printf 'SEGMENTS_READY=%s\\n' "$COUNT"
-"""
+'''
+        # Names are probed during inspection. The actual GET headers are the
+        # authoritative fallback, captured by transfer_parts in the workspace.
+        return setup + self._transfer_loop(prefix, total, mode, curl)
 
     def _download_script_gofile(self, download: str, token: str, page: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented") -> str:
         if not download.startswith("https://") or not token:
             raise ValueError("Gofile 다운로드 인증 정보가 없습니다.")
         return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}", mode=mode)
+
+    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False) -> str:
+        if not download.startswith("https://"):
+            raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
+        config_lines = [
+            f'url = "{_curl_config_value(download)}"',
+            f'referer = "{_curl_config_value(page)}"',
+            'proto = "=https"', 'proto-redir = "=https"',
+        ]
+        if cookie:
+            config_lines.append(f'header = "{_curl_config_value("Cookie: " + cookie)}"')
+        config_body = "\n".join(config_lines)
+        setup = f'''#!/bin/sh
+set -eu
+umask 077
+CURL_CONFIG={shlex.quote(f"{target_dir}/.curl.conf")}
+cat > "$CURL_CONFIG" <<'NASDROP_CURL_CONFIG'
+{config_body}
+NASDROP_CURL_CONFIG
+cleanup() {{ rm -f "$CURL_CONFIG"; }}
+trap cleanup EXIT
+trap 'exit 143' HUP INT TERM
+'''
+        curl = f'curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error'
+        return setup + self._transfer_loop(f"{target_dir}/.{job_id}.segment", total, mode, curl)
+
 
     def _download_script_gigafile_zip(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, verify: bool = True) -> str:
         parsed_download = urlparse(download)
@@ -1646,7 +1856,7 @@ printf 'SEGMENTS_READY=%s\\n' "$COUNT"
             or parsed_download.path != "/dl_zip.php"
         ):
             raise ValueError("GigaFile 묶음 다운로드 주소가 올바르지 않습니다.")
-        part = f"{target_dir}/.{name}.{job_id}.segment.0"
+        part = f"{target_dir}/.{job_id}.segment.0"
         cookie = f"/tmp/nas_download_{job_id}.cookies"
         page_copy = f"/tmp/nas_download_{job_id}.page"
         return f"""#!/bin/sh
@@ -1669,76 +1879,28 @@ cleanup
 printf 'SEGMENTS_READY=1\\n'
 """
 
-    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False) -> str:
-        if not download.startswith("https://"):
-            raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
-        prefix = f"{target_dir}/.{name}.{job_id}.segment"
-        curl_config = f"/tmp/nas_download_{job_id}.curl.conf"
-        config_lines = [
-            f'url = "{_curl_config_value(download)}"',
-            f'referer = "{_curl_config_value(page)}"',
-            'proto = "=https"',
-            'proto-redir = "=https"',
-        ]
-        if cookie:
-            config_lines.append(f'header = "{_curl_config_value("Cookie: " + cookie)}"')
-        config_body = "\n".join(config_lines)
-        config_setup = f'''CURL_CONFIG={shlex.quote(curl_config)}
-umask 077
-cat > "$CURL_CONFIG" <<'NASDROP_CURL_CONFIG'
-{config_body}
-NASDROP_CURL_CONFIG
-cleanup() {{ rm -f "$CURL_CONFIG"; }}
-trap cleanup EXIT HUP INT TERM
-'''
-        response_headers = f"{target_dir}/.response-headers"
-        header_probe = ""
-        if capture_headers:
-            header_probe = f"(curl --config \"$CURL_CONFIG\" {CURL_PROBE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -I -o {shlex.quote(response_headers)} || rm -f {shlex.quote(response_headers)})\n"
-        if mode == "single":
-            part = f"{prefix}.0"
-            return f"""#!/bin/sh
-set -eu
-TOTAL={total}
-PART={shlex.quote(part)}
-{config_setup}{header_probe}existing=0; [ -f "$PART" ] && existing=$(wc -c < "$PART" | tr -d ' ')
-[ "$existing" -le "$TOTAL" ] || {{ rm -f "$PART"; existing=0; }}
-if [ "$existing" -lt "$TOTAL" ]; then
-  if [ "$existing" -gt 0 ]; then
-    curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -C - -o "$PART"
-  else
-    curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -o "$PART"
-  fi
-fi
-actual=$(wc -c < "$PART" | tr -d ' '); [ "$actual" -eq "$TOTAL" ]
-trap - EXIT HUP INT TERM
-cleanup
-printf 'SEGMENTS_READY=1\\n'
-"""
-        return f"""#!/bin/sh
-set -eu
-TOTAL={total}
-COUNT=8
-CHUNK=$(( (TOTAL + COUNT - 1) / COUNT ))
-{config_setup}{header_probe}i=0
-while [ "$i" -lt "$COUNT" ]; do
-  start=$(( i * CHUNK )); end=$(( start + CHUNK - 1 )); [ "$end" -ge "$TOTAL" ] && end=$(( TOTAL - 1 ))
-  part={shlex.quote(prefix)}.$i
-  (expected=$(( end - start + 1 )); existing=0; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' '); [ "$existing" -le "$expected" ] || rm -f "$part"; [ -f "$part" ] && existing=$(wc -c < "$part" | tr -d ' ') || existing=0; if [ "$existing" -lt "$expected" ]; then from=$(( start + existing )); more="$part.more"; curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --retry 8 --retry-delay 5 -r "$from-$end" -o "$more"; cat "$more" >> "$part"; rm -f "$more"; fi; actual=$(wc -c < "$part" | tr -d ' '); [ "$actual" -eq "$expected" ]) &
-  i=$(( i + 1 ))
-done
-wait
-trap - EXIT HUP INT TERM
-cleanup
-printf 'SEGMENTS_READY=%s\\n' "$COUNT"
-"""
-
     @staticmethod
     def _terminate(process: subprocess.Popen[str]) -> None:
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            process.terminate()
+            os.killpg(process.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError, AttributeError):
+            if process.poll() is None:
+                process.terminate()
+
+    @classmethod
+    def _stop_process(cls, process: subprocess.Popen[str]) -> None:
+        cls._terminate(process)
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+        # The shell may have exited while one of its curl children still lives.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError, AttributeError):
+            if process.poll() is None:
+                process.kill()
+        process.wait(timeout=2)
 
     def pause(self, job_id: str) -> None:
         with self.condition:
@@ -1747,7 +1909,8 @@ printf 'SEGMENTS_READY=%s\\n' "$COUNT"
             job = self.jobs[job_id]
             if job.status not in {"queued", "ready", "downloading", "waiting_processing", "verifying"}:
                 raise ValueError("중지할 수 있는 작업이 아닙니다.")
-            job.status = "paused"
+            running = any(job_id in ids for ids in self.running_providers.values())
+            job.status = "stopping" if running or self.processing_job == job_id else "paused"
             job.error = ""
             process = self.processes.get(job_id)
             if process:
@@ -1793,7 +1956,7 @@ printf 'SEGMENTS_READY=%s\\n' "$COUNT"
                 job = self.jobs.get(job_id)
                 if not job:
                     raise KeyError(job_id)
-                if job.status in {"queued", "ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing"}:
+                if job.status in {"queued", "ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing", "stopping"} or any(job_id in ids for ids in self.running_providers.values()):
                     raise ValueError("실행 중인 작업은 먼저 멈춰 주세요.")
             for job_id in job_ids:
                 job = self.jobs.pop(job_id, None)
@@ -1827,7 +1990,7 @@ CONTROLLER = Controller()
 
 def _clean_download_name(value: str) -> str:
     name = html.unescape(re.sub(r"<[^>]+>", "", value)).strip()
-    return re.sub(r"[\\/\x00-\x1f:]", "_", name)[:180]
+    return fit_download_name(re.sub(r"[\\/\x00-\x1f:]", "_", name))
 
 
 def response_download_name(headers_path: Path) -> str:
@@ -2387,7 +2550,7 @@ def inspect_pixeldrain(raw_url: str) -> dict:
         message = str(metadata.get("availability_message") or "파일을 다운로드할 수 없습니다.")
         raise ValueError(f"Pixeldrain: {message}")
     size = int(metadata.get("size", 0))
-    name = re.sub(r"[\\/\x00-\x1f:]", "_", str(metadata.get("name", ""))).strip()[:180]
+    name = _clean_download_name(str(metadata.get("name", "")))
     expected_sha256 = str(metadata.get("hash_sha256", "")).lower()
     if not name or size <= 0 or size > MAX_FILE_BYTES or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
         raise ValueError("허용할 수 없는 Pixeldrain 파일 정보입니다.")
@@ -2741,7 +2904,10 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Content-Length는 음수일 수 없습니다.")
         if length > REQUEST_BODY_LIMIT:
             raise ValueError(f"요청 본문은 {REQUEST_BODY_LIMIT}바이트를 초과할 수 없습니다.")
-        return json.loads(self.rfile.read(length) or b"{}")
+        payload = json.loads(self.rfile.read(length) or b"{}")
+        if not isinstance(payload, dict):
+            raise ValueError("요청 본문은 JSON 객체여야 합니다.")
+        return payload
 
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
@@ -2974,8 +3140,14 @@ if __name__ == "__main__":
     configure_logging()
     refresh_launcher_safely()
     LOGGER.info("NAS Download Portal listening on http://%s:%s", LISTEN_HOST, LISTEN_PORT)
+    server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
+    def stop_service(_signum, _frame):
+        SHUTDOWN_EVENT.set()
+        threading.Thread(target=server.shutdown, daemon=True).start()
+    signal.signal(signal.SIGTERM, stop_service)
+    signal.signal(signal.SIGINT, stop_service)
     try:
-        ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler).serve_forever()
-    except BaseException:
-        LOGGER.exception("NAS Download Portal stopped unexpectedly")
-        raise
+        server.serve_forever()
+    finally:
+        CONTROLLER.shutdown()
+        server.server_close()

@@ -5,7 +5,7 @@
   const launchedToken = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   if (launchedToken) history.replaceState(null, "", location.pathname + location.search);
   const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, selected: new Set(), extractionInitialized: false };
-  const statusKeys = { queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
+  const statusKeys = { queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", stopping:"statusStopping", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
 
   function isPrivateHost(rawHost) {
     const host = String(rawHost || "").replace(/^\[|\]$/g, "").toLowerCase();
@@ -29,11 +29,11 @@
     const i = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
     return `${(value / 1024 ** i).toFixed(i > 2 ? 2 : 1)} ${units[i]}`;
   }
-  function esc(value) { const node = document.createElement("span"); node.textContent = String(value ?? ""); return node.innerHTML; }
+  function esc(value) { const node = document.createElement("span"); node.textContent = String(value ?? ""); return node.innerHTML.replace(/"/g, "&quot;"); }
   async function api(path, init = {}) {
     const response = await fetch(path, { ...init, headers:{ "content-type":"application/json", authorization:`Bearer ${state.token}`, ...(init.headers || {}) } });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed"), payload.params));
+    if (!response.ok) { const error = new Error(serverError(payload.code, payload.error || t("requestFailed"), payload.params)); error.status = response.status; throw error; }
     return payload;
   }
   async function publicApi(path, init = {}) {
@@ -48,7 +48,7 @@
     try { const [status, jobs, account] = await Promise.all([api("/api/status"), api("/api/jobs"), api("/api/account")]); state.status = status; state.jobs = jobs.jobs; state.account = account; renderStatus(); renderJobs(); renderAccount(); }
     catch (error) { localStorage.removeItem("nasdrop-session-token"); state.token = ""; showLogin(error.message); }
   }
-  async function refreshJobs() { try { state.jobs = (await api("/api/jobs")).jobs; renderJobs(); } catch (_) {} }
+  async function refreshJobs() { try { state.jobs = (await api("/api/jobs")).jobs; renderJobs(); } catch (error) { if (error.status === 401) { state.token = ""; localStorage.removeItem("nasdrop-session-token"); showLogin(error.message); } } }
   function renderStatus() {
     const s = state.status;
     if (!state.selectedTarget) state.selectedTarget = s.target;
@@ -124,19 +124,38 @@
     try { state.account = await api("/api/account"); renderAccount(); }
     catch (error) { $("#account-message").textContent = error.message; }
   }
+  function replaceJobList(container, markup) {
+    const forms = new Map([...container.querySelectorAll(".job-password")].map(form => [form.dataset.id, form]));
+    const opened = new Set([...container.querySelectorAll("article[data-job-id] details[open]")].map(detail => detail.closest("article").dataset.jobId));
+    const focused = document.activeElement;
+    const restoreFocus = [...forms.values()].some(form => form.contains(focused));
+    const selection = restoreFocus ? [focused.selectionStart, focused.selectionEnd] : null;
+    container.innerHTML = markup;
+    for (const placeholder of container.querySelectorAll(".job-password")) {
+      const previous = forms.get(placeholder.dataset.id);
+      if (previous) placeholder.replaceWith(previous);
+    }
+    for (const detail of container.querySelectorAll("article[data-job-id] details")) {
+      detail.open = opened.has(detail.closest("article").dataset.jobId);
+    }
+    if (restoreFocus && container.contains(focused)) {
+      focused.focus({preventScroll:true});
+      if (selection[0] !== null) focused.setSelectionRange(...selection);
+    }
+  }
   function renderJobs() {
-    const active = state.jobs.filter(j => ["queued","ready","downloading","waiting_processing","verifying","extracting","publishing"].includes(j.status));
+    const active = state.jobs.filter(j => ["queued","ready","downloading","waiting_processing","verifying","extracting","publishing","stopping"].includes(j.status));
     const existing = new Set(state.jobs.map(job => job.id));
     state.selected.forEach(id => { if (!existing.has(id)) state.selected.delete(id); });
     $("#queue-summary").textContent = active.length ? t("processing", {count:active.length}) : t("noQueuedJobs");
     $("#clear-completed").disabled = !state.jobs.some(job => job.status === "completed");
     if (!state.jobs.length) { $("#jobs").innerHTML = `<div class="empty"><b>${esc(t("noJobsTitle"))}</b><span>${esc(t("noJobsHint"))}</span></div>`; renderSelectionToolbar(); return; }
-    $("#jobs").innerHTML = state.jobs.map(job => {
+    replaceJobList($("#jobs"), state.jobs.map(job => {
       const pct = job.size ? Math.min(100, Math.round(job.downloaded / job.size * 100)) : 0;
       const statusLabel = job.status === "queued" && job.not_before > Date.now() / 1000 ? t("scheduled") : (statusKeys[job.status] ? t(statusKeys[job.status]) : esc(job.status));
       const passwordForm = job.status === "password_required" ? `<form class="job-password" data-id="${job.id}"><input type="password" name="password" autocomplete="new-password" maxlength="256" required placeholder="${esc(t("archivePassword"))}"><button type="submit" class="ghost">${esc(t("retryExtraction"))}</button></form>` : "";
-      return `<article class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${job.error ? `<p class="error">${esc(serverError(job.error_code, job.error))}</p>` : ""}${passwordForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
-    }).join("");
+      return `<article data-job-id="${job.id}" class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${job.error ? `<p class="error">${esc(serverError(job.error_code, job.error))}</p>` : ""}${passwordForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
+    }).join(""));
     renderSelectionToolbar();
   }
   function selectedJobs() { return state.jobs.filter(job => state.selected.has(job.id)); }
@@ -147,14 +166,14 @@
     $("#select-all").textContent = selected.length === state.jobs.length && state.jobs.length ? t("clearSelection") : t("selectAll");
     $("#pause-selected").disabled = !selected.some(job => ["queued","ready","downloading","waiting_processing","verifying"].includes(job.status));
     $("#resume-selected").disabled = !selected.some(job => ["paused","failed","cancelled"].includes(job.status));
-    $("#delete-selected").disabled = !selected.some(job => !["queued","ready","downloading","waiting_processing","verifying","extracting","publishing"].includes(job.status));
+    $("#delete-selected").disabled = !selected.some(job => !["queued","ready","downloading","waiting_processing","verifying","extracting","publishing","stopping"].includes(job.status));
   }
   async function runSelected(action) {
     const selected = selectedJobs();
     let jobs = selected;
     if (action === "pause") jobs = selected.filter(job => ["queued","ready","downloading","waiting_processing","verifying"].includes(job.status));
     if (action === "resume") jobs = selected.filter(job => ["paused","failed","cancelled"].includes(job.status));
-    if (action === "delete") jobs = selected.filter(job => !["queued","ready","downloading","waiting_processing","verifying","extracting","publishing"].includes(job.status));
+    if (action === "delete") jobs = selected.filter(job => !["queued","ready","downloading","waiting_processing","verifying","extracting","publishing","stopping"].includes(job.status));
     if (!jobs.length) return;
     if (action === "delete" && !confirm(t("confirmDelete", {count:jobs.length}))) return;
     try {

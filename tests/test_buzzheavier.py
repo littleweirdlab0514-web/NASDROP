@@ -119,8 +119,8 @@ class BuzzheavierTests(unittest.TestCase):
             "/volume2/downloads/.nasdrop-tmp/0123456789ab",
             capture_headers=True,
         )
-        self.assertIn(".response-headers", script)
-        self.assertIn(" -I ", script)
+        self.assertIn('--dump-header "$part.headers"', script)
+        self.assertNotIn(" -I ", script)
         self.assertIn("SEGMENTS_READY", script)
 
     def test_transfer_time_name_is_sanitized_and_updates_archive_name(self):

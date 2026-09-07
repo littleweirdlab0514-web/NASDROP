@@ -20,7 +20,7 @@ $nodeUrl = "https://unofficial-builds.nodejs.org/download/release/v$NodeVersion/
 $sevenZipDigits = $SevenZipVersion.Replace(".", "")
 $sevenZipArchive = Join-Path $cacheRoot "7z$sevenZipDigits-linux-x64.tar.xz"
 $sevenZipUrl = "https://github.com/ip7z/7zip/releases/download/$SevenZipVersion/7z$sevenZipDigits-linux-x64.tar.xz"
-$packageVersion = "0.9.11-1"
+$packageVersion = "0.9.13-1"
 
 if ($PythonPath) {
   $pythonExe = $PythonPath
@@ -39,6 +39,7 @@ if (Test-Path -LiteralPath $workRoot) { Remove-Item -LiteralPath $workRoot -Recu
 New-Item -ItemType Directory -Path $innerRoot,$outerRoot,$distRoot,$cacheRoot -Force | Out-Null
 
 Copy-Item -LiteralPath (Join-Path $repoRoot "backend.py") -Destination $innerRoot
+Copy-Item -LiteralPath (Join-Path $repoRoot "transfer_parts.py") -Destination $innerRoot
 Copy-Item -LiteralPath (Join-Path $repoRoot "gofile_wt.mjs") -Destination $innerRoot
 Copy-Item -LiteralPath (Join-Path $repoRoot "LICENSE") -Destination $innerRoot
 Copy-Item -LiteralPath (Join-Path $repoRoot "THIRD_PARTY_NOTICES.md") -Destination $innerRoot

@@ -15,6 +15,25 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
+## What's new in 0.9.13
+
+- Long multilingual filenames are limited by UTF-8 byte length instead of character count. Names exceeding 240 bytes are shortened with a stable hash while preserving extensions, including `.tar.gz`.
+- Temporary segments and assembly files now use only the short job ID, never the original title. Existing named segments are migrated on resume without silently overwriting conflicting files.
+- Destination collision names also respect the byte limit. For jobs failed with `File name too long`, install the update and resume the failed job; no NAS files are deleted by the update itself.
+
+## What's new in 0.9.12
+
+- Interrupted range responses are validated and checkpointed before resuming. Each job keeps its transfer mode, and tiny files no longer request empty ranges.
+- Pause now shows **Stopping** until the worker exits. Resume/delete cannot race the previous worker, and stopped verification cannot publish a completed download.
+- Package shutdown stops transfer process groups and interrupts disk processing before saving paused jobs. DSM hardware update/restart verification is still required; power loss and forced termination cannot guarantee a completed checkpoint.
+- GoFile file-server HTTP 429 responses now delay queued and running GoFile transfers using a shared cooldown, including `Retry-After`. Other providers remain eligible subject to the normal disk/concurrency limits. Failed transfer requests no longer make eight immediate curl retries; resume retries preserved ranges, while GoFile cooldown retries are scheduled automatically.
+- Download-response filename headers are captured from the actual transfer when HEAD discovery fails. Raw cookies and response headers are not kept after processing.
+- Password-entry forms and expanded verification details survive list refreshes. An expired session returns to login; malformed non-object JSON requests receive an error.
+- Opening DSM through a private address uses the NASDrop HTTP listener. Public domains still preserve the HTTP/HTTPS protocol used to open DSM; HTTP is unencrypted, so use HTTPS through a reverse proxy for untrusted networks.
+
+> [!IMPORTANT]
+> Old unfinished `.more` fragments without a validated response range cannot safely be reused and may be downloaded again. Completed valid segments are retained. A locally calculated SHA-256 alone does not prove equality with the provider's original file; comparison requires a provider-supplied checksum.
+
 ## What's new in 0.9.11
 
 - Distributed sign-in failures now trigger only a five-second global pause after 30 failures in 60 seconds; the existing per-client five-failure/15-minute protection remains unchanged.
@@ -231,7 +250,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.11-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.13-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
