@@ -1,6 +1,7 @@
 **
 !Dockerfile
 !backend.py
+!transfer_parts.py
 !gofile_wt.mjs
 !LICENSE
 !THIRD_PARTY_NOTICES.md

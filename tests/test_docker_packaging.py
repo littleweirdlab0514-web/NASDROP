@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import shlex
 import unittest
 
 
@@ -7,6 +8,19 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DockerPackagingTests(unittest.TestCase):
+    def test_every_copy_source_is_explicitly_included_in_build_context(self):
+        rules = (ROOT / '.dockerignore').read_text(encoding='utf-8').splitlines()
+        self.assertEqual(rules[0], '**')
+        included = {rule[1:].rstrip('/') for rule in rules if rule.startswith('!')}
+        dockerfile = (ROOT / 'Dockerfile').read_text(encoding='utf-8')
+        for line in dockerfile.splitlines():
+            if not line.startswith('COPY '):
+                continue
+            for source in shlex.split(line)[1:-1]:
+                self.assertTrue((ROOT / source).exists(), source)
+                self.assertIn(source.rstrip('/'), included, f'Docker COPY source excluded: {source}')
+        self.assertIn('transfer_parts.py', included)
+
     def test_image_contains_portable_runtime_and_healthcheck(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         for package in ("python3", "nodejs", "curl", "7zip", "gosu"):
