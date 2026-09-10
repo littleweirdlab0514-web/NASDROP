@@ -15,6 +15,14 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
+## What's new in 0.9.14
+
+### GoFile connection limit
+
+GoFile now uses up to **2 segments per file** in segmented mode; other providers retain their existing layout. Single-connection mode remains single. Existing 8-segment GoFile downloads retain their saved ranges to protect resume data, but transfer only two segments at a time. This is a per-file limit: enabling simultaneous GoFile jobs increases the total connections. Reducing connections does not immediately lift an existing provider rate limit; the shared HTTP 429 cooldown remains in effect.
+
+GoFile의 반복적인 요청 제한을 줄이기 위해 새 작업을 파일당 최대 **2분할**로 변경했습니다. 기존 8분할 작업은 조각을 보존하면서 두 연결씩 이어받습니다. 같은 서비스의 동시 작업 수를 늘리면 전체 연결 수도 증가하며, 이미 걸린 차단이 즉시 해제되는 것은 아닙니다. 개발 시 [GoFile 요청량 지침](docs/GOFILE_REQUEST_POLICY.md)을 따라야 합니다.
+
 ## What's new in 0.9.13
 
 - Long multilingual filenames are limited by UTF-8 byte length instead of character count. Names exceeding 240 bytes are shortened with a stable hash while preserving extensions, including `.tar.gz`.
@@ -250,7 +258,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.13-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.14-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 

@@ -27,6 +27,8 @@ See `docs/DSM_LAUNCHER_GUIDE.md` for the packaging rule and regression checklist
 
 ## Transfer lifecycle invariants
 
+- Before changing GoFile inspection, scheduling, retries, or transfer concurrency, read `docs/GOFILE_REQUEST_POLICY.md`. Preserve the per-file two-connection cap and shared HTTP 429 cooldown. Do not restore eight concurrent GoFile segments as a generic performance optimization.
+
 - Never resume a `.more` fragment without validating its HTTP range. Replay at its original offset, not by blind append. Preserve validated data on local I/O errors and strip secret headers.
 - Persist the transfer layout per job. Collect every child exit code; do not use a bare shell `wait` as proof of successful transfer.
 - Pause is not complete until the worker exits. Block resume/delete while stopping, check cancellation after postprocessing gates and before publication, and never run the same job ID twice.

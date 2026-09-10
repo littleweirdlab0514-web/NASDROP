@@ -37,7 +37,7 @@ import zipfile
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener
-from transfer_parts import commit_fragment, segment_count
+from transfer_parts import commit_fragment, segment_count, segment_chunk, initial_transfer_mode
 
 
 ROOT = Path(__file__).resolve().parent
@@ -78,7 +78,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.13")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.14")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -1596,7 +1596,7 @@ class Controller:
         # Persist layout so a later settings change cannot reinterpret fragments.
         if not job.transfer_mode:
             has_legacy_parts = any(workspace.glob(f".{job.id}.segment.*"))
-            job.transfer_mode = "segmented" if has_legacy_parts else DOWNLOAD_MODE
+            job.transfer_mode = "segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE)
             self.save()
         download_mode = job.transfer_mode
         private["transfer_mode"] = download_mode
@@ -1694,7 +1694,7 @@ class Controller:
         self._postprocess(job_id, workspace, artifact, target_dir)
 
     def _recover_fragments(self, job: Job, workspace: Path, mode: str) -> None:
-        chunk = job.size if mode == "single" else max(1, (job.size + 7) // 8)
+        chunk = segment_chunk(job.size, mode)
         for i in range(segment_count(job.size, mode)):
             part = workspace / f".{job.id}.segment.{i}"
             if part.with_name(part.name + ".headers").exists():
@@ -1753,9 +1753,9 @@ class Controller:
             self.save()
 
     @staticmethod
-    def _transfer_loop(prefix: str, total: int, mode: str, curl: str) -> str:
+    def _transfer_loop(prefix: str, total: int, mode: str, curl: str, max_parallel: int = 8) -> str:
         count = segment_count(total, mode)
-        chunk = total if mode == "single" else max(1, (total + 7) // 8)
+        chunk = segment_chunk(total, mode)
         merger = f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'transfer_parts.py'))}"
         return f'''TOTAL={total}
 COUNT={count}
@@ -1787,6 +1787,12 @@ while [ "$i" -lt "$COUNT" ]; do
   ) &
   pids="$pids $!"
   i=$(( i + 1 ))
+  if [ $(( i % {max_parallel} )) -eq 0 ]; then
+    failed=0
+    for child in $pids; do wait "$child" || failed=1; done
+    [ "$failed" -eq 0 ] || exit 1
+    pids=""
+  fi
 done
 failed=0
 for child in $pids; do wait "$child" || failed=1; done
@@ -1815,12 +1821,12 @@ curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent -
         # authoritative fallback, captured by transfer_parts in the workspace.
         return setup + self._transfer_loop(prefix, total, mode, curl)
 
-    def _download_script_gofile(self, download: str, token: str, page: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented") -> str:
+    def _download_script_gofile(self, download: str, token: str, page: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented2") -> str:
         if not download.startswith("https://") or not token:
             raise ValueError("Gofile 다운로드 인증 정보가 없습니다.")
-        return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}", mode=mode)
+        return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}", mode=mode, max_parallel=2)
 
-    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False) -> str:
+    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False, max_parallel: int = 8) -> str:
         if not download.startswith("https://"):
             raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
         config_lines = [
@@ -1843,7 +1849,7 @@ trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
 '''
         curl = f'curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error'
-        return setup + self._transfer_loop(f"{target_dir}/.{job_id}.segment", total, mode, curl)
+        return setup + self._transfer_loop(f"{target_dir}/.{job_id}.segment", total, mode, curl, max_parallel=max_parallel)
 
 
     def _download_script_gigafile_zip(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, verify: bool = True) -> str:

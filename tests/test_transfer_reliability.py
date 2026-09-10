@@ -11,10 +11,32 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
 import backend
-from transfer_parts import commit_fragment, segment_count
+from transfer_parts import commit_fragment, segment_count, segment_chunk, initial_transfer_mode
 
 
 class TransferReliabilityTests(unittest.TestCase):
+    def test_gofile_two_parts_and_legacy_concurrency(self):
+        self.assertEqual(initial_transfer_mode('gofile', 'segmented'), 'segmented2')
+        self.assertEqual(initial_transfer_mode('gofile', 'single'), 'single')
+        self.assertEqual(initial_transfer_mode('gigafile', 'segmented'), 'segmented')
+        for size in range(1, 100):
+            chunk = segment_chunk(size, 'segmented2')
+            count = segment_count(size, 'segmented2')
+            self.assertLessEqual(count, 2)
+            self.assertLess((count - 1) * chunk, size)
+            self.assertGreaterEqual(count * chunk, size)
+        controller = backend.Controller.__new__(backend.Controller)
+        for name in ('video.mp4', 'archive.zip'):
+            for mode, count, chunk in [('segmented2', 2, 40), ('segmented', 8, 10), ('single', 1, 80)]:
+                script = controller._download_script_gofile('https://example.com/file', 'test', 'https://gofile.io/d/test', name, 'test', 80, '/tmp/test', mode=mode)
+                self.assertIn(f'COUNT={count}\nCHUNK={chunk}\n', script)
+                self.assertIn('i % 2', script)
+        job = backend.Job('test', 'file.zip', 'https://gofile.io/d/test', 7, 7, 'verifying', 'now', transfer_mode='segmented2')
+        (self.root / '.test.segment.0').write_bytes(b'abcd')
+        (self.root / '.test.segment.1').write_bytes(b'efg')
+        artifact, _digest = controller._assemble_artifact(job, self.root, {})
+        self.assertEqual(artifact.read_bytes(), b'abcdefg')
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

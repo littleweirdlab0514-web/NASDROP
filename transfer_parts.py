@@ -7,9 +7,18 @@ import shutil
 import sys
 
 
+def segment_chunk(total, mode="segmented"):
+    parts = 2 if mode == "segmented2" else 8
+    return total if mode == "single" else max(1, (total + parts - 1) // parts)
+
+
+def initial_transfer_mode(provider, configured):
+    return "segmented2" if provider == "gofile" and configured != "single" else configured
+
+
 def segment_count(total, mode="segmented"):
     # Preserve the old ceil(total/8) layout for existing jobs, omitting empty tails.
-    chunk = max(1, (total + 7) // 8)
+    chunk = segment_chunk(total, mode)
     return 1 if mode == "single" else (total + chunk - 1) // chunk
 
 
