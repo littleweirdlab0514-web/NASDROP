@@ -172,7 +172,7 @@ class ProcessingPipelineTests(unittest.TestCase):
                     backend._run_seven_zip(["x", "archive.7z"], "incorrect")
             command = run.call_args.args[0]
             self.assertNotIn("incorrect", command)
-            self.assertIn("-p", command)
+            self.assertNotIn("-p", command)
             self.assertEqual(run.call_args.kwargs["input"], "incorrect\n")
 
     def test_external_engine_listing_rejects_path_traversal(self):

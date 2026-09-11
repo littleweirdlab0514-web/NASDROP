@@ -27,6 +27,8 @@ See `docs/DSM_LAUNCHER_GUIDE.md` for the packaging rule and regression checklist
 
 ## Transfer lifecycle invariants
 
+- Archive passwords must be supplied through stdin, never argv. Do not append a bare `-p`: 7-Zip 26.02 treats it as an empty password. Verify with real encrypted ZIP (ZipCrypto/AES) fixtures, including synthetic punctuation passwords, rather than only mocking subprocess success. Never commit a user's actual archive password.
+
 - Before changing GoFile inspection, scheduling, retries, or transfer concurrency, read `docs/GOFILE_REQUEST_POLICY.md`. Preserve the per-file two-connection cap and shared HTTP 429 cooldown. Do not restore eight concurrent GoFile segments as a generic performance optimization.
 
 - Never resume a `.more` fragment without validating its HTTP range. Replay at its original offset, not by blind append. Preserve validated data on local I/O errors and strip secret headers.
