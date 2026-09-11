@@ -18,7 +18,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 ## What's new in 0.9.15
 
 - Fixed archive password delivery: remove the bare `-p` option and let 7-Zip read the password from stdin. Passwords remain absent from command-line arguments.
-- ZIP 암호가 맞아도 암호 오류가 나던 전달 방식을 수정했습니다. 업데이트 후 기존 암호 대기 작업에서 암호를 다시 입력해 주세요. 실제 NAS에서의 확인은 별도로 필요합니다.
+- After updating, re-enter the password on an existing password-waiting job. Actual NAS verification is still required.
 
 ## What's new in 0.9.14
 
@@ -26,7 +26,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 GoFile now uses up to **2 segments per file** in segmented mode; other providers retain their existing layout. Single-connection mode remains single. Existing 8-segment GoFile downloads retain their saved ranges to protect resume data, but transfer only two segments at a time. This is a per-file limit: enabling simultaneous GoFile jobs increases the total connections. Reducing connections does not immediately lift an existing provider rate limit; the shared HTTP 429 cooldown remains in effect.
 
-GoFile의 반복적인 요청 제한을 줄이기 위해 새 작업을 파일당 최대 **2분할**로 변경했습니다. 기존 8분할 작업은 조각을 보존하면서 두 연결씩 이어받습니다. 같은 서비스의 동시 작업 수를 늘리면 전체 연결 수도 증가하며, 이미 걸린 차단이 즉시 해제되는 것은 아닙니다. 개발 시 [GoFile 요청량 지침](docs/GOFILE_REQUEST_POLICY.md)을 따라야 합니다.
+See the [GoFile request policy](docs/GOFILE_REQUEST_POLICY.md) before changing provider request handling.
 
 ## What's new in 0.9.13
 
@@ -235,9 +235,9 @@ The following guides show how an authorized DSM user creates the first NASDrop I
 </details>
 
 <details>
-<summary><strong>한국어 (Korean)</strong></summary>
+<summary><strong>Korean</strong></summary>
 
-![한국어 NASDrop ID 생성 및 재설정 안내](assets/client-login-guide-ko.png)
+![NASDrop account setup and reset guide in Korean](assets/client-login-guide-ko.png)
 
 </details>
 
@@ -324,11 +324,11 @@ Select a language to view both configuration screens. The localized copies are v
 </details>
 
 <details>
-<summary><strong>한국어 (Korean)</strong></summary>
+<summary><strong>Korean</strong></summary>
 
-![한국어 공유기 포트포워딩 설정 예제](assets/router-port-forwarding-example.png)
+![Router port-forwarding example in Korean](assets/router-port-forwarding-example.png)
 
-![한국어 DSM 역방향 프록시 설정 예제](assets/dsm-reverse-proxy-example.png)
+![DSM reverse proxy example in Korean](assets/dsm-reverse-proxy-example.png)
 
 </details>
 
@@ -372,9 +372,9 @@ The following screenshots show the new port setting in all four supported interf
 </details>
 
 <details>
-<summary><strong>한국어 (Korean)</strong></summary>
+<summary><strong>Korean</strong></summary>
 
-![한국어 DSM 아이콘 외부 포트 설정](assets/dsm-icon-port-setting-ko.png)
+![DSM launcher external port settings in Korean](assets/dsm-icon-port-setting-ko.png)
 
 </details>
 

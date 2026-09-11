@@ -1,5 +1,7 @@
 # NASDrop repository instructions
 
+- Public GitHub README text, release titles, and release notes must be written in English. Keep user-facing app localization separate from release-document language.
+
 ## Provider filename invariant
 
 - Never treat a provider page's visible filename as authoritative. Providers may mask, replace, localize, or duplicate it.
