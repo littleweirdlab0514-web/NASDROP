@@ -37,9 +37,14 @@ main .text-button { color: #2563eb; }
 .refresh-options > button { flex:none; }
 .refresh-options .check { min-width:0; font-size:11px; }
 .refresh-options .check span { overflow-wrap:anywhere; }
-.jobs { display: grid; gap: 7px; max-height: 180px; overflow-y: auto; }
+.jobs { display: grid; grid-template-columns:minmax(0,1fr); gap: 7px; }
 .job { padding: 9px 10px; border: 1px solid #dde4ee; border-radius: 9px; background: white; }
 .job { width:100%; text-align:left; font-weight:400; }
+.job { min-width:0; }
+.job-summary { display:block; width:100%; min-width:0; padding:0; text-align:left; background:transparent; color:inherit; font-weight:400; }
+.job-summary:focus-visible { outline:2px solid #2563eb; outline-offset:3px; }
+.job .job-controls button { font-size:11px; padding:7px 10px; }
+.job .job-controls button:disabled { cursor:default; }
 .job.selected { border-color:#2563eb; }
 .job.password-required { border-color:#d97706; background:#fffbeb; }
 .job-meta { margin-top:5px; color:#617086; font-size:11px; }
@@ -47,10 +52,10 @@ main .danger { color:#b42318; }
 #poll-status { margin:0 0 8px; font-size:11px; }
 #password-alert { background:#fff3cd; color:#854d0e; padding:9px; border-radius:8px; font-size:12px; }
 #job-detail { margin-top:12px; padding-top:5px; border-top:1px solid #cbd4e1; }
-#job-detail-name { overflow-wrap:anywhere; font-size:12px; }
+#job-detail > button { display:block; margin-left:auto; }
 #job-options-hint { margin:0; }
-.job-line { display: flex; justify-content: space-between; gap: 8px; }
-.job strong { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.job-line { display: flex; flex-wrap:wrap; justify-content: space-between; gap: 4px 8px; min-width:0; }
+.job strong { flex:1 1 180px; min-width: 0; font-size: 12px; overflow-wrap:anywhere; white-space:normal; }
 .job span { flex: none; color: #617086; font-size: 10px; }
 .bar { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 9px; background: #e6ebf2; }
 .bar i { display: block; height: 100%; background: #3b82f6; }

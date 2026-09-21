@@ -53,7 +53,7 @@ test('file-specific controls do not silently submit their parent folder', () => 
   assert.equal(adapter.resolve(control({'data-action':'delete'}), 'https://gofile.io/d/parent'), null);
 });
 
-function contentHarness({ready = true, fail = false, pageUrl = page, handoffSupported,language,browserLanguage='ko'} = {}) {
+function contentHarness({ready = true, fail = false, pageUrl = page, handoffSupported,language,browserLanguage='ko',throwAt='',syncThrow=false,errorText='Extension context invalidated.'} = {}) {
   let handler;
   const messages = [], requests = [], nodes = [];
   function node() {
@@ -64,7 +64,7 @@ function contentHarness({ready = true, fail = false, pageUrl = page, handoffSupp
     window:{addEventListener(name, fn, capture){assert.equal(name,'click'); assert.equal(capture,true); handler=fn;}},
     document:{createElement:node, body:node()},
     fetch:async (url, options) => { requests.push({url, options}); return {ok:true, headers:new Headers({'HX-Redirect':signed})}; },
-    chrome:{runtime:{sendMessage:async message => {messages.push(message); return message.type === 'pageReady' ? {ok:true, result:{ready,handoffSupported,language}} : fail ? {ok:false,error:'Server unavailable'} : {ok:true,result:{count:1}};}}},
+    chrome:{runtime:{sendMessage:message => {messages.push(message); if(message.type===throwAt){if(syncThrow)throw new Error(errorText);return Promise.reject(new Error(errorText));} return Promise.resolve(message.type === 'pageReady' ? {ok:true, result:{ready,handoffSupported,language}} : fail ? {ok:false,error:'Server unavailable'} : {ok:true,result:{count:1}});}}},
   });
   vm.runInContext(i18nSource,c); vm.runInContext(adapterSource, c); vm.runInContext(contentSource, c);
   function click(target = download, overrides = {}) {
@@ -74,6 +74,23 @@ function contentHarness({ready = true, fail = false, pageUrl = page, handoffSupp
   return {click, messages, requests, nodes};
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test('invalidated context shows localized refresh guidance and stops repeated submissions',async()=>{
+  const c=vm.createContext({});vm.runInContext(i18nSource,c);
+  for(const browserLanguage of ['en','ko','ja','zh','fr'])for(const throwAt of ['pageReady','pageSubmit'])for(const syncThrow of [false,true]) {
+    const h=contentHarness({browserLanguage,throwAt,syncThrow});
+    assert.equal(h.click().prevented,true);await flush();
+    assert.ok(h.nodes.some(n=>n.textContent===c.NASDropI18n.t(browserLanguage,'reloadExtension')));
+    assert.ok(!h.nodes.some(n=>n.textContent==='Extension context invalidated.'));
+    const count=h.messages.length;h.click();await flush();assert.equal(h.messages.length,count);
+    if(throwAt==='pageReady')assert.equal(h.requests.length,0);
+  }
+});
+
+test('other submission failures retain uncertain-result guidance',async()=>{
+  const h=contentHarness({throwAt:'pageSubmit',errorText:'Connection closed'});h.click();await flush();
+  assert.ok(h.nodes.some(n=>n.textContent.includes('전송 결과를 확인하지 못했습니다')));
+});
 
 function pixelControl(buttonClass, region, icon = 'download') {
   // Structural fixture from the two controls observed on the reported live page.

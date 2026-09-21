@@ -44,11 +44,9 @@
       <p id="password-alert" class="hidden" role="alert"></p>
       <div id="jobs" class="jobs"></div>
       <section id="job-detail" class="hidden">
-        <div class="jobs-head"><h2 id="job-detail-name"></h2><button id="close-detail" class="text-button" type="button" data-i18n="close">Close</button></div>
-        <div class="job-controls"><button id="pause-job" class="secondary" type="button" data-i18n="pauseJob">Pause</button><button id="resume-job" class="secondary" type="button" data-i18n="resumeJob">Resume</button><button id="delete-job" class="text-button danger" type="button" data-i18n="deleteJob">Delete</button></div>
+        <button id="close-detail" class="text-button" type="button" data-i18n="close">Close</button>
         <p id="job-delete-hint" class="muted"></p>
         <form id="job-options-form">
-          <label class="check"><input id="job-extract" type="checkbox"><span data-i18n="autoExtract">Automatically extract archives</span></label>
           <label><span data-i18n="archivePassword">Archive password (optional)</span><input id="job-password" type="password" autocomplete="off"></label>
           <p id="job-options-hint" class="muted"></p>
           <button id="save-job-options" class="primary" type="submit" data-i18n="saveOptions">Save options</button>

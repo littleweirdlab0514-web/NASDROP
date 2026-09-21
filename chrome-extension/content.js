@@ -3,6 +3,8 @@
   let language=NASDropI18n.normalize(navigator.language);
   const text=new Proxy({}, {get:(_,key)=>NASDropI18n.dictionaries[language][key]});
   let pending = false;
+  let contextLost = false;
+  function invalidContext(error) { return /extension context invalidated/i.test(String(error?.message || error || '')); }
   let panel;
   function show(message) {
     if (!panel?.isConnected) {
@@ -23,6 +25,7 @@
     panel.update(NASDropI18n.error(language,message));
   }
   async function send(action) {
+    if (contextLost) { show(text.reloadExtension); return; }
     pending = true;
     show(text.sending);
     try {
@@ -40,10 +43,11 @@
       show(text.sending);
       let response;
       try { response = await chrome.runtime.sendMessage({type:'pageSubmit', url}); }
-      catch { show(text.uncertain); return; }
+      catch (error) { if (invalidContext(error)) { contextLost=true; show(text.reloadExtension); } else show(text.uncertain); return; }
       show(response?.ok ? text.success : text[response?.code] || response?.error || text.failed);
     } catch (error) {
-      show(error.message || text.failed);
+      if (invalidContext(error)) { contextLost=true; show(text.reloadExtension); }
+      else show(error.message || text.failed);
     } finally { pending = false; }
   }
   // Delegation also covers controls inserted after load and SPA navigation.

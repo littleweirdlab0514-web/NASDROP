@@ -9,6 +9,7 @@
     failed:['Could not send. Check your connection.','전송하지 못했습니다. 연결 상태를 확인하세요.','发送失败，请检查连接。','送信できませんでした。接続を確認してください。'],
     uncertain:['Result unknown. Check NASDrop jobs before retrying.','전송 결과를 확인하지 못했습니다. 재시도 전에 NASDrop 작업 목록을 확인하세요.','无法确认结果。重试前请检查 NASDrop 任务列表。','結果を確認できません。再試行前にNASDropのジョブを確認してください。'],
     resolving:['Resolving the Buzzheavier download link…','Buzzheavier 다운로드 링크 확인 중…','正在获取 Buzzheavier 下载链接…','Buzzheavierのダウンロードリンクを確認中…'],
+    reloadExtension:['The extension was updated or reloaded. Refresh this page (F5), then check NASDrop jobs before retrying.','확장 프로그램이 업데이트되거나 다시 로드되었습니다. 이 페이지를 새로고침(F5)하고, 재시도 전에 NASDrop 작업 목록을 확인하세요.','扩展程序已更新或重新加载。请刷新此页面（F5），并在重试前检查 NASDrop 任务列表。','拡張機能が更新または再読み込みされました。このページを再読み込み（F5）し、再試行前にNASDropのジョブ一覧を確認してください。'],
     expiredLink:['Download link expired. Refresh the page and try again.','다운로드 링크가 만료됐습니다. 페이지를 새로고침한 후 다시 시도하세요.','下载链接已过期，请刷新页面后重试。','リンクの期限が切れました。ページを再読み込みしてください。'],
     serverUnsupported:['This NASDrop server does not support browser handoff for this site yet.','연결된 NASDrop 서버가 이 사이트의 브라우저 전송을 아직 지원하지 않습니다.','此 NASDrop 服务尚不支持该网站的浏览器传输。','このNASDropサーバーはこのサイトからの転送にまだ対応していません。'],
     close:['Close','닫기','关闭','閉じる'],passwordTitle:['NASDrop · Archive password required','NASDrop · 압축 비밀번호 필요','NASDrop · 需要压缩密码','NASDrop · アーカイブのパスワードが必要'],

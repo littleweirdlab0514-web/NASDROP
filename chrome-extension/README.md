@@ -2,7 +2,7 @@
 
 This Manifest V3 extension connects supported sites' download controls to an existing NASDrop server. After signing in once, click a recognized download button on the provider page. NASDrop receives the link and the page shows the result.
 
-Version 0.5.0 adds English, Korean, Simplified Chinese and Japanese across the popup, job statuses, site notices, context menus and notifications, with a persistent language selector. It retains job pause/resume/deletion, extraction/password controls and automatic progress updates. AkiraBox and Viking require NASDrop 0.9.19 or later with the matching browser-handoff capability. See [HANDOFF.md](HANDOFF.md) for the contract and outstanding live-NAS verification.
+Version 0.5.1 supports English, Korean, Simplified Chinese and Japanese across the popup, job statuses, site notices, context menus and notifications, with a persistent language selector. It retains job pause/resume/deletion, extraction/password controls and automatic progress updates. AkiraBox and Viking require NASDrop 0.9.19 or later with the matching browser-handoff capability. See [HANDOFF.md](HANDOFF.md) for the contract and outstanding live-NAS verification.
 
 Server, Synology packages and setup instructions: [NASDrop project](https://github.com/littleweirdlab0514-web/NASDROP). This extension requires a running NASDrop server; it does not download files independently. This is a developer-mode distribution, not an official Chrome Web Store release.
 
@@ -19,6 +19,8 @@ Controls inserted after page load are supported. Only genuine, unmodified primar
 
 ## Install locally
 
+Version 0.5.1 keeps file controls collapsed by default. Click a file to expand Pause, Resume, Delete and the archive-password field together below its progress display; click again to collapse. Automatic extraction is configured only in the toolbar. Long filenames wrap within the card.
+
 Detailed Korean instructions: [한국어 설치 및 사용 안내](INSTALL.ko.md).
 
 First-login permission instructions with translated examples: [English / 한국어 / 日本語 / 简体中文](FIRST_LOGIN.md).
@@ -29,7 +31,7 @@ Install and start NASDrop on the NAS. Open its web portal, create or confirm you
 
 ### 2. Download and extract the extension
 
-Open the [Chrome extension release](https://github.com/littleweirdlab0514-web/NASDROP/releases/tag/chrome-v0.5.0) and download **NASDrop-Chrome-0.5.0.zip** under Assets. This is different from GitHub's automatically generated **Source code (zip)** and the Synology `.spk` installer.
+Open the [Chrome extension release](https://github.com/littleweirdlab0514-web/NASDROP/releases/tag/chrome-v0.5.1) and download **NASDrop-Chrome-0.5.1.zip** under Assets. This is different from GitHub's automatically generated **Source code (zip)** and the Synology `.spk` installer.
 
 Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`. Do not run files inside the ZIP or select the ZIP itself. The folder you will select must contain `manifest.json`, `background.js`, `popup.html`, `icons` and `_locales` directly. If there is an extra nested folder, select that inner folder. Keep this directory in place while the extension is installed.
 
@@ -38,7 +40,7 @@ Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`
 1. Type `chrome://extensions` in Chrome's address bar and press Enter.
 2. Turn on **Developer mode** in the upper-right corner.
 3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
-4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.0**.
+4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.1**.
 5. Open Chrome's puzzle-piece Extensions menu and pin NASDrop to the toolbar for easy access.
 
 These steps follow [Chrome's official unpacked-extension instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked). This package is not a Chrome Web Store installation. Managed work/school Chrome may prohibit developer-mode extensions; ask the administrator rather than bypassing the policy. This guide is for desktop Chrome, not mobile Chrome.
@@ -74,12 +76,12 @@ The NASDrop server must already have a writable default destination configured. 
 
 - Press Enter in the sign-in password field to connect.
 - **Automatically extract archives**, immediately right of Refresh, is an extension-local default for all newly submitted jobs, including manual links, page/context-menu actions, multi-file shares and supported browser handoffs. Existing saved preferences are preserved across login and popup reopening; new installations retain the previous enabled default. This toggle never changes NAS global settings or existing jobs. When space is limited, Clear completed wraps below the refresh/toggle group.
-- Click a registered job to reveal its extraction checkbox and archive-password field. Changing an existing job's extraction options requires a server advertising `job_processing_options: true`. Jobs already in postprocessing or a terminal state cannot be edited. Older servers still support password-required retries through the existing password endpoint.
-- An empty password preserves the server's existing archive password when extraction stays enabled. Disabling extraction removes that archive password. Password values are never stored by the extension, returned from the server, or restored into the form.
+- Click a registered job to expand its controls and password form inside the same card. Only one job is expanded at a time. Clicking it again closes the form and clears the unsaved password. Automatic polling preserves the open form, input and focus.
+- An empty password preserves the existing archive password. Password submission preserves that job's saved extraction setting; it does not apply the toolbar default retroactively. Password values are never stored by the extension, returned from the server, or restored into the form. Password entry is disabled when extraction is off or the job cannot be edited.
 - Progress refreshes every 5 seconds while jobs are active and every 15 seconds when idle. Requests do not overlap; failures back off to 60 seconds. Refreshing preserves the selected job's password input and focus.
 - With the popup closed, the `alarms` permission enables approximately once-per-minute checks only while work remains active. Network failures back off up to 5 minutes. Newly password-required jobs trigger one notification per waiting episode, subject to Chrome/OS notification settings.
 - **Clear completed** beside Refresh removes completed job records after confirmation. It does not delete downloaded files from the NAS.
-- Click a job to reveal **Pause**, **Resume** and **Delete**. Pausing retains partial downloads for resumption. While the server reports `stopping`, resume/delete stay locked; wait until the worker has exited. Extraction/publication cannot be interrupted through these controls.
+- **Pause**, **Resume** and **Delete** are hidden until the file is clicked. They appear above the password field in that file's card. Pausing retains partial downloads for resumption. While the server reports `stopping`, resume/delete stay locked; wait until the worker exits. Extraction/publication cannot be interrupted here. Completed jobs show **Delete record**, which keeps NAS output files.
 - Deleting an unfinished stopped job confirms removal of its temporary files as well as its record. Deleting a completed job removes its record only and keeps published NAS output. Server-side cleanup failure handling requires the updated server; the extension preserves the job on API errors. No filesystem path is supplied by the extension.
 
 ## Verification limits

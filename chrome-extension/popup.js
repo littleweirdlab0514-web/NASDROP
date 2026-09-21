@@ -16,6 +16,7 @@ Object.assign(messages.ko,{pauseJob:'멈추기',resumeJob:'다시 시작',delete
 Object.assign(messages.ja,{pauseJob:'停止',resumeJob:'再開',deleteJob:'削除',deleteRecord:'履歴削除',deleteHint:'停止後に削除すると一時ファイルも削除されます。完了ファイルは保持されます。',stoppingHint:'停止処理中です。終了後に削除できます。',deletePartialConfirm:'未完了のジョブと一時ファイルを削除しますか？元に戻せません。完了ファイルは保持されます。',deleteRecordConfirm:'履歴を削除しますか？NASのファイルは保持されます。',jobActionDone:'リクエストを受け付けました。',jobDeleted:'ジョブを削除しました。'});
 Object.assign(messages.zh,{pauseJob:'暂停',resumeJob:'继续',deleteJob:'删除',deleteRecord:'删除记录',deleteHint:'暂停后删除会清除临时文件。已完成的文件将保留。',stoppingHint:'正在停止，结束后可以删除。',deletePartialConfirm:'删除此未完成任务及临时文件？无法撤销，已完成文件将保留。',deleteRecordConfirm:'删除记录？NAS 文件将保留。',jobActionDone:'请求已接受。',jobDeleted:'任务已删除。'});
 let uiState = {connected:false,jobs:[]}, selectedJob = '', optionsDirty = false, mutationBusy = false, loginBusy = false;
+const jobCards=new Map(), jobDetail=$('#job-detail');
 const pausableStates=new Set(['inspecting','queued','ready','downloading','waiting_processing','verifying']);
 const resumableStates=new Set(['paused','failed','cancelled']);
 const deletableStates=new Set(['paused','failed','cancelled','password_required','completed']);
@@ -72,23 +73,50 @@ async function useCurrentTab(showError = true) {
 }
 
 function renderJobs(jobs) {
-  const list = $('#jobs');
-  $('#clear-completed').disabled = mutationBusy || !jobs?.some(job=>job.status === 'completed');
-  const waiting = jobs?.filter(job=>job.status === 'password_required').length || 0;
+  const list=$('#jobs');
+  $('#clear-completed').disabled=mutationBusy || !jobs?.some(job=>job.status==='completed');
+  const waiting=jobs?.filter(job=>job.status==='password_required').length || 0;
   $('#password-alert').classList.toggle('hidden',!waiting);
-  $('#password-alert').textContent = waiting ? t('passwordAlert',{count:waiting}) : '';
-  list.replaceChildren();
-  if (!jobs?.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = t('noJobs'); list.append(empty); return; }
-  jobs.forEach(job => {
-    const item = document.createElement('button'); item.type='button'; item.className = `job${selectedJob === job.id ? ' selected' : ''}${job.status === 'password_required' ? ' password-required' : ''}`;
-    item.addEventListener('click',()=>openJob(job.id));
-    const line = document.createElement('div'); line.className = 'job-line';
-    const name = document.createElement('strong'); name.textContent = job.name;
-    const status = document.createElement('span'); status.textContent = `${NASDropI18n.t(language,job.status==='failed'?'failedStatus':job.status)} · ${percent(job)}%`;
-    const bar = document.createElement('div'); bar.className = 'bar';
-    const fill = document.createElement('i'); fill.style.width = `${percent(job)}%`;
-    const meta = document.createElement('div'); meta.className='job-meta'; meta.textContent=`${formatBytes(job.downloaded)} / ${formatBytes(job.size)}`;
-    line.append(name, status); bar.append(fill); item.append(line, bar, meta); list.append(item);
+  $('#password-alert').textContent=waiting?t('passwordAlert',{count:waiting}):'';
+  for(const [id,card] of jobCards) if(!jobs?.some(job=>job.id===id)) {
+    if(jobDetail.parentNode===card.item) $('#app-view').append(jobDetail);
+    card.item.remove(); jobCards.delete(id);
+  }
+  if(!jobs?.length) { list.replaceChildren(); const empty=document.createElement('div'); empty.className='empty'; empty.textContent=t('noJobs'); list.append(empty); return; }
+  if(!jobCards.size) list.replaceChildren();
+  jobs.forEach(job=>{
+    let card=jobCards.get(job.id);
+    if(!card) {
+      const item=document.createElement('div');
+      const summary=document.createElement('button'); summary.type='button'; summary.className='job-summary';
+      summary.addEventListener('click',()=>openJob(job.id));
+      const line=document.createElement('div'); line.className='job-line';
+      const name=document.createElement('strong'), status=document.createElement('span');
+      const bar=document.createElement('div'); bar.className='bar';
+      const fill=document.createElement('i'); bar.append(fill);
+      const meta=document.createElement('div'); meta.className='job-meta';
+      const controls=document.createElement('div'); controls.className='job-controls';
+      const buttons=['jobPause','jobResume','jobDelete'].map(type=>{
+        const button=document.createElement('button'); button.type='button';
+        button.className=type==='jobDelete'?'text-button danger':'secondary';
+        button.addEventListener('click',()=>runJobAction(type,null,job.id)); controls.append(button); return button;
+      });
+      line.append(name,status); summary.append(line,bar,meta); item.append(summary,controls); list.append(item);
+      card={item,summary,name,status,fill,meta,controls,buttons}; jobCards.set(job.id,card);
+    }
+    const expanded=selectedJob===job.id;
+    card.item.className='job'+(expanded?' selected':'')+(job.status==='password_required'?' password-required':'');
+    card.summary.setAttribute('aria-expanded',String(expanded));
+    card.name.textContent=job.name;
+    card.status.textContent=NASDropI18n.t(language,job.status==='failed'?'failedStatus':job.status)+' · '+percent(job)+'%';
+    card.fill.style.width=percent(job)+'%';
+    card.meta.textContent=formatBytes(job.downloaded)+' / '+formatBytes(job.size);
+    card.controls.classList.toggle('hidden',!expanded);
+    for(const [i,key,states] of [[0,'pauseJob',pausableStates],[1,'resumeJob',resumableStates],[2,job.status==='completed'?'deleteRecord':'deleteJob',deletableStates]]) {
+      card.buttons[i].textContent=t(key); card.buttons[i].disabled=mutationBusy||!states.has(job.status);
+      card.buttons[i].setAttribute('aria-label',t(key)+': '+job.name);
+    }
+    if(expanded && jobDetail.parentNode!==card.item) card.item.append(jobDetail);
   });
 }
 
@@ -98,24 +126,19 @@ function formatBytes(value) {
   return `${(value/1024**unit).toFixed(unit ? 1 : 0)} ${['B','KB','MB','GB','TB'][unit]}`;
 }
 function openJob(id) {
+  if(mutationBusy) return;
+  if(selectedJob===id) { closeJob(); return; }
   if (selectedJob !== id) { selectedJob=id; optionsDirty=false; $('#job-password').value=''; }
-  $('#job-detail').classList.remove('hidden'); syncJobDetail();
+  jobDetail.classList.remove('hidden'); renderJobs(uiState.jobs); syncJobDetail();
 }
-function closeJob() { selectedJob=''; optionsDirty=false; $('#job-password').value=''; $('#job-detail').classList.add('hidden'); }
+function closeJob() { selectedJob=''; optionsDirty=false; $('#job-password').value=''; jobDetail.classList.add('hidden'); renderJobs(uiState.jobs); }
 function syncJobDetail() {
   const job=uiState.jobs.find(job=>job.id===selectedJob);
   if (!job) { closeJob(); return; }
-  $('#job-detail-name').textContent=job.name;
-  $('#pause-job').disabled=mutationBusy || !pausableStates.has(job.status);
-  $('#resume-job').disabled=mutationBusy || !resumableStates.has(job.status);
-  $('#delete-job').disabled=mutationBusy || !deletableStates.has(job.status);
-  $('#delete-job').textContent=t(job.status==='completed'?'deleteRecord':'deleteJob');
   $('#job-delete-hint').textContent=t(job.status==='stopping'?'stoppingHint':'deleteHint');
-  if (!optionsDirty) $('#job-extract').checked=Boolean(job.extract);
   const modern=Boolean(uiState.status?.job_processing_options), editable=editableStates.has(job.status);
-  $('#job-extract').disabled=mutationBusy || !modern || !editable;
-  $('#job-password').disabled=mutationBusy || !$('#job-extract').checked || !(modern && editable || job.status==='password_required');
-  $('#save-job-options').disabled=mutationBusy || !(modern && editable || job.status==='password_required');
+  $('#job-password').disabled=mutationBusy || !job.extract || !(modern && editable || job.status==='password_required');
+  $('#save-job-options').disabled=$('#job-password').disabled;
   $('#job-options-hint').textContent=!modern ? t('upgrade') : !editable ? t('locked') : job.status==='password_required' ? t('passwordNeeded') : t('optionHint');
 }
 
@@ -195,25 +218,26 @@ $('#language-select').addEventListener('change',async event=>{
   } catch(error) {select.value=previous;notice(error.message);}
   finally {select.disabled=false;}
 });
-async function runJobAction(type, buttonId) {
-  if (mutationBusy || $(buttonId).disabled) return;
-  const job=uiState.jobs.find(job=>job.id===selectedJob);
-  if (!job) return;
+async function runJobAction(type, buttonId, jobId=selectedJob) {
+  if (mutationBusy || (buttonId && $(buttonId).disabled)) return;
+  const states=type==='jobPause'?pausableStates:type==='jobResume'?resumableStates:deletableStates;
+  let job=uiState.jobs.find(job=>job.id===jobId);
+  if (!job || !states.has(job.status)) return;
+  const wasCompleted=job.status==='completed';
   if (type==='jobDelete' && !confirm(t(job.status==='completed'?'deleteRecordConfirm':'deletePartialConfirm'))) return;
-  mutationBusy=true; polling.stop(); syncJobDetail();
+  mutationBusy=true; polling.stop(); renderJobs(uiState.jobs); syncJobDetail();
   try {
     await polling.refresh();
+    const latest=await send({type:'getJobs'}); uiState.jobs=latest.jobs;
+    job=uiState.jobs.find(job=>job.id===jobId);
+    if (!job || !uiState.connected || !states.has(job.status) || (type==='jobDelete' && (job.status==='completed')!==wasCompleted)) return;
     await send({type,id:job.id});
     if (type==='jobDelete') { uiState.jobs=uiState.jobs.filter(item=>item.id!==job.id); if (selectedJob===job.id) closeJob(); }
     else job.status=type==='jobPause'?'stopping':'queued';
     renderJobs(uiState.jobs); notice(t(type==='jobDelete'?'jobDeleted':'jobActionDone'),true);
   } catch(error) { notice(error.message); }
-  finally {mutationBusy=false; syncJobDetail(); await polling.start();}
+  finally {mutationBusy=false; renderJobs(uiState.jobs); syncJobDetail(); await polling.start();}
 }
-$('#pause-job').addEventListener('click',()=>runJobAction('jobPause','#pause-job'));
-$('#resume-job').addEventListener('click',()=>runJobAction('jobResume','#resume-job'));
-$('#delete-job').addEventListener('click',()=>runJobAction('jobDelete','#delete-job'));
-$('#job-extract').addEventListener('change',()=>{ optionsDirty=true; if (!$('#job-extract').checked) $('#job-password').value=''; syncJobDetail(); });
 $('#job-password').addEventListener('input',()=>{optionsDirty=true;});
 $('#clear-completed').addEventListener('click',async()=>{
   if (mutationBusy || !confirm(t('clearConfirm'))) return;
@@ -227,7 +251,8 @@ $('#job-options-form').addEventListener('submit',async event=>{
   mutationBusy=true; polling.stop(); syncJobDetail();
   try {
     await polling.refresh();
-    await send({type:uiState.status?.job_processing_options ? 'jobProcessing' : 'jobPassword',id:selectedJob,extract:$('#job-extract').checked,password:$('#job-password').value});
+    const job=uiState.jobs.find(job=>job.id===selectedJob);
+    await send({type:uiState.status?.job_processing_options ? 'jobProcessing' : 'jobPassword',id:selectedJob,extract:Boolean(job?.extract),password:$('#job-password').value});
     $('#job-password').value=''; optionsDirty=false; notice(t('saved'),true);
   } catch(error) { notice(error.message); }
   finally {mutationBusy=false; await polling.start(); syncJobDetail();}
