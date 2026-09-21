@@ -1,5 +1,20 @@
 # NASDrop
 
+## Android closed-test volunteers wanted
+
+Already using NASDrop? LittleWeirdLab is recruiting existing NASDrop users to help test the **NASDrop Android companion app** before its public Google Play release.
+
+- **Who can join:** Android users with their own working NASDrop Server and a Google Play account. Connect the app to your own server using your NASDrop ID and password; you do not need access to the maintainer's NAS.
+- **What to test:** Server sign-in, sharing supported links from a browser, adding downloads, destination-folder selection, progress display, and UI/language issues. Please use files you own or are authorized to download, and respect provider rate limits.
+- **Participation:** Please plan to stay opted in for at least **14 consecutive days**, use the app during that time, and share honest feedback. We are aiming for at least **15 volunteers** to allow for dropouts. A positive review is not required.
+- **Cost:** The app is free with ads and offers an optional one-time ad-removal purchase. **No purchase is required to participate.**
+
+**To volunteer, email [littleweirdlab0514@gmail.com](mailto:littleweirdlab0514@gmail.com)** with the subject **NASDrop Android Test**. Include the Google account email you will use in Google Play, your Android version, and your NASDrop Server version. We will use the supplied account email to add you to the tester list and send participation instructions and the closed-test link when the release is available. This is a recruitment announcement, not an immediate public-download link.
+
+**Do not post your Google account email, NAS address, passwords, private download links, or unredacted screenshots in public issues or comments.** Feedback can be sent by email; only share sanitized technical details publicly. This public repository remains the NASDrop Server project; the Android app source repository remains private.
+
+---
+
 [![DSM 7.1 and 7.2 supported](https://img.shields.io/badge/DSM-7.1%20%7C%207.2%20supported-brightgreen)](#install-a-prebuilt-release)
 
 > [!TIP]
