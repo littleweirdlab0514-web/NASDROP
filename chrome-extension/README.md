@@ -6,6 +6,8 @@ Version 0.5.1 supports English, Korean, Simplified Chinese and Japanese across t
 
 Server, Synology packages and setup instructions: [NASDrop project](https://github.com/littleweirdlab0514-web/NASDROP). This extension requires a running NASDrop server; it does not download files independently. This is a developer-mode distribution, not an official Chrome Web Store release.
 
+Privacy details for the Chrome extension: [Privacy Policy](PRIVACY.md).
+
 ## Languages
 
 Choose **Automatic (browser)** or English, 한국어, 中文（简体）, 日本語 at the top of the popup, before or after login. Unknown, unavailable and unsupported browser languages fall back to **English**. The choice persists locally and applies to subsequent page actions and notifications. Chrome's extension-management description follows Chrome's own language. Server-supplied diagnostic errors and filenames are preserved verbatim rather than machine-translated. Changing language does not change extraction defaults or existing jobs.
