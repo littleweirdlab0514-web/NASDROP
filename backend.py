@@ -78,7 +78,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.19")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.22")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -1414,17 +1414,39 @@ class Controller:
                     self.save()
                 self.condition.notify_all()
 
-    def _local_size(self, prefix: str) -> int:
+    def _local_size(self, prefix: str, size: int, mode: str) -> int:
         prefix_path = Path(prefix)
         total = 0
-        try:
-            for entry in prefix_path.parent.iterdir():
-                if not entry.name.startswith(prefix_path.name):
-                    continue
-                if entry.is_file():
-                    total += entry.stat().st_size
-        except OSError:
-            return total
+        chunk = segment_chunk(size, mode)
+        def length(path):
+            try:
+                return path.stat().st_size if path.is_file() else 0
+            except OSError:
+                return 0
+        for index in range(segment_count(size, mode)):
+            part = prefix_path.with_name(prefix_path.name + str(index))
+            start, end = index * chunk, min(size - 1, (index + 1) * chunk - 1)
+            existing = length(part)
+            covered = existing
+            try:
+                with part.with_name(part.name + '.headers').open('rb') as stream:
+                    raw = stream.read(65536)
+                blocks = [b for b in re.split(rb'\r?\n\r?\n', raw) if re.match(rb'HTTP/\S+ \d{3}', b)]
+                block = blocks[-1] if blocks else b''
+                status = int(block.split(None, 2)[1]) if block else 0
+                more = length(part.with_name(part.name + '.more'))
+                match = re.search(rb'(?im)^content-range:\s*bytes (\d+)-(\d+)/(\d+)\s*$', block)
+                if status == 206 and match:
+                    first, last, response_size = map(int, match.groups())
+                    offset = first - start
+                    if response_size == size and last == end and 0 <= offset <= existing and more <= end - first + 1:
+                        covered = max(existing, offset + more)
+                elif status == 200 and start == 0 and end == size - 1:
+                    covered = max(existing, min(more, size))
+            except (OSError, ValueError, IndexError):
+                pass
+            # The merger may have removed .more/headers since the first stat.
+            total += min(end - start + 1, max(covered, length(part)))
         return total
 
     @staticmethod
@@ -1698,7 +1720,7 @@ class Controller:
         elif provider in {"buzzheavier", "akirabox", "vikingfile"}:
             script = self._download_script_direct(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
-                mode=download_mode, capture_headers=True,
+                mode=download_mode, capture_headers=True, transient_retries=3 if provider == "akirabox" else 0,
             )
         else:
             file_id = parsed.path.strip("/")
@@ -1724,7 +1746,7 @@ class Controller:
                 with self.condition:
                     self._defer_gofile(job, workspace, active=True)
             try:
-                current = self._local_size(prefix)
+                current = self._local_size(prefix, job.size, "single" if private.get("download_mode") == "gigafile_zip" else download_mode)
             except Exception:
                 current = 0
             with self.lock:
@@ -1752,7 +1774,7 @@ class Controller:
                 if provider == "gofile" and ((workspace / ".rate-limit").exists() or private.get("rate_limited")):
                     self._defer_gofile(job, workspace)
                 elif provider in {"akirabox", "vikingfile"}:
-                    current_job.error = "브라우저에서 전달한 다운로드가 중단됐습니다. 링크 만료 또는 접속 제한일 수 있습니다. 브라우저에서 새 다운로드 링크를 받아 다시 등록해 주세요."
+                    current_job.error = handoff_transfer_error(stderr)
                 elif provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
                     current_job.error = "Buzzheavier 직접 링크가 만료됐거나 사용할 수 없습니다. Copy download link를 다시 받아 새 작업으로 등록해 주세요."
                 elif re.search(r"maximum \(0\) redirects|too many redirects", stderr, re.I):
@@ -1833,7 +1855,7 @@ class Controller:
             self.save()
 
     @staticmethod
-    def _transfer_loop(prefix: str, total: int, mode: str, curl: str, max_parallel: int = 8) -> str:
+    def _transfer_loop(prefix: str, total: int, mode: str, curl: str, max_parallel: int = 8, transient_retries: int = 0) -> str:
         count = segment_count(total, mode)
         chunk = segment_chunk(total, mode)
         merger = f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'transfer_parts.py'))}"
@@ -1854,14 +1876,24 @@ while [ "$i" -lt "$COUNT" ]; do
     fi
     existing=0; [ ! -f "$part" ] || existing=$(wc -c < "$part" | tr -d ' ')
     [ "$existing" -le "$expected" ] || {{ rm -f "$part"; existing=0; }}
-    if [ "$existing" -lt "$expected" ]; then
+    attempt=0
+    while [ "$existing" -lt "$expected" ]; do
       from=$(( start + existing )); more="$part.more"
       rc=0
       {curl} --retry 0 -r "$from-$end" --dump-header "$part.headers" -o "$more" || rc=$?
       merged=0
       {merger} "$part" "$start" "$end" "$TOTAL" || merged=$?
-      [ "$rc" -eq 0 ] && [ "$merged" -eq 0 ] || exit 1
-    fi
+      if [ "$rc" -eq 0 ] && [ "$merged" -eq 0 ]; then break; fi
+      printf 'NASDROP_TRANSFER curl=%s merge=%s attempt=%s\\n' "$rc" "$merged" "$attempt" >&2
+      # Retry only validated partial responses after transient transport failures.
+      # Never retry HTTP rejection, redirect, invalid range or local write failure.
+      [ "$merged" -eq 0 ] && [ "$attempt" -lt {transient_retries} ] || exit 1
+      case "$rc" in 18|28|52|56|92) ;; *) exit 1 ;; esac
+      existing=$(wc -c < "$part" | tr -d ' ')
+      [ "$existing" -lt "$expected" ] || break
+      attempt=$(( attempt + 1 ))
+      sleep $(( attempt * 10 ))
+    done
     actual=$(wc -c < "$part" | tr -d ' ')
     [ "$actual" -eq "$expected" ]
   ) &
@@ -1906,7 +1938,7 @@ curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent -
             raise ValueError("Gofile 다운로드 인증 정보가 없습니다.")
         return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}", mode=mode, max_parallel=2)
 
-    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False, max_parallel: int = 8) -> str:
+    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False, max_parallel: int = 8, transient_retries: int = 0) -> str:
         if not download.startswith("https://"):
             raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
         config_lines = [
@@ -1929,7 +1961,7 @@ trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
 '''
         curl = f'curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error'
-        return setup + self._transfer_loop(f"{target_dir}/.{job_id}.segment", total, mode, curl, max_parallel=max_parallel)
+        return setup + self._transfer_loop(f"{target_dir}/.{job_id}.segment", total, mode, curl, max_parallel=max_parallel, transient_retries=transient_retries)
 
 
     def _download_script_gigafile_zip(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, verify: bool = True) -> str:
@@ -2227,14 +2259,43 @@ def _validate_viking_url(value: str, *, direct: bool) -> str:
     return value
 
 
+def handoff_transfer_error(stderr: str) -> str:
+    """Translate internal transfer status into safe, plain-language errors."""
+    markers = re.findall(r"NASDROP_TRANSFER curl=(\d+) merge=(\d+) attempt=(\d+)", stderr)
+    if not markers:
+        return "다운로드가 중단됐습니다. 받은 데이터는 보존됩니다."
+    rc, merged, _attempt = map(int, markers[-1])
+    if rc in {18, 28, 52, 56, 92} and merged == 0:
+        return "일시적인 연결 끊김 또는 응답 지연으로 중단됐습니다. 재개하면 검증된 데이터부터 이어받습니다."
+    if rc == 22:
+        return "다운로드 서버가 요청을 거부했습니다. 링크 만료 또는 요청 제한 여부를 확인해 주세요."
+    if rc == 47:
+        return "다운로드 서버가 주소 이동을 요청해 중단했습니다. 브라우저에서 새 링크를 등록해 주세요."
+    if rc == 23:
+        return "NAS 파일 쓰기에 실패했습니다. 저장 공간과 폴더 권한을 확인해 주세요."
+    if merged:
+        return "이어받기 응답을 검증하거나 저장하지 못했습니다. 기존에 검증된 데이터는 보존됩니다."
+    return "다운로드가 중단됐습니다. 받은 데이터는 보존됩니다."
+
+
+class HandoffError(ValueError):
+    """Constructed exclusively with fixed, non-secret user-facing messages."""
+
+
 HANDOFF_FILE_HOSTS = {
     "akirabox": {"us1.akirabox.com"},
     "vikingfile": {"vikingfile.04b3d96d52475741e6b10f97f0a84a16.r2.cloudflarestorage.com"},
 }
 
+# Official Viking redirects observed on both the original and west-eu-upload
+# buckets. Permit one bucket label only within this pinned R2 account, not
+# arbitrary Cloudflare tenants or nested/lookalike domains.
+VIKING_R2_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.04b3d96d52475741e6b10f97f0a84a16\.r2\.cloudflarestorage\.com\Z")
+VIKING_FILE_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.vikingfile\.com\Z")
+
 
 def _validate_handoff_transfer_url(value: str, provider: str) -> str:
-    error = "허용되지 않거나 만료된 다운로드 서버 주소입니다. 브라우저에서 새 링크를 받아 주세요."
+    error = "허용되지 않거나 만료된 다운로드 서버 주소입니다."
     if not isinstance(value, str) or not value or len(value) > 16384 or any(ord(c) < 33 or ord(c) == 127 for c in value) or "\\" in value:
         raise ValueError(error)
     try:
@@ -2243,7 +2304,10 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
             return _validate_akira_url(value, direct=True)
         if provider == "vikingfile" and parsed.hostname == "vikingfile.com":
             return _validate_viking_url(value, direct=True)
-        if parsed.scheme != "https" or parsed.hostname not in HANDOFF_FILE_HOSTS.get(provider, set()) or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
+        regional = provider == "vikingfile" and bool(VIKING_FILE_HOST.fullmatch(parsed.hostname or ""))
+        if parsed.hostname not in HANDOFF_FILE_HOSTS.get(provider, set()) and not (provider == "vikingfile" and (regional or VIKING_R2_HOST.fullmatch(parsed.hostname or ""))):
+            raise HandoffError("허용 목록에 없는 다운로드 서버입니다.")
+        if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
             raise ValueError(error)
         if not parsed.path.startswith("/") or parsed.path == "/":
             raise ValueError(error)
@@ -2253,16 +2317,27 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
         if provider == "akirabox":
             if set(query) != {"access"} or not query["access"][0]:
                 raise ValueError(error)
+        elif regional:
+            if not query.get("md5", [""])[0] or not query.get("expires", [""])[0]:
+                raise ValueError(error)
+            if not query["expires"][0].isascii() or not query["expires"][0].isdigit():
+                raise ValueError(error)
+            if int(query["expires"][0]) <= time.time():
+                raise HandoffError("다운로드 링크가 만료됐습니다.")
         else:
             if not query.get("X-Amz-Signature", [""])[0] or not query.get("X-Amz-Date", [""])[0] or not query.get("X-Amz-Expires", [""])[0]:
                 raise ValueError(error)
             from datetime import datetime, timezone
             signed_at = datetime.strptime(query["X-Amz-Date"][0], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
             lifetime = int(query["X-Amz-Expires"][0])
-            if not 0 < lifetime <= 604800 or signed_at + lifetime <= time.time():
+            if not 0 < lifetime <= 604800:
                 raise ValueError(error)
+            if signed_at + lifetime <= time.time():
+                raise HandoffError("다운로드 링크가 만료됐습니다.")
+    except HandoffError:
+        raise
     except (ValueError, KeyError, OverflowError):
-        raise ValueError(error) from None
+        raise HandoffError(error) from None
     return value
 
 
@@ -2278,13 +2353,13 @@ def _open_handoff_response(opener, url: str, method: str, headers: dict, provide
     for _ in range(4):
         _validate_handoff_transfer_url(url, provider)
         if url in visited:
-            raise ValueError("다운로드 서버 이동이 반복됩니다.")
+            raise HandoffError("다운로드 서버 이동이 반복됩니다.")
         visited.add(url)
         try:
             response = opener.open(Request(url, method=method, headers=headers), timeout=20)
             if response.geturl() != url:
                 response.close()
-                raise ValueError("예상하지 못한 다운로드 서버 이동입니다.")
+                raise HandoffError("예상하지 못한 다운로드 서버 이동입니다.")
             return response
         except HTTPError as exc:
             if exc.code not in {301, 302, 303, 307, 308}:
@@ -2292,9 +2367,9 @@ def _open_handoff_response(opener, url: str, method: str, headers: dict, provide
             location = exc.headers.get("Location", "")
             exc.close()
             if not location or any(ord(c) < 33 or ord(c) == 127 for c in location) or "\\" in location:
-                raise ValueError("다운로드 서버 이동 주소가 올바르지 않습니다.") from None
+                raise HandoffError("다운로드 서버 이동 주소가 올바르지 않습니다.") from None
             url = urljoin(url, location)
-    raise ValueError("다운로드 서버 이동 횟수를 초과했습니다.")
+    raise HandoffError("다운로드 서버 이동 횟수를 초과했습니다.")
 
 
 def _handoff_metadata(response, method: str):
@@ -2303,22 +2378,25 @@ def _handoff_metadata(response, method: str):
     ])
     if not name:
         name = _clean_download_name(unquote(urlparse(response.geturl()).path.rsplit("/", 1)[-1]))
-    size = int(response.headers.get("Content-Length", "0"))
+    try:
+        size = int(response.headers.get("Content-Length", "0"))
+    except ValueError:
+        raise HandoffError("파일 크기 응답이 올바르지 않습니다.") from None
     ranges = response.headers.get("Accept-Ranges", "").strip().lower() == "bytes"
     if response.status == 206:
         match = re.fullmatch(r"bytes 0-0/(\d+)", response.headers.get("Content-Range", ""))
         if not match or size != 1:
-            raise ValueError("다운로드 서버의 범위 응답이 올바르지 않습니다.")
+            raise HandoffError("다운로드 서버의 범위 응답이 올바르지 않습니다.")
         size, ranges = int(match.group(1)), True
     elif response.status != 200 or method == "GET":
-        raise ValueError("다운로드 서버가 최소 범위 요청을 지원하지 않습니다.")
+        raise HandoffError("다운로드 서버가 최소 범위 요청을 지원하지 않습니다.")
     content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
     if not name or content_type in {"text/html", "application/json", "application/xhtml+xml"}:
-        raise ValueError("다운로드 서버가 파일 대신 오류 페이지를 반환했습니다.")
+        raise HandoffError("다운로드 서버가 파일 대신 오류 페이지를 반환했습니다.")
     if not 0 < size <= MAX_FILE_BYTES or not ranges:
         if method == "HEAD":
             return None
-        raise ValueError("파일 크기 또는 이어받기 정보를 확인하지 못했습니다.")
+        raise HandoffError("파일 크기 또는 이어받기 정보를 확인하지 못했습니다.")
     return name, size
 
 
@@ -2354,6 +2432,8 @@ def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> d
         raise ValueError(f"다운로드 서버가 HTTP {code} 응답을 반환했습니다. 브라우저에서 새 링크를 받아 주세요.") from None
     except OSError:
         raise ValueError("NAS에서 다운로드 서버에 연결하지 못했습니다. 연결 또는 링크 만료 여부를 확인해 주세요.") from None
+    except HandoffError as exc:
+        raise ValueError(str(exc)) from None
     except ValueError:
         # Never include a signed URL, token, remote error page or headers in public errors.
         raise ValueError("NAS에서 브라우저 다운로드 파일 정보를 확인하지 못했습니다. 링크 만료·접속 제한·이어받기 지원 여부를 확인하고 브라우저에서 다시 등록해 주세요.") from None

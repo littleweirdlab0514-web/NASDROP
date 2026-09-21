@@ -29,6 +29,38 @@ def ranged(url):
 
 
 class HandoffRedirectTests(unittest.TestCase):
+    def test_viking_regional_signed_file_hosts(self):
+        import time
+        expiry = int(time.time()) + 3600
+        for host in ('ko.vikingfile.com', 'eu-2.vikingfile.com'):
+            url = f'https://{host}/files/synthetic/file.rar?expires={expiry}&md5=synthetic-signature'
+            result, _ = self.inspect('vikingfile', [redirect(direct('vikingfile'), url), Response(url)])
+            self.assertEqual(result['download_url'], url)
+        for url in (f'https://ko.vikingfile.com.evil.example/a?expires={expiry}&md5=x',
+                    f'https://nested.ko.vikingfile.com/a?expires={expiry}&md5=x',
+                    f'http://ko.vikingfile.com/a?expires={expiry}&md5=x',
+                    f'https://user@ko.vikingfile.com/a?expires={expiry}&md5=x',
+                    f'https://ko.vikingfile.com/a?expires={expiry}',
+                    'https://ko.vikingfile.com/a?expires=1&md5=x',
+                    f'https://ko.vikingfile.com/a?expires={expiry}&md5=x&md5=y'):
+            with self.assertRaises(ValueError):
+                backend._validate_handoff_transfer_url(url, 'vikingfile')
+
+    def test_viking_pinned_account_buckets_only(self):
+        original = final('vikingfile')
+        base = next(iter(backend.HANDOFF_FILE_HOSTS['vikingfile']))
+        for label in ('west-eu-upload', 'vikingfile', 'east-upload-2'):
+            host = label + '.04b3d96d52475741e6b10f97f0a84a16.r2.cloudflarestorage.com'
+            url = original.replace(base, host)
+            self.assertEqual(backend._validate_handoff_transfer_url(url, 'vikingfile'), url)
+            result, _ = self.inspect('vikingfile', [redirect(direct('vikingfile'), url), Response(url)])
+            self.assertEqual(result['download_url'], url)
+        for host in ('bucket.other-account.r2.cloudflarestorage.com',
+                     'nested.bucket.04b3d96d52475741e6b10f97f0a84a16.r2.cloudflarestorage.com',
+                     base + '.evil.example', '127.0.0.1', '192.168.1.157', 'localhost'):
+            with self.assertRaises(ValueError):
+                backend._validate_handoff_transfer_url(original.replace(base, host), 'vikingfile')
+
     def inspect(self, provider, responses):
         opener = mock.Mock()
         opener.open.side_effect = responses

@@ -28,10 +28,10 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **[Download Chrome extension 0.5.0 ZIP](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.0/NASDrop-Chrome-0.5.0.zip)**
+- **[Download Chrome extension 0.5.1 ZIP](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.1/NASDrop-Chrome-0.5.1.zip)**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
-- **[Compatible NASDrop Server 0.9.19-1 SPK preview](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.0/nasdrop-0.9.19-1-x86_64.spk)**
+- **[Compatible NASDrop Server 0.9.22-1 SPK](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/v0.9.22-1/nasdrop-0.9.22-1-x86_64.spk)**
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -44,6 +44,27 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
+
+## What's new in 0.9.22
+
+- Removed temporary diagnostic labels from user-facing errors. Clear explanations remain; signed URLs, credentials and remote error contents are never shown.
+- VikingFile also accepts signed regional file servers on a single subdomain of `vikingfile.com` (such as `ko.vikingfile.com`), using the provider's `expires`/`md5` URL fields. The observed 6.27 GB sample returned HTTP 200 with byte-range support; full transfer on this newly supported route still requires installation and testing.
+- Includes the VikingFile pinned-account bucket compatibility fix and the unique-byte progress accounting fix from 0.9.21, plus bounded AkiraBox transient-transfer recovery from 0.9.20.
+- The user confirmed the previously failing VikingFile link works after installing 0.9.21. AkiraBox completed a real NAS download; forced-disconnection recovery has been tested locally, not on the live provider.
+- Install the SPK manually. After updating, open Settings and select your download folder again. Browser-assisted downloads still require the user to complete any provider verification and click Download. No Chrome extension update is bundled with this server release.
+
+## What's new in 0.9.21 (local test build)
+
+- Fixed progress double-counting while a temporary fragment is copied into a committed part. Progress uses unique byte coverage and excludes response headers and rejected response bodies.
+- VikingFile now accepts different bucket names within its observed, pinned R2 account instead of requiring one bucket hostname. Other R2 accounts, nested/lookalike domains, internal addresses and non-HTTPS destinations remain blocked. Signature expiry, redirect bounds and range validation are unchanged.
+- Browser-assisted Viking samples of 356 MB and 1.26 GB completed on the user's NAS with 0.9.20. This does not establish large-file compatibility: the newly accepted bucket route still requires testing after installing 0.9.21. User verification and a real Download click remain part of the supported browser flow.
+
+## What's new in 0.9.20 (local test build)
+
+- AkiraBox can retry a validated partial transfer up to three times, after 10, 20 and 30 seconds, for selected transient curl transport errors. Every resumed fragment is range-validated before being committed. HTTP rejections, redirects, invalid ranges and local write failures are not automatically retried.
+- Browser-handoff failures now distinguish fixed, secret-free inspection reasons (such as an unapproved redirect host or an invalid range response) and numeric transfer diagnostics. A generic transfer failure is no longer presented as proof that a link expired.
+- Provider host allowlists, redirect restrictions, single-connection browser transfers and GoFile concurrency remain unchanged. No CAPTCHA or provider access restrictions are bypassed.
+- Local regression tests do not establish real-provider compatibility. Full NAS download, stop/resume and DSM update verification remain pending user installation. This build has not been published as a GitHub release.
 
 ## What's new in 0.9.19 (preview)
 
@@ -329,7 +350,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.19-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.22-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
