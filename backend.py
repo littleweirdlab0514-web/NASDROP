@@ -78,7 +78,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.15")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.19")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -765,6 +765,7 @@ class Job:
     extracted: bool = False
     extract: bool = True
     transfer_mode: str = ""
+    inspection_pending: bool = False
 
 
 ARCHIVE_SUFFIXES = (
@@ -1185,7 +1186,7 @@ class Controller:
         try:
             data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
             for item in data:
-                if item.get("status") in {"downloading", "waiting_processing", "verifying", "extracting", "publishing", "ready", "stopping"}:
+                if item.get("status") in {"inspecting", "downloading", "waiting_processing", "verifying", "extracting", "publishing", "ready", "stopping"}:
                     item["status"] = "paused"
                     item["error"] = "서비스가 재시작되어 작업을 일시정지했습니다. 다시 시작할 수 있습니다."
                 job = Job(**item)
@@ -1210,12 +1211,60 @@ class Controller:
             return jobs
 
     def active(self) -> bool:
-        return any(job.status in {"ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing"} for job in self.jobs.values())
+        return any(job.status in {"inspecting", "ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing"} for job in self.jobs.values())
 
     def start(self, file: dict, target: str = "", extract: bool | None = None, password: str = "") -> Job:
         return self.start_many([file], target, extract, password)[0]
 
-    def start_many(self, files: list[dict], target: str = "", extract: bool | None = None, password: str = "") -> list[Job]:
+    def enqueue_gigafile(self, url: str, target: str = "", extract: bool | None = None, password: str = "") -> Job:
+        parsed = urlparse(url.strip())
+        host = (parsed.hostname or "").lower()
+        if parsed.scheme != "https" or not GIGAFILE_HOST.fullmatch(host) or parsed.username or parsed.password or parsed.port not in {None, 443}:
+            raise ValueError("정식 GigaFile HTTPS 링크가 아닙니다.")
+        file_id = service_path_id(parsed)
+        if extract is not None and not isinstance(extract, bool):
+            raise ValueError("압축 해제 선택값이 올바르지 않습니다.")
+        secret = _validate_job_password(password)
+        destination = normalize_target(target or NAS_TARGET)
+        with self.condition:
+            if self.stopping:
+                raise ValueError("서비스가 종료 중입니다.")
+            if sum(j.inspection_pending for j in self.jobs.values()) >= 100:
+                raise ValueError("정보 확인 대기 작업이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
+            job = Job(secrets.token_hex(6), f"GigaFile {file_id}", f"https://{host}/{file_id}",
+                      0, 0, "inspecting", now(), target=destination,
+                      extract=AUTO_EXTRACT_ARCHIVES if extract is None else extract, inspection_pending=True)
+            if job.extract and secret:
+                save_job_password(job.id, secret)
+            self.jobs[job.id] = job
+            try:
+                self.save()
+            except Exception:
+                self.jobs.pop(job.id, None)
+                delete_job_secrets(job.id)
+                raise
+            self.condition.notify_all()
+            return job
+
+    def _resolve_queued_link(self, job_id: str) -> None:
+        with self.lock:
+            job = self.jobs[job_id]
+            source = job.source
+        inspected = inspect_gigafile(source)
+        files = inspected.get("files") if inspected.get("batch") else [inspected]
+        with self.condition:
+            if self.stopping or SHUTDOWN_EVENT.is_set() or self.jobs.get(job_id) is not job or job.status != "inspecting":
+                return
+            # Replace the placeholder and persist children in one state-file write.
+            saved_jobs, saved_private = dict(self.jobs), dict(self.private_downloads)
+            try:
+                self.start_many(files, job.target, job.extract, load_job_password(job_id), replace_id=job_id)
+            except Exception:
+                self.jobs, self.private_downloads = saved_jobs, saved_private
+                raise
+
+
+    def start_many(self, files: list[dict], target: str = "", extract: bool | None = None, password: str = "", *, replace_id: str | None = None) -> list[Job]:
         if not files:
             raise ValueError("다운로드할 파일이 없습니다.")
         if extract is not None and not isinstance(extract, bool):
@@ -1247,12 +1296,26 @@ class Controller:
                     "expected_sha256": str(file.get("expected_sha256", "")),
                     "target": destination,
                 }
-                if provider == "buzzheavier":
+                if provider in {"buzzheavier", "akirabox", "vikingfile"}:
                     save_job_download_url(job.id, str(file.get("download_url", "")))
                 if should_extract and normalized_password:
                     save_job_password(job.id, normalized_password)
                 jobs.append(job)
-            self.save()
+            replaced = self.jobs.pop(replace_id, None) if replace_id else None
+            try:
+                self.save()
+            except Exception:
+                for added in jobs:
+                    self.jobs.pop(added.id, None)
+                    self.private_downloads.pop(added.id, None)
+                if replaced:
+                    self.jobs[replaced.id] = replaced
+                raise
+            if replaced:
+                try:
+                    delete_job_secrets(replaced.id)
+                except OSError:
+                    LOGGER.warning("Could not remove retired inspection secret")
             self.condition.notify_all()
         return jobs
 
@@ -1269,6 +1332,11 @@ class Controller:
         if DISK_PROTECTION and (self.postprocess_waiting or self.processing_job):
             return False
         provider = self._provider_for_job(job)
+        if job.inspection_pending and any(
+            self.jobs.get(running_id) and self.jobs[running_id].inspection_pending
+            for ids in self.running_providers.values() for running_id in ids
+        ):
+            return False
         if provider == "gofile" and _gofile_cooldown_status()["active"]:
             return False
         running_total = sum(len(job_ids) for job_ids in self.running_providers.values())
@@ -1287,7 +1355,7 @@ class Controller:
                 queued = next(
                     (
                         job for job in self.jobs.values()
-                        if job.status == "queued" and job.not_before <= current and self._can_start(job)
+                        if job.status in {"queued", "inspecting"} and job.not_before <= current and self._can_start(job)
                     ),
                     None,
                 )
@@ -1299,7 +1367,7 @@ class Controller:
                     self.condition.wait(timeout=max(0.1, min([*delays, 1.0])))
                     continue
                 provider = self._provider_for_job(queued)
-                queued.status = "ready"
+                queued.status = "inspecting" if queued.inspection_pending else "ready"
                 queued.error = ""
                 self.running_providers.setdefault(provider, set()).add(queued.id)
                 self.save()
@@ -1313,7 +1381,10 @@ class Controller:
 
     def _run_guarded(self, job_id: str, provider: str) -> None:
         try:
-            self._run(job_id)
+            if self.jobs[job_id].inspection_pending:
+                self._resolve_queued_link(job_id)
+            else:
+                self._run(job_id)
         except Exception as exc:
             process = self.processes.get(job_id)
             if process is not None:
@@ -1404,7 +1475,7 @@ class Controller:
     def _apply_response_filename(self, job: Job, workspace: Path, artifact: Path, private: dict[str, str]) -> Path:
         headers_path = workspace / ".response-headers"
         try:
-            if private.get("provider") not in {"gigafile", "buzzheavier"}:
+            if private.get("provider") not in {"gigafile", "buzzheavier", "akirabox", "vikingfile"}:
                 return artifact
             actual_name = response_download_name(headers_path)
             if not actual_name or actual_name == job.name:
@@ -1594,10 +1665,16 @@ class Controller:
                 "target": target_dir,
             }
             self.private_downloads[job_id] = private
+        if provider in {"akirabox", "vikingfile"}:
+            signed = private.get("download_url") or load_job_download_url(job.id)
+            validator = _validate_akira_url if provider == "akirabox" else _validate_viking_url
+            validator(job.source, direct=False)
+            _validate_handoff_transfer_url(signed, provider)
+            private.update(provider=provider, download_url=signed, target=target_dir)
         # Persist layout so a later settings change cannot reinterpret fragments.
         if not job.transfer_mode:
             has_legacy_parts = any(workspace.glob(f".{job.id}.segment.*"))
-            job.transfer_mode = "segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE)
+            job.transfer_mode = "single" if provider in {"akirabox", "vikingfile"} else ("segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE))
             self.save()
         download_mode = job.transfer_mode
         private["transfer_mode"] = download_mode
@@ -1618,7 +1695,7 @@ class Controller:
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 expected_sha256=private.get("expected_sha256", ""), mode=download_mode,
             )
-        elif provider == "buzzheavier":
+        elif provider in {"buzzheavier", "akirabox", "vikingfile"}:
             script = self._download_script_direct(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 mode=download_mode, capture_headers=True,
@@ -1674,6 +1751,8 @@ class Controller:
                 current_job.status = "failed"
                 if provider == "gofile" and ((workspace / ".rate-limit").exists() or private.get("rate_limited")):
                     self._defer_gofile(job, workspace)
+                elif provider in {"akirabox", "vikingfile"}:
+                    current_job.error = "브라우저에서 전달한 다운로드가 중단됐습니다. 링크 만료 또는 접속 제한일 수 있습니다. 브라우저에서 새 다운로드 링크를 받아 다시 등록해 주세요."
                 elif provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
                     current_job.error = "Buzzheavier 직접 링크가 만료됐거나 사용할 수 없습니다. Copy download link를 다시 받아 새 작업으로 등록해 주세요."
                 elif re.search(r"maximum \(0\) redirects|too many redirects", stderr, re.I):
@@ -1734,7 +1813,7 @@ class Controller:
         with self.condition:
             self.stopping = True
             for job in self.jobs.values():
-                if job.status in {"ready", "downloading", "waiting_processing", "verifying"}:
+                if job.status in {"inspecting", "ready", "downloading", "waiting_processing", "verifying"}:
                     job.status = "stopping"
             processes = list(self.processes.values())
             self.condition.notify_all()
@@ -1914,7 +1993,7 @@ printf 'SEGMENTS_READY=1\\n'
             if job_id not in self.jobs:
                 raise KeyError(job_id)
             job = self.jobs[job_id]
-            if job.status not in {"queued", "ready", "downloading", "waiting_processing", "verifying"}:
+            if job.status not in {"inspecting", "queued", "ready", "downloading", "waiting_processing", "verifying"}:
                 raise ValueError("중지할 수 있는 작업이 아닙니다.")
             running = any(job_id in ids for ids in self.running_providers.values())
             job.status = "stopping" if running or self.processing_job == job_id else "paused"
@@ -1932,7 +2011,7 @@ printf 'SEGMENTS_READY=1\\n'
             job = self.jobs[job_id]
             if job.status not in {"paused", "failed", "cancelled"}:
                 raise ValueError("다시 시작할 수 있는 작업이 아닙니다.")
-            job.status = "queued"
+            job.status = "inspecting" if job.inspection_pending else "queued"
             job.error = ""
             job.output = ""
             job.extracted = False
@@ -1957,26 +2036,81 @@ printf 'SEGMENTS_READY=1\\n'
             self.save()
             self.condition.notify_all()
 
+    def update_processing(self, job_id: str, extract: object, password: object = None) -> dict:
+        if not isinstance(extract, bool):
+            raise ValueError("압축 해제 선택값이 올바르지 않습니다.")
+        if password is not None and not isinstance(password, str):
+            raise ValueError("압축 암호 형식이 올바르지 않습니다.")
+        normalized = _validate_job_password(password)
+        with self.condition:
+            job = self.jobs.get(job_id)
+            if job is None:
+                raise KeyError(job_id)
+            allowed = {"queued", "ready", "inspecting", "paused", "downloading", "password_required"}
+            running = any(job_id in ids for ids in self.running_providers.values())
+            if self.stopping or job.status not in allowed or self.processing_job == job_id or (job.status in {"paused", "password_required"} and running):
+                raise ValueError("현재 상태에서는 압축 해제 설정을 변경할 수 없습니다. 작업을 일시정지한 뒤 다시 시도해 주세요.")
+            previous_password = load_job_password(job_id)
+            if job.status == "password_required":
+                if extract and not (normalized or previous_password):
+                    raise ValueError("압축 암호를 입력해 주세요.")
+                if not extract:
+                    artifact = job_workspace(job.target or NAS_TARGET, job.id) / _clean_download_name(job.name)
+                    if not job.sha256 or not artifact.is_file():
+                        raise ValueError("보존된 원본 파일이 없어 압축 해제를 건너뛸 수 없습니다.")
+            previous = (job.extract, job.status, job.error, job.not_before)
+            try:
+                if not extract:
+                    delete_job_password(job_id)
+                elif normalized:
+                    save_job_password(job_id, normalized)
+                job.extract = extract
+                if job.status == "password_required":
+                    job.status, job.error, job.not_before = "queued", "", 0
+                self.save()
+            except Exception:
+                job.extract, job.status, job.error, job.not_before = previous
+                save_job_password(job_id, previous_password)
+                raise
+            self.condition.notify_all()
+            return asdict(job)
+
     def delete(self, job_ids: list[str]) -> int:
         with self.lock:
+            job_ids = list(dict.fromkeys(job_ids))
             for job_id in job_ids:
                 job = self.jobs.get(job_id)
                 if not job:
                     raise KeyError(job_id)
-                if job.status in {"queued", "ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing", "stopping"} or any(job_id in ids for ids in self.running_providers.values()):
+                if job.status in {"inspecting", "queued", "ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing", "stopping"} or any(job_id in ids for ids in self.running_providers.values()):
                     raise ValueError("실행 중인 작업은 먼저 멈춰 주세요.")
+            # Delete only the exact private workspace, never published output or symlink targets.
+            # Keep every record if any workspace cannot be cleaned up.
             for job_id in job_ids:
-                job = self.jobs.pop(job_id, None)
-                self.private_downloads.pop(job_id, None)
+                job = self.jobs[job_id]
+                try:
+                    target = Path(job.target or NAS_TARGET).resolve()
+                    expected = target / ".nasdrop-tmp" / job.id
+                    if expected.parent.is_symlink() or expected.is_symlink() or job_workspace(str(target), job.id) != expected:
+                        raise ValueError("Unsafe workspace")
+                    if expected.exists():
+                        shutil.rmtree(expected)
+                    if expected.exists():
+                        raise OSError("Workspace remains")
+                except (OSError, ValueError):
+                    raise ValueError("임시 다운로드 파일을 삭제하지 못해 작업 기록을 보존했습니다. 폴더 권한을 확인한 뒤 다시 삭제해 주세요.") from None
+            for job_id in job_ids:
                 delete_job_secrets(job_id)
-                if job:
-                    try:
-                        workspace = job_workspace(job.target or NAS_TARGET, job.id)
-                        shutil.rmtree(workspace, ignore_errors=True)
-                        workspace.parent.rmdir()
-                    except (OSError, ValueError):
-                        pass
-            self.save()
+            saved_jobs = self.jobs.copy()
+            saved_private = self.private_downloads.copy()
+            for job_id in job_ids:
+                self.jobs.pop(job_id, None)
+                self.private_downloads.pop(job_id, None)
+            try:
+                self.save()
+            except Exception:
+                self.jobs, self.private_downloads = saved_jobs, saved_private
+                raise
             return len(job_ids)
 
     def clear_completed(self) -> int:
@@ -2048,6 +2182,188 @@ def service_path_id(parsed, prefix: str = "") -> str:
     if not SAFE_SERVICE_ID.fullmatch(value):
         raise ValueError("링크 경로에 사용할 수 없는 문자가 있습니다.")
     return value
+
+
+def _validate_akira_url(value: str, *, direct: bool) -> str:
+    error = "AkiraBox 주소가 올바르지 않거나 만료됐습니다. 브라우저에서 다운로드 버튼을 다시 준비해 주세요."
+    if not isinstance(value, str) or not value or len(value) > 16384 or any(ord(c) < 33 or ord(c) == 127 for c in value) or "\\" in value:
+        raise ValueError(error)
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
+            raise ValueError(error)
+        if direct:
+            if parsed.hostname != "akirabox.com" or not re.fullmatch(r"/download/[^/]+/[^/]+", parsed.path):
+                raise ValueError(error)
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            if set(query) != {"expiration", "signature"} or any(len(v) != 1 for v in query.values()):
+                raise ValueError(error)
+            if not re.fullmatch(r"[0-9]{10,11}", query["expiration"][0]) or int(query["expiration"][0]) <= time.time():
+                raise ValueError(error)
+            if not re.fullmatch(r"[a-fA-F0-9]{32,128}", query["signature"][0]):
+                raise ValueError(error)
+        elif parsed.hostname not in {"akirabox.to", "akirabox.com"} or not re.fullmatch(r"/[a-zA-Z0-9]+/file", parsed.path) or parsed.query:
+            raise ValueError(error)
+    except (ValueError, KeyError):
+        raise ValueError(error) from None
+    return value
+
+
+def _validate_viking_url(value: str, *, direct: bool) -> str:
+    error = "VikingFile 주소가 올바르지 않습니다. 브라우저에서 다운로드 버튼을 다시 준비해 주세요."
+    if not isinstance(value, str) or not value or len(value) > 16384 or any(ord(c) < 33 or ord(c) == 127 for c in value) or "\\" in value:
+        raise ValueError(error)
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.query or parsed.fragment:
+            raise ValueError(error)
+        if direct:
+            if parsed.hostname != "vikingfile.com" or not re.fullmatch(r"/d/[a-zA-Z0-9_-]+/[^/]+", parsed.path):
+                raise ValueError(error)
+        elif parsed.hostname not in {"vik1ngfile.site", "vikingfile.com"} or not re.fullmatch(r"/f/[a-zA-Z0-9]+", parsed.path):
+            raise ValueError(error)
+    except ValueError:
+        raise ValueError(error) from None
+    return value
+
+
+HANDOFF_FILE_HOSTS = {
+    "akirabox": {"us1.akirabox.com"},
+    "vikingfile": {"vikingfile.04b3d96d52475741e6b10f97f0a84a16.r2.cloudflarestorage.com"},
+}
+
+
+def _validate_handoff_transfer_url(value: str, provider: str) -> str:
+    error = "허용되지 않거나 만료된 다운로드 서버 주소입니다. 브라우저에서 새 링크를 받아 주세요."
+    if not isinstance(value, str) or not value or len(value) > 16384 or any(ord(c) < 33 or ord(c) == 127 for c in value) or "\\" in value:
+        raise ValueError(error)
+    try:
+        parsed = urlparse(value)
+        if provider == "akirabox" and parsed.hostname == "akirabox.com":
+            return _validate_akira_url(value, direct=True)
+        if provider == "vikingfile" and parsed.hostname == "vikingfile.com":
+            return _validate_viking_url(value, direct=True)
+        if parsed.scheme != "https" or parsed.hostname not in HANDOFF_FILE_HOSTS.get(provider, set()) or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
+            raise ValueError(error)
+        if not parsed.path.startswith("/") or parsed.path == "/":
+            raise ValueError(error)
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        if any(len(values) != 1 for values in query.values()):
+            raise ValueError(error)
+        if provider == "akirabox":
+            if set(query) != {"access"} or not query["access"][0]:
+                raise ValueError(error)
+        else:
+            if not query.get("X-Amz-Signature", [""])[0] or not query.get("X-Amz-Date", [""])[0] or not query.get("X-Amz-Expires", [""])[0]:
+                raise ValueError(error)
+            from datetime import datetime, timezone
+            signed_at = datetime.strptime(query["X-Amz-Date"][0], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
+            lifetime = int(query["X-Amz-Expires"][0])
+            if not 0 < lifetime <= 604800 or signed_at + lifetime <= time.time():
+                raise ValueError(error)
+    except (ValueError, KeyError, OverflowError):
+        raise ValueError(error) from None
+    return value
+
+
+class AkiraNoRedirectHandler(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        # Handled explicitly below, before contacting each validated destination.
+        return None
+
+
+def _open_handoff_response(opener, url: str, method: str, headers: dict, provider: str):
+    from urllib.parse import urljoin
+    visited = set()
+    for _ in range(4):
+        _validate_handoff_transfer_url(url, provider)
+        if url in visited:
+            raise ValueError("다운로드 서버 이동이 반복됩니다.")
+        visited.add(url)
+        try:
+            response = opener.open(Request(url, method=method, headers=headers), timeout=20)
+            if response.geturl() != url:
+                response.close()
+                raise ValueError("예상하지 못한 다운로드 서버 이동입니다.")
+            return response
+        except HTTPError as exc:
+            if exc.code not in {301, 302, 303, 307, 308}:
+                raise
+            location = exc.headers.get("Location", "")
+            exc.close()
+            if not location or any(ord(c) < 33 or ord(c) == 127 for c in location) or "\\" in location:
+                raise ValueError("다운로드 서버 이동 주소가 올바르지 않습니다.") from None
+            url = urljoin(url, location)
+    raise ValueError("다운로드 서버 이동 횟수를 초과했습니다.")
+
+
+def _handoff_metadata(response, method: str):
+    name = content_disposition_download_name([
+        v.encode("latin-1", "replace") for v in response.headers.get_all("Content-Disposition", [])
+    ])
+    if not name:
+        name = _clean_download_name(unquote(urlparse(response.geturl()).path.rsplit("/", 1)[-1]))
+    size = int(response.headers.get("Content-Length", "0"))
+    ranges = response.headers.get("Accept-Ranges", "").strip().lower() == "bytes"
+    if response.status == 206:
+        match = re.fullmatch(r"bytes 0-0/(\d+)", response.headers.get("Content-Range", ""))
+        if not match or size != 1:
+            raise ValueError("다운로드 서버의 범위 응답이 올바르지 않습니다.")
+        size, ranges = int(match.group(1)), True
+    elif response.status != 200 or method == "GET":
+        raise ValueError("다운로드 서버가 최소 범위 요청을 지원하지 않습니다.")
+    content_type = response.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+    if not name or content_type in {"text/html", "application/json", "application/xhtml+xml"}:
+        raise ValueError("다운로드 서버가 파일 대신 오류 페이지를 반환했습니다.")
+    if not 0 < size <= MAX_FILE_BYTES or not ranges:
+        if method == "HEAD":
+            return None
+        raise ValueError("파일 크기 또는 이어받기 정보를 확인하지 못했습니다.")
+    return name, size
+
+
+def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> dict:
+    if provider not in {"akirabox", "vikingfile"}:
+        raise ValueError("지원하지 않는 브라우저 다운로드 전달입니다.")
+    validator = _validate_akira_url if provider == "akirabox" else _validate_viking_url
+    canonical = validator(share_url, direct=False)
+    direct = validator(signed_url, direct=True)
+    opener = build_opener(AkiraNoRedirectHandler())
+    headers = {"User-Agent": f"NASDrop/{PACKAGE_VERSION}", "Accept": "*/*", "Accept-Encoding": "identity", "Referer": canonical}
+    try:
+        metadata = None
+        final_url = direct
+        try:
+            with _open_handoff_response(opener, direct, "HEAD", headers, provider) as response:
+                final_url = response.geturl()
+                metadata = _handoff_metadata(response, "HEAD")
+        except HTTPError as exc:
+            if exc.code not in {403, 405, 501}:
+                raise
+            final_url = _validate_handoff_transfer_url(exc.geturl(), provider)
+            exc.close()
+        if metadata is None:
+            # Never read the body, even if a server ignores Range and sends a whole file.
+            with _open_handoff_response(opener, final_url, "GET", {**headers, "Range": "bytes=0-0"}, provider) as response:
+                final_url = response.geturl()
+                metadata = _handoff_metadata(response, "GET")
+        name, size = metadata
+    except HTTPError as exc:
+        code = exc.code
+        exc.close()
+        raise ValueError(f"다운로드 서버가 HTTP {code} 응답을 반환했습니다. 브라우저에서 새 링크를 받아 주세요.") from None
+    except OSError:
+        raise ValueError("NAS에서 다운로드 서버에 연결하지 못했습니다. 연결 또는 링크 만료 여부를 확인해 주세요.") from None
+    except ValueError:
+        # Never include a signed URL, token, remote error page or headers in public errors.
+        raise ValueError("NAS에서 브라우저 다운로드 파일 정보를 확인하지 못했습니다. 링크 만료·접속 제한·이어받기 지원 여부를 확인하고 브라우저에서 다시 등록해 주세요.") from None
+    return {"url": canonical, "name": name, "size": size, "expires": "브라우저 링크", "provider": provider, "download_url": final_url}
+
+
+def inspect_payload(payload: dict) -> dict:
+    if "resolved_url" in payload:
+        return inspect_browser_handoff(payload.get("url", ""), payload.get("resolved_url", ""), payload.get("provider", ""))
+    return inspect_download(str(payload.get("url", "")))
 
 
 def _is_buzzheavier_download_host(host: str) -> bool:
@@ -2571,6 +2887,10 @@ def inspect_pixeldrain(raw_url: str) -> dict:
 
 def provider_for_url(raw_url: str) -> str:
     host = (urlparse(raw_url).hostname or "").lower()
+    if host in {"akirabox.to", "akirabox.com"}:
+        return "akirabox"
+    if host in {"vik1ngfile.site", "vikingfile.com"}:
+        return "vikingfile"
     if host in {"gofile.io", "www.gofile.io"}:
         return "gofile"
     if host in {"pixeldrain.com", "www.pixeldrain.com", "pixeldrain.net", "pixeldra.in"}:
@@ -2582,6 +2902,8 @@ def provider_for_url(raw_url: str) -> str:
 
 def inspect_download(raw_url: str) -> dict:
     host = (urlparse(raw_url.strip()).hostname or "").lower()
+    if host in {"akirabox.to", "akirabox.com", "vik1ngfile.site", "vikingfile.com"}:
+        raise ValueError("이 서비스는 크롬 확장에서 다운로드 버튼이 준비된 뒤 NAS로 보내 주세요.")
     try:
         if _is_buzzheavier_download_host(host):
             return inspect_buzzheavier(raw_url)
@@ -2955,6 +3277,8 @@ class Handler(BaseHTTPRequestHandler):
                 "launcher_port": LAUNCHER_PORT,
                 "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
                 "auto_extract_archives": AUTO_EXTRACT_ARCHIVES,
+                "job_processing_options": True,
+                "browser_handoff_providers": ["akirabox", "vikingfile"],
                 "disk_protection": DISK_PROTECTION,
                 "temporary_folder": ".nasdrop-tmp",
                 "archive_formats": ["zip", "7z", "rar", "tar", "tar.gz", "tgz", "tar.bz2", "tbz2", "tar.xz", "txz"],
@@ -3052,8 +3376,12 @@ class Handler(BaseHTTPRequestHandler):
                     result["token"] = create_session(username)
                 return self.send_json(HTTPStatus.OK, result)
             if path == "/api/inspect":
-                inspected = inspect_download(str(payload.get("url", "")))
+                inspected = inspect_payload(payload)
                 return self.send_json(HTTPStatus.OK, {"file": cache_inspection(inspected)})
+            if path == "/api/enqueue":
+                job = CONTROLLER.enqueue_gigafile(str(payload.get("url", "")), str(payload.get("target", "")),
+                                                  payload.get("extract"), str(payload.get("password", "")))
+                return self.send_json(HTTPStatus.ACCEPTED, {"job": asdict(job), "count": 1})
             if path == "/api/start":
                 inspected = consume_inspection(payload)
                 if (
@@ -3100,6 +3428,10 @@ class Handler(BaseHTTPRequestHandler):
             if resume_match:
                 CONTROLLER.resume(resume_match.group(1))
                 return self.send_json(HTTPStatus.OK, {"ok": True})
+            processing_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/processing", path)
+            if processing_match:
+                result = CONTROLLER.update_processing(processing_match.group(1), payload.get("extract"), payload.get("password"))
+                return self.send_json(HTTPStatus.OK, {"job": result})
             password_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/password", path)
             if password_match:
                 CONTROLLER.submit_password(password_match.group(1), payload.get("password", ""))

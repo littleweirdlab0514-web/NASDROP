@@ -1,0 +1,57 @@
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172033; background: #f4f7fb; }
+* { box-sizing: border-box; }
+body { width: 370px; min-height: 420px; margin: 0; }
+header { height: 66px; padding: 13px 16px; display: flex; align-items: center; gap: 11px; background: #101827; color: white; }
+header img { width: 38px; height: 38px; }
+header div { display: flex; flex: 1; flex-direction: column; }
+header strong { font-size: 17px; letter-spacing: .01em; }
+header span { color: #aebbd0; font-size: 11px; }
+main { padding: 18px; }
+.language-control { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:16px; }
+.language-control select { max-width:240px; min-width:0; padding:6px; border:1px solid #cbd4e1; border-radius:6px; background:white; color:#172033; font:inherit; }
+h1 { margin: 0 0 5px; font-size: 20px; }
+h2 { margin: 0; font-size: 14px; }
+.muted { margin: 0 0 18px; color: #697386; font-size: 12px; line-height: 1.5; }
+form { display: grid; gap: 12px; }
+summary { cursor: pointer; color: #2452a6; font-size: 12px; margin-bottom: 12px; }
+label { display: grid; gap: 6px; font-size: 12px; font-weight: 650; }
+input, textarea { width: 100%; border: 1px solid #cbd4e1; border-radius: 9px; padding: 10px 11px; background: white; color: #172033; font: inherit; font-weight: 450; outline: none; resize: vertical; }
+input:focus, textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px #3b82f622; }
+.check { grid-template-columns: 17px 1fr; align-items: center; gap: 8px; font-weight: 500; }
+.check input { width: 16px; height: 16px; margin: 0; }
+button { border: 0; border-radius: 9px; padding: 10px 12px; font: inherit; font-weight: 700; cursor: pointer; }
+button:disabled { cursor: wait; opacity: .6; }
+.primary { color: white; background: #2563eb; }
+.primary:hover { background: #1d4ed8; }
+.secondary { color: #2452a6; background: #e6eefc; }
+.text-button { padding: 5px; color: #8fbcff; background: transparent; font-size: 11px; }
+main .text-button { color: #2563eb; }
+.hidden { display: none !important; }
+#notice { min-height: 17px; margin: 12px 0 0; color: #bf2c2c; font-size: 12px; line-height: 1.4; }
+#notice.success { color: #137044; }
+.destination { margin: 12px 0; padding: 9px 10px; border-radius: 8px; color: #566274; background: #e9eef5; font-size: 11px; overflow-wrap: anywhere; }
+.jobs-head { margin: 15px 0 8px; display: flex; align-items: center; justify-content: space-between; }
+.jobs-toolbar { display:block; }
+.job-controls { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; margin-top:8px; }
+.refresh-options { display:flex; align-items:center; gap:8px; max-width:100%; min-width:0; }
+.refresh-options > button { flex:none; }
+.refresh-options .check { min-width:0; font-size:11px; }
+.refresh-options .check span { overflow-wrap:anywhere; }
+.jobs { display: grid; gap: 7px; max-height: 180px; overflow-y: auto; }
+.job { padding: 9px 10px; border: 1px solid #dde4ee; border-radius: 9px; background: white; }
+.job { width:100%; text-align:left; font-weight:400; }
+.job.selected { border-color:#2563eb; }
+.job.password-required { border-color:#d97706; background:#fffbeb; }
+.job-meta { margin-top:5px; color:#617086; font-size:11px; }
+main .danger { color:#b42318; }
+#poll-status { margin:0 0 8px; font-size:11px; }
+#password-alert { background:#fff3cd; color:#854d0e; padding:9px; border-radius:8px; font-size:12px; }
+#job-detail { margin-top:12px; padding-top:5px; border-top:1px solid #cbd4e1; }
+#job-detail-name { overflow-wrap:anywhere; font-size:12px; }
+#job-options-hint { margin:0; }
+.job-line { display: flex; justify-content: space-between; gap: 8px; }
+.job strong { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.job span { flex: none; color: #617086; font-size: 10px; }
+.bar { height: 4px; margin-top: 7px; overflow: hidden; border-radius: 9px; background: #e6ebf2; }
+.bar i { display: block; height: 100%; background: #3b82f6; }
+.empty { padding: 18px; text-align: center; color: #778397; font-size: 12px; }

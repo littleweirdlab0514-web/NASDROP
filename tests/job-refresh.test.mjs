@@ -3,6 +3,27 @@ import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 
+test('GigaFile form queues immediately without synchronous inspection', async () => {
+  const source = await readFile(new URL('../synology/web/app.js', import.meta.url), 'utf8');
+  const line = source.split('\n').find(line => line.includes('$("#download-form").addEventListener'));
+  let submit;
+  const nodes = {
+    '#download-form': {addEventListener(_event, fn){submit=fn;}},
+    '#start-button': {}, '#download-url': {value:'https://123.gigafile.nu/1231-abcdef'},
+    '#extract-download': {checked:true}, '#archive-password': {value:'synthetic'}, '#notice': {}
+  };
+  const requests=[];
+  vm.runInNewContext(line, {$:key=>nodes[key], URL, t:key=>key,
+    state:{selectedTarget:'/downloads'}, refreshJobs:async()=>{},
+    api:async(path,options)=>{requests.push([path,JSON.parse(options.body)]);return {count:1};}});
+  await submit({preventDefault(){}});
+  assert.deepEqual(requests.map(r=>r[0]),['/api/enqueue']);
+  assert.equal(requests[0][1].extract,true);
+  assert.equal(requests[0][1].password,'synthetic');
+  assert.equal(nodes['#archive-password'].value,'');
+  assert.equal(nodes['#start-button'].disabled,false);
+});
+
 test('polling keeps password form identity, caret and open verification details', async () => {
   const source = await readFile(new URL('../synology/web/app.js', import.meta.url), 'utf8');
   const fn = source.slice(source.indexOf('  function replaceJobList('), source.indexOf('  function renderJobs('));

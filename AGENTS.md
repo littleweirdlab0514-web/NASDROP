@@ -29,6 +29,8 @@ See `docs/DSM_LAUNCHER_GUIDE.md` for the packaging rule and regression checklist
 
 ## Transfer lifecycle invariants
 
+- Browser handoff must validate every redirect against provider-specific exact HTTPS file hosts; never allow arbitrary regional subdomains or all R2 tenants. HEAD 403 can mean a GET-only signature, not a dead file: use a bounded Range bytes=0-0 probe, do not read the body, and require a valid 206 range response. Persist the verified final URL privately and keep transfer-time redirects disabled. Test redirects, GET-signed URLs, missing HEAD metadata, hostile/looping redirects and secret redaction before claiming provider compatibility.
+
 - Archive passwords must be supplied through stdin, never argv. Do not append a bare `-p`: 7-Zip 26.02 treats it as an empty password. Verify with real encrypted ZIP (ZipCrypto/AES) fixtures, including synthetic punctuation passwords, rather than only mocking subprocess success. Never commit a user's actual archive password.
 
 - Before changing GoFile inspection, scheduling, retries, or transfer concurrency, read `docs/GOFILE_REQUEST_POLICY.md`. Preserve the per-file two-connection cap and shared HTTP 429 cooldown. Do not restore eight concurrent GoFile segments as a generic performance optimization.

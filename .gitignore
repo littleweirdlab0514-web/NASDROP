@@ -5,5 +5,8 @@ synology/.build/
 synology/.cache/
 __pycache__/
 *.pyc
+*.jks
+*.keystore
+NASDrop-Chrome-*.zip
 .env*
 !.env.example

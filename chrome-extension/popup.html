@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NASDrop</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img src="icons/nasdrop-48.png" alt="">
+    <div><strong>NASDrop</strong><span id="connection-label">Chrome</span></div>
+    <button id="logout-button" class="text-button hidden" type="button" data-i18n="logout">Sign out</button>
+  </header>
+
+  <main>
+    <label class="language-control"><span id="language-label">Language</span><select id="language-select" aria-labelledby="language-label"><option value="auto" id="language-auto">Automatic (browser)</option><option value="en">English</option><option value="ko">한국어</option><option value="zh">中文（简体）</option><option value="ja">日本語</option></select></label>
+    <section id="login-view">
+      <h1 data-i18n="connectTitle">Connect to your NAS</h1>
+      <p class="muted" data-i18n="connectHint">Use the same address and account as the NASDrop web portal.</p>
+      <form id="login-form">
+        <label><span data-i18n="serverAddress">NASDrop address</span><input id="base-url" type="url" placeholder="http://192.168.1.10:8791" required></label>
+        <label><span data-i18n="username">ID</span><input id="username" autocomplete="username" required></label>
+        <label><span data-i18n="password">Password</span><input id="password" type="password" autocomplete="current-password" required></label>
+        <button class="primary" id="login-button" type="submit" data-i18n="connect">Connect</button>
+      </form>
+    </section>
+
+    <section id="app-view" class="hidden">
+      <h1 id="automatic-title">Site buttons connected</h1>
+      <p class="muted" id="automatic-hint">Click Download on a supported site. Buzzheavier also supports Copy download link. Reload open pages after installing.</p>
+      <details>
+      <summary id="manual-title">Send a link manually</summary>
+      <form id="send-form">
+        <label><span data-i18n="downloadLink">Download link</span><textarea id="download-url" rows="3" required></textarea></label>
+        <button class="secondary" id="use-tab-button" type="button" data-i18n="useCurrentTab">Use current tab</button>
+        <label><span data-i18n="archivePassword">Archive password (optional)</span><input id="archive-password" type="password" autocomplete="off"></label>
+        <button class="primary" id="send-button" type="submit" data-i18n="send">Send to NASDrop</button>
+      </form>
+      </details>
+      <p class="destination" id="destination-label"></p>
+      <div class="jobs-head jobs-toolbar"><h2 data-i18n="recentJobs">Recent jobs</h2><div class="job-controls"><div class="refresh-options"><button id="refresh-button" class="text-button" type="button" data-i18n="refresh">Refresh</button><label class="check"><input id="auto-extract" type="checkbox"><span data-i18n="autoExtract">Automatically extract archives</span></label></div><button id="clear-completed" class="text-button danger" type="button" disabled data-i18n="clearCompleted">Clear completed</button></div></div>
+      <p id="poll-status" class="muted" role="status"></p>
+      <p id="password-alert" class="hidden" role="alert"></p>
+      <div id="jobs" class="jobs"></div>
+      <section id="job-detail" class="hidden">
+        <div class="jobs-head"><h2 id="job-detail-name"></h2><button id="close-detail" class="text-button" type="button" data-i18n="close">Close</button></div>
+        <div class="job-controls"><button id="pause-job" class="secondary" type="button" data-i18n="pauseJob">Pause</button><button id="resume-job" class="secondary" type="button" data-i18n="resumeJob">Resume</button><button id="delete-job" class="text-button danger" type="button" data-i18n="deleteJob">Delete</button></div>
+        <p id="job-delete-hint" class="muted"></p>
+        <form id="job-options-form">
+          <label class="check"><input id="job-extract" type="checkbox"><span data-i18n="autoExtract">Automatically extract archives</span></label>
+          <label><span data-i18n="archivePassword">Archive password (optional)</span><input id="job-password" type="password" autocomplete="off"></label>
+          <p id="job-options-hint" class="muted"></p>
+          <button id="save-job-options" class="primary" type="submit" data-i18n="saveOptions">Save options</button>
+        </form>
+      </section>
+    </section>
+    <p id="notice" role="status"></p>
+  </main>
+  <script src="i18n.js"></script>
+  <script src="popup-poller.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -9,11 +9,54 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
 
+## NASDrop for Chrome companion extension
+
+Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
+
+- **[Download Chrome extension 0.5.0 ZIP](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.0/NASDrop-Chrome-0.5.0.zip)**
+- **[Installation, updates, permissions and usage](chrome-extension/README.md)**
+- **[Compatible NASDrop Server 0.9.19-1 SPK preview](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.0/nasdrop-0.9.19-1-x86_64.spk)**
+
+Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
+
+The extension supports English, Korean, Japanese and Chinese, with a manual language selector and English fallback. Refresh/automatic extraction, per-job extraction/password settings, pause/resume and history deletion are available. Removing completed history does not remove the downloaded output.
+
+**This is a GitHub-distributed preview, not a Chrome Web Store listing.** AkiraBox/VikingFile browser handoff requires Server **0.9.19 or later** and a fresh official download link from the provider page. Those paths remain experimental: local tests passed, but full downloads on a real NAS are not yet verified. Browser cookies are not copied to the NAS, and CAPTCHA/provider restrictions are not bypassed. The server and extension are installed and versioned separately; the existing stable server release remains available above.
+
 > [!IMPORTANT]
 > NASDrop is an independent, unofficial community project. It is not listed in Synology's official Package Center catalog and must be installed manually. It is not affiliated with, endorsed by, or sponsored by Synology, GigaFile, GoFile, Pixeldrain, or Buzzheavier.
 
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
+
+## What's new in 0.9.19 (local test build)
+
+- Fixed browser handoff inspection for observed AkiraBox and VikingFile redirect flows. Only explicitly verified provider file hosts are allowed; unrelated R2 tenants, other hosts, credentials, HTTP and unusual ports remain blocked.
+- GET-signed links that reject HEAD with HTTP 403 can now be inspected with a bounded range request. Missing HEAD range metadata also triggers a range check. Inspection reads no file body and rejects servers that ignore the range.
+- Jobs store the validated final transfer URL privately, including for restart/resume. File transfers still refuse unexpected redirects and use one connection per job.
+- Chrome extension 0.4.2 remains compatible; no extension update is required. Obtain a fresh official link and register a new job when testing a previously failed or expired link.
+- Local tests reproduce both provider response flows. Full downloads on the user's NAS remain unverified.
+
+## What's new in 0.9.18 (local test build)
+
+- Experimental Chrome browser handoff for AkiraBox and VikingFile. Open the original share page, wait for its official download button, and use the compatible NASDrop extension to send that link to the NAS. Pasting a share URL alone is not supported.
+- The NAS inspects the direct link without browser cookies and downloads with one connection. Expired, restricted, redirected, or non-resumable links are rejected with a new-link instruction. This does not bypass CAPTCHA, provider restrictions, or IP-bound tokens.
+- Signed URLs are kept out of public job metadata. Failed temporary-file cleanup now retains the job record; deleting completed history never deletes published output.
+- Local regression tests do not prove provider/NAS compatibility. Real NAS downloads, including whether a provider requires additional normal browser activation, still need user testing. See [the handoff test guide](docs/BROWSER_HANDOFF.md).
+
+## What's new in 0.9.17
+
+- Added authenticated per-job extraction options for compatible clients. Check `job_processing_options` in `/api/status` before using the processing endpoint.
+- Options can change before disk processing starts, including during downloading. Paused jobs remain paused. Verification, extraction, publication, stopping, and completed states reject changes.
+- Password-waiting jobs can retry extraction or publish the retained original archive after integrity verification. Disabling extraction removes only the archive password.
+- See [the processing API contract](docs/JOB_PROCESSING_API.md). Live NAS/extension verification remains pending.
+
+## What's new in 0.9.16
+
+- The Synology web form now saves GigaFile links immediately as **Checking file information**, then resolves filenames in the background. Multi-file pages become individual download jobs after inspection.
+- Pending links keep their destination and extraction options. Inspection errors can be retried; paused inspections cannot launch downloads. After a restart, unfinished inspections are retained as resumable paused jobs.
+- Inspection uses the existing scheduler limits, with at most one link inspection at a time. Filename verification remains intact. This changes perceived submission latency, not provider response speed.
+- Existing `/api/inspect` clients (including previously installed Android apps and browser extensions) retain their original behavior until updated to use `/api/enqueue` for GigaFile.
 
 ## What's new in 0.9.15
 
@@ -127,6 +170,7 @@ The optional **Single connection** mode writes one resumable temporary file with
 - `backend.py`: Authentication, link inspection, and the storage-local download queue
 - `gofile_wt.mjs`: Helper for generating GoFile web tokens
 - `synology/`: DSM SPK metadata, web UI, lifecycle scripts, and build tools
+- `chrome-extension/`: Manifest V3 Chrome extension for sending browser links to NASDrop
 - `Dockerfile`, `compose.yaml`, and `docker/`: Portable container image, Compose example, and startup/account utilities
 - `config.example.json`: Example package configuration
 - `runtime/`: Hashed account credentials, sessions, configuration, logs, and job state; excluded from Git
@@ -223,6 +267,12 @@ After an update, open **Settings** and select the default download folder again.
 
 The DSM launcher uses a separate one-time browser handoff value and removes it from the address immediately. The server exchanges it for a short-lived launcher session, rotates the handoff at once, and never treats the value embedded in the launcher file as a reusable API credential.
 
+## Chrome extension
+
+The optional Manifest V3 extension in `chrome-extension/` automatically connects recognized download controls on supported provider pages to NASDrop. Sign in once, then click the site's download button. Buzzheavier's **Download File** and **Copy download link** controls both resolve the signed link and send it to NASDrop. Reload provider pages after installing or updating the extension. The popup and context menu remain available as secondary entry points.
+
+For local installation, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the `chrome-extension` directory. Chrome requests access to supported provider sites for button detection and to the configured NASDrop host for API calls. The extension saves the session token but never the password. See [`chrome-extension/README.md`](chrome-extension/README.md) for behavior and verification limits.
+
 ### Client login creation and reset examples
 
 The following guides show how an authorized DSM user creates the first NASDrop ID and password and how the DSM icon launch can reset existing credentials.
@@ -263,7 +313,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.15-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.19-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
