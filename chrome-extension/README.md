@@ -19,13 +19,52 @@ Controls inserted after page load are supported. Only genuine, unmodified primar
 
 ## Install locally
 
-1. Extract the downloaded extension ZIP into a permanent directory, then open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Select **Load unpacked** and choose the extracted directory containing `manifest.json` (or this `chrome-extension` directory when using the source repository).
-4. Open the NASDrop extension, enter the full NASDrop address (for example, `http://192.168.1.10:8791`), and sign in.
-5. Reload already-open provider pages after installation or extension updates. Click the site's download control; opening the extension each time is unnecessary.
+Detailed Korean instructions: [한국어 설치 및 사용 안내](INSTALL.ko.md).
+
+First-login permission instructions with translated examples: [English / 한국어 / 日本語 / 简体中文](FIRST_LOGIN.md).
+
+### 1. Prepare the NAS
+
+Install and start NASDrop on the NAS. Open its web portal, create or confirm your account, and select a writable default download destination. The extension uses the same NASDrop account, which may differ from your DSM account. Use server 0.9.19 or later for AkiraBox/Viking forwarding. This remains a preview with live-NAS end-to-end verification pending.
+
+### 2. Download and extract the extension
+
+Open the [Chrome extension release](https://github.com/littleweirdlab0514-web/NASDROP/releases/tag/chrome-v0.5.0) and download **NASDrop-Chrome-0.5.0.zip** under Assets. This is different from GitHub's automatically generated **Source code (zip)** and the Synology `.spk` installer.
+
+Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`. Do not run files inside the ZIP or select the ZIP itself. The folder you will select must contain `manifest.json`, `background.js`, `popup.html`, `icons` and `_locales` directly. If there is an extra nested folder, select that inner folder. Keep this directory in place while the extension is installed.
+
+### 3. Load in desktop Chrome
+
+1. Type `chrome://extensions` in Chrome's address bar and press Enter.
+2. Turn on **Developer mode** in the upper-right corner.
+3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
+4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.0**.
+5. Open Chrome's puzzle-piece Extensions menu and pin NASDrop to the toolbar for easy access.
+
+These steps follow [Chrome's official unpacked-extension instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked). This package is not a Chrome Web Store installation. Managed work/school Chrome may prohibit developer-mode extensions; ask the administrator rather than bypassing the policy. This guide is for desktop Chrome, not mobile Chrome.
+
+### 4. Connect and test
+
+1. Click the NASDrop toolbar icon. Select your language or leave **Automatic (browser)** enabled; unsupported languages use English.
+2. Enter the complete NASDrop address, including `http://` or `https://` and its port when needed. Example: `http://192.168.1.10:8791`. Replace the example with your own address; do not use the DSM control-panel address unless it actually serves NASDrop.
+3. Enter the same username/password used in the NASDrop web portal and click **Connect**, or press Enter in the password field.
+4. On the first login, Chrome may request additional permission for the NAS address. Verify that it is your NAS and click **Allow**. Then click the NASDrop toolbar icon to reopen the extension and **sign in again** (re-enter your password if needed). Granting permission is not the same as completing login. See the [four-language illustrated guide](FIRST_LOGIN.md). Do not bypass certificate or browser security warnings; fix HTTPS configuration first.
+5. Check that the destination shown is correct. Set **Automatically extract archives** beside Refresh as desired.
+6. Reload any provider tabs that were open before installation. Open a supported share page and wait for its official download button to be ready. For AkiraBox/Viking, use that page button rather than pasting a share URL into manual entry.
+7. Click the official download button once, wait for the NASDrop result, then open the extension to inspect the queue. Buzzheavier also supports **Copy download link**. Do not click advertisements or retry an uncertain submission until you check the queue.
 
 To update, replace the files in the same installed extension directory, click the extension's **Reload** button in `chrome://extensions`, then refresh provider tabs. Keeping the same installed directory preserves its local preferences. Do not load a second copy alongside the first.
+
+### Troubleshooting and removal
+
+- **Manifest missing / could not load:** extract the ZIP fully and select the directory directly containing `manifest.json`, not its parent or the ZIP.
+- **No NASDrop icon:** check that the extension is enabled and pin it from Chrome's Extensions menu.
+- **Cannot connect:** open the same NASDrop address in a normal tab, confirm that the service is running and reachable from this computer, and check host permission. Do not post account passwords, session tokens or private signed links when reporting errors.
+- **Download button does nothing / context invalidated after update:** reload the provider page after reloading the extension. Check the extension's site-access settings and ensure you clicked a supported official button.
+- **Server unsupported:** verify the NASDrop server version. A new extension alone does not upgrade the NAS. After a server update, refresh the connection and open a fresh share page.
+- **Expired link or failed older job:** obtain a newly prepared link from the share page and register a new job; check the list first to avoid duplicates. Site/browser/IP restrictions may still prevent NAS access.
+- **No password notification:** check Chrome and operating-system notification permissions; the popup also shows password-required jobs.
+- **Uninstall:** use **Remove** on the extension card. This removes the extension's local preferences, not the NASDrop server or its already registered jobs. Stop/delete NAS jobs explicitly if desired. Do not remove the unpacked folder until the extension is removed.
 
 Chrome requests access to the listed provider sites for automatic button detection and separately requests access to the NASDrop host when connecting (Chrome host permissions are not port-scoped). The extension stores the server address, session token, username, language and extraction preferences in Chrome local storage, restricted to trusted extension contexts. Provider content scripts cannot read this storage; they receive only readiness/capability and resolved language. Passwords and signed source links are not persisted by the extension. Browser cookies are never copied or sent to the NAS.
 

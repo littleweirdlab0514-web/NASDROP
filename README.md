@@ -30,6 +30,7 @@ Send supported download buttons directly to your own NASDrop server, manage the 
 
 - **[Download Chrome extension 0.5.0 ZIP](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.0/NASDrop-Chrome-0.5.0.zip)**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
+- **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **[Compatible NASDrop Server 0.9.19-1 SPK preview](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.0/nasdrop-0.9.19-1-x86_64.spk)**
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
@@ -44,7 +45,7 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
-## What's new in 0.9.19 (local test build)
+## What's new in 0.9.19 (preview)
 
 - Fixed browser handoff inspection for observed AkiraBox and VikingFile redirect flows. Only explicitly verified provider file hosts are allowed; unrelated R2 tenants, other hosts, credentials, HTTP and unusual ports remain blocked.
 - GET-signed links that reject HEAD with HTTP 403 can now be inspected with a bounded range request. Missing HEAD range metadata also triggers a range check. Inspection reads no file body and rejects servers that ignore the range.
