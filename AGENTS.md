@@ -43,6 +43,7 @@ See `docs/DSM_LAUNCHER_GUIDE.md` for the packaging rule and regression checklist
 - Never resume a `.more` fragment without validating its HTTP range. Replay at its original offset, not by blind append. Preserve validated data on local I/O errors and strip secret headers.
 - Persist the transfer layout per job. Collect every child exit code; do not use a bare shell `wait` as proof of successful transfer.
 - Pause is not complete until the worker exits. Block resume/delete while stopping, check cancellation after postprocessing gates and before publication, and never run the same job ID twice.
+- Safe-delete opt-in (`job_safe_delete` / `stop_active:true`) may accept deletion while stopping, but cleanup must wait for worker/process ownership to end. Preserve published output, reject symlink workspaces, retain records on cleanup failure, and never replay destructive requests after restart. Legacy delete remains strict. See `docs/SAFE_JOB_DELETE.md`.
 - On service shutdown, stop scheduling, terminate process groups, interrupt disk processing, then persist recoverable state. Test real DSM stop/update separately from local tests.
 - GoFile transfer HTTP 429 responses must use the same service cooldown as metadata requests. Do not blindly retry all segments into a rate limit.
 - Polling must preserve password form nodes, focus and verification detail state without storing passwords in browser persistence.

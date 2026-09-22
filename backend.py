@@ -78,7 +78,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.22")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.23")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -766,6 +766,7 @@ class Job:
     extract: bool = True
     transfer_mode: str = ""
     inspection_pending: bool = False
+    delete_requested: bool = False
 
 
 ARCHIVE_SUFFIXES = (
@@ -837,7 +838,7 @@ def _curl_config_value(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
-def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = None, cancelled=None, process_callback=None) -> subprocess.CompletedProcess[str]:
     if not SEVEN_ZIP.is_file():
         raise ValueError("패키지의 7-Zip 압축 해제 엔진을 찾을 수 없습니다.")
     environment = dict(os.environ)
@@ -852,7 +853,7 @@ def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = 
         run_options["input"] = password + "\n"
     else:
         run_options["stdin"] = subprocess.DEVNULL
-    result = _run_interruptible(command, **run_options)
+    result = _run_interruptible(command, cancelled=cancelled, process_callback=process_callback, **run_options)
     message = "\n".join((result.stdout, result.stderr)).strip()
     if password:
         message = message.replace(password, "***")
@@ -863,14 +864,16 @@ def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = 
     return result
 
 
-def _run_interruptible(command, *, input=None, timeout=None, capture_output=True, **options):
+def _run_interruptible(command, *, input=None, timeout=None, capture_output=True, cancelled=None, process_callback=None, **options):
     options.pop("stdin", None)
     process = subprocess.Popen(command, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, **options)
     deadline = time.monotonic() + timeout if timeout else float("inf")
     try:
+        if process_callback:
+            process_callback(process)
         while True:
-            if SHUTDOWN_EVENT.is_set():
+            if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
                 raise InterruptedError("서비스 중지로 압축 해제를 일시정지했습니다.")
             if time.monotonic() >= deadline:
                 raise TimeoutError("압축 해제 제한시간을 초과했습니다.")
@@ -881,12 +884,9 @@ def _run_interruptible(command, *, input=None, timeout=None, capture_output=True
                 input = None
     finally:
         if process.poll() is None:
-            Controller._terminate(process)
-            try:
-                process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait()
+            Controller._stop_process(process)
+        if process_callback:
+            process_callback(None)
 
 
 def _copy_checked(source, output, length, cancelled=None):
@@ -899,8 +899,8 @@ def _copy_checked(source, output, length, cancelled=None):
         output.write(block)
 
 
-def _validate_seven_zip_listing(archive: Path, password: str) -> None:
-    result = _run_seven_zip(["l", "-slt", "-ba", "-sccUTF-8", str(archive)], password, timeout=120)
+def _validate_seven_zip_listing(archive: Path, password: str, cancelled=None, process_callback=None) -> None:
+    result = _run_seven_zip(["l", "-slt", "-ba", "-sccUTF-8", str(archive)], password, timeout=120, cancelled=cancelled, process_callback=process_callback)
     records = _seven_zip_records(result.stdout)
     total_size = 0
     entries = 0
@@ -1016,21 +1016,23 @@ def _zip_entry_name(info: zipfile.ZipInfo, legacy_encoding: str | None) -> str:
         return info.filename
 
 
-def _extract_with_seven_zip(archive: Path, destination: Path, password: str) -> None:
-    _validate_seven_zip_listing(archive, password)
+def _extract_with_seven_zip(archive: Path, destination: Path, password: str, cancelled=None, process_callback=None) -> None:
+    _validate_seven_zip_listing(archive, password, cancelled=cancelled, process_callback=process_callback)
     _run_seven_zip(
         ["x", "-y", "-bd", "-bb0", "-sccUTF-8", f"-o{destination}", str(archive)],
         password,
         timeout=ARCHIVE_EXTRACT_TIMEOUT_SECONDS,
+        cancelled=cancelled,
+        process_callback=process_callback,
     )
     _validate_extracted_tree(destination)
 
 
-def extract_archive_safely(archive: Path, destination: Path, password: str = "") -> None:
+def extract_archive_safely(archive: Path, destination: Path, password: str = "", cancelled=None, process_callback=None) -> None:
     kind = archive_kind(archive.name)
     password = _validate_job_password(password)
     if kind == "7zip" or password:
-        _extract_with_seven_zip(archive, destination, password)
+        _extract_with_seven_zip(archive, destination, password, cancelled=cancelled, process_callback=process_callback)
         return
     if kind == "zip":
         try:
@@ -1039,6 +1041,8 @@ def extract_archive_safely(archive: Path, destination: Path, password: str = "")
                 legacy_encoding = _zip_legacy_encoding(infos)
                 _checked_archive_totals(len(infos), sum(max(0, info.file_size) for info in infos))
                 for info in infos:
+                    if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+                        raise InterruptedError("Archive processing stopped")
                     relative = _archive_relative_path(_zip_entry_name(info, legacy_encoding))
                     if relative is None:
                         continue
@@ -1051,19 +1055,21 @@ def extract_archive_safely(archive: Path, destination: Path, password: str = "")
                         continue
                     output.parent.mkdir(parents=True, exist_ok=True)
                     with source.open(info) as reader, output.open("xb") as writer:
-                        _copy_checked(reader, writer, length=1024 * 1024)
+                        _copy_checked(reader, writer, length=1024 * 1024, cancelled=cancelled)
         except (NotImplementedError, RuntimeError) as exc:
             shutil.rmtree(destination, ignore_errors=True)
             destination.mkdir(mode=0o700)
             if "password" in str(exc).lower():
                 raise PasswordRequiredError("압축 암호가 필요합니다.") from exc
-            _extract_with_seven_zip(archive, destination, password)
+            _extract_with_seven_zip(archive, destination, password, cancelled=cancelled, process_callback=process_callback)
         return
     if kind == "tar":
         with tarfile.open(archive, mode="r:*") as source:
             members = source.getmembers()
             _checked_archive_totals(len(members), sum(max(0, member.size) for member in members if member.isfile()))
             for member in members:
+                if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+                    raise InterruptedError("Archive processing stopped")
                 relative = _archive_relative_path(member.name)
                 if relative is None:
                     continue
@@ -1078,7 +1084,7 @@ def extract_archive_safely(archive: Path, destination: Path, password: str = "")
                 if reader is None:
                     raise ValueError("압축 항목을 읽을 수 없습니다.")
                 with reader, output.open("xb") as writer:
-                    _copy_checked(reader, writer, length=1024 * 1024)
+                    _copy_checked(reader, writer, length=1024 * 1024, cancelled=cancelled)
         return
     raise ValueError("자동 압축 해제를 지원하지 않는 형식입니다.")
 
@@ -1139,7 +1145,7 @@ def migrate_legacy_workspace(target_dir: str, name: str, job_id: str, workspace:
     return moved
 
 
-def promote_download(artifact: Path, target_dir: str, auto_extract: bool, password: str = "") -> tuple[Path, bool]:
+def promote_download(artifact: Path, target_dir: str, auto_extract: bool, password: str = "", *, cancelled=None, publication_lock=None, process_callback=None) -> tuple[Path, bool]:
     target = Path(target_dir).resolve()
     if not artifact.is_file():
         raise ValueError("완성된 임시 파일을 찾을 수 없습니다.")
@@ -1149,20 +1155,26 @@ def promote_download(artifact: Path, target_dir: str, auto_extract: bool, passwo
         if extracted.exists():
             shutil.rmtree(extracted)
         extracted.mkdir(mode=0o700)
-        extract_archive_safely(artifact, extracted, password)
-        if SHUTDOWN_EVENT.is_set():
+        extract_archive_safely(artifact, extracted, password, cancelled=cancelled, process_callback=process_callback)
+        if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
             raise InterruptedError("서비스 중지로 후처리를 일시정지했습니다.")
         base_name = archive_output_name(artifact.name)
-        output = unique_destination(target / base_name)
         children = list(extracted.iterdir())
-        if len(children) == 1 and children[0].is_dir() and children[0].name.casefold() == base_name.casefold():
-            children[0].rename(output)
-            extracted.rmdir()
-        else:
-            extracted.rename(output)
+        with publication_lock or threading.RLock():
+            if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+                raise InterruptedError("Publication stopped")
+            output = unique_destination(target / base_name)
+            if len(children) == 1 and children[0].is_dir() and children[0].name.casefold() == base_name.casefold():
+                children[0].rename(output)
+                extracted.rmdir()
+            else:
+                extracted.rename(output)
         return output, True
-    output = unique_destination(target / artifact.name)
-    artifact.rename(output)
+    with publication_lock or threading.RLock():
+        if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+            raise InterruptedError("Publication stopped")
+        output = unique_destination(target / artifact.name)
+        artifact.rename(output)
     return output, False
 
 
@@ -1186,6 +1198,10 @@ class Controller:
         try:
             data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
             for item in data:
+                if item.get("delete_requested"):
+                    # Do not replay a destructive request automatically after a crash.
+                    item["delete_requested"] = False
+                    item["status"] = "stopping"
                 if item.get("status") in {"inspecting", "downloading", "waiting_processing", "verifying", "extracting", "publishing", "ready", "stopping"}:
                     item["status"] = "paused"
                     item["error"] = "서비스가 재시작되어 작업을 일시정지했습니다. 다시 시작할 수 있습니다."
@@ -1402,6 +1418,16 @@ class Controller:
                 self.private_downloads.pop(job_id, None)
                 self.save()
         finally:
+            # Keep ownership if termination cannot be confirmed. Deletion must not
+            # race a surviving transfer/extraction process even on an error path.
+            process = self.processes.get(job_id)
+            if process is not None:
+                try:
+                    self._stop_process(process)
+                except Exception:
+                    LOGGER.warning("Worker process stop unconfirmed; preserving job and workspace")
+                    return
+                self.processes.pop(job_id, None)
             with self.condition:
                 running = self.running_providers.get(provider)
                 if running:
@@ -1409,7 +1435,7 @@ class Controller:
                     if not running:
                         self.running_providers.pop(provider, None)
                 job = self.jobs.get(job_id)
-                if job and job.status == "stopping":
+                if job and job.status == "stopping" and not job.delete_requested:
                     job.status = "paused"
                     self.save()
                 self.condition.notify_all()
@@ -1550,6 +1576,14 @@ class Controller:
                 self.postprocess_waiting.remove(job_id)
             self.condition.notify_all()
 
+    def _track_processing_process(self, job_id: str, process) -> None:
+        with self.condition:
+            if process is None:
+                self.processes.pop(job_id, None)
+            else:
+                self.processes[job_id] = process
+            self.condition.notify_all()
+
     def _postprocess(self, job_id: str, workspace: Path, artifact: Path, target_dir: str, verify_artifact: bool = False) -> None:
         if not self._enter_postprocessing(job_id):
             return
@@ -1581,12 +1615,15 @@ class Controller:
             try:
                 output, extracted = promote_download(
                     artifact, target_dir, job.extract, load_job_password(job_id),
+                    cancelled=lambda: job.delete_requested or job.status in {"paused", "cancelled", "stopping"},
+                    publication_lock=self.lock,
+                    process_callback=lambda process: self._track_processing_process(job_id, process),
                 )
             except PasswordRequiredError as exc:
                 delete_job_password(job_id)
                 with self.lock:
                     job = self.jobs[job_id]
-                    job.status = "password_required"
+                    job.status = "stopping" if job.delete_requested else "password_required"
                     job.error = str(exc)
                     self.private_downloads.pop(job_id, None)
                     self.save()
@@ -1599,7 +1636,7 @@ class Controller:
             delete_job_secrets(job_id)
             with self.lock:
                 job = self.jobs[job_id]
-                job.status = "completed"
+                job.status = "stopping" if job.delete_requested else "completed"
                 job.output = str(output)
                 job.extracted = extracted
                 job.error = ""
@@ -2041,7 +2078,7 @@ printf 'SEGMENTS_READY=1\\n'
             if job_id not in self.jobs:
                 raise KeyError(job_id)
             job = self.jobs[job_id]
-            if job.status not in {"paused", "failed", "cancelled"}:
+            if job.delete_requested or any(job_id in ids for ids in self.running_providers.values()) or job.status not in {"paused", "failed", "cancelled"}:
                 raise ValueError("다시 시작할 수 있는 작업이 아닙니다.")
             job.status = "inspecting" if job.inspection_pending else "queued"
             job.error = ""
@@ -2059,7 +2096,7 @@ printf 'SEGMENTS_READY=1\\n'
             job = self.jobs.get(job_id)
             if not job:
                 raise KeyError(job_id)
-            if job.status != "password_required":
+            if job.delete_requested or job.status != "password_required":
                 raise ValueError("현재 암호 입력이 필요한 작업이 아닙니다.")
             save_job_password(job_id, normalized)
             job.status = "queued"
@@ -2080,7 +2117,7 @@ printf 'SEGMENTS_READY=1\\n'
                 raise KeyError(job_id)
             allowed = {"queued", "ready", "inspecting", "paused", "downloading", "password_required"}
             running = any(job_id in ids for ids in self.running_providers.values())
-            if self.stopping or job.status not in allowed or self.processing_job == job_id or (job.status in {"paused", "password_required"} and running):
+            if self.stopping or job.delete_requested or job.status not in allowed or self.processing_job == job_id or (job.status in {"paused", "password_required"} and running):
                 raise ValueError("현재 상태에서는 압축 해제 설정을 변경할 수 없습니다. 작업을 일시정지한 뒤 다시 시도해 주세요.")
             previous_password = load_job_password(job_id)
             if job.status == "password_required":
@@ -2107,13 +2144,91 @@ printf 'SEGMENTS_READY=1\\n'
             self.condition.notify_all()
             return asdict(job)
 
-    def delete(self, job_ids: list[str]) -> int:
+    def request_delete(self, job_ids: list[str]) -> dict:
+        """Opt-in stop-and-delete; never remove data while a worker owns the job."""
+        with self.condition:
+            if self.stopping:
+                raise ValueError("서비스가 종료 중입니다.")
+            ids = list(dict.fromkeys(job_ids))
+            for job_id in ids:
+                if job_id not in self.jobs:
+                    raise KeyError(job_id)
+            busy = any(self.jobs[i].delete_requested or i in self.processes or self.processing_job == i
+                       or any(i in running for running in self.running_providers.values()) for i in ids)
+            if not busy:
+                previous = {i: self.jobs[i].status for i in ids}
+                for i in ids:
+                    if self.jobs[i].status != "completed":
+                        self.jobs[i].status = "paused"
+                try:
+                    return {"ok": True, "deleted": self.delete(ids), "pending": []}
+                except Exception:
+                    for i, status in previous.items():
+                        if i in self.jobs:
+                            self.jobs[i].status = status
+                    raise
+            pending, scheduled, previous = [], [], {}
+            for job_id in ids:
+                job = self.jobs[job_id]
+                if job.delete_requested:
+                    pending.append(job_id)
+                    continue
+                previous[job_id] = (job.status, job.error)
+                job.delete_requested = True
+                job.status, job.error = "stopping", ""
+                pending.append(job_id)
+                scheduled.append(job_id)
+            try:
+                self.save()
+            except Exception:
+                for job_id in scheduled:
+                    self.jobs[job_id].delete_requested = False
+                    self.jobs[job_id].status, self.jobs[job_id].error = previous[job_id]
+                self.condition.notify_all()
+                raise
+            for job_id in scheduled:
+                threading.Thread(target=self._finish_delete, args=(job_id,),
+                                 name=f"nasdrop-delete-{job_id}", daemon=True).start()
+            self.condition.notify_all()
+            return {"ok": True, "deleted": 0, "pending": pending}
+
+    def _finish_delete(self, job_id: str) -> None:
+        with self.condition:
+            if self.stopping or SHUTDOWN_EVENT.is_set():
+                return
+            while any(job_id in ids for ids in self.running_providers.values()) or self.processing_job == job_id:
+                if self.stopping or SHUTDOWN_EVENT.is_set():
+                    return  # Restart preserves the record and requires a fresh request.
+                self.condition.wait(timeout=0.25)
+            job = self.jobs.get(job_id)
+            if not job or not job.delete_requested:
+                return
+            try:
+                process = self.processes.get(job_id)
+                if process is not None:
+                    self._stop_process(process)
+                    self.processes.pop(job_id, None)
+                job.status = "paused"
+                self.delete([job_id], _pending=True)
+            except Exception:
+                job.delete_requested = False
+                job.status = "failed"
+                job.error = "임시 다운로드 파일을 삭제하지 못해 작업 기록을 보존했습니다. 폴더 권한을 확인한 뒤 다시 삭제해 주세요."
+                self.save()
+            finally:
+                self.condition.notify_all()
+
+    def delete(self, job_ids: list[str], *, _pending: bool = False) -> int:
         with self.lock:
             job_ids = list(dict.fromkeys(job_ids))
             for job_id in job_ids:
                 job = self.jobs.get(job_id)
                 if not job:
                     raise KeyError(job_id)
+                if job.delete_requested and not _pending:
+                    raise ValueError("삭제를 위해 작업을 중지 중입니다.")
+                if job_id in getattr(self, "processes", {}) or getattr(self, "processing_job", None) == job_id:
+                    raise ValueError("실행 중인 작업은 먼저 멈춰 주세요.")
                 if job.status in {"inspecting", "queued", "ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing", "stopping"} or any(job_id in ids for ids in self.running_providers.values()):
                     raise ValueError("실행 중인 작업은 먼저 멈춰 주세요.")
             # Delete only the exact private workspace, never published output or symlink targets.
@@ -2147,7 +2262,8 @@ printf 'SEGMENTS_READY=1\\n'
 
     def clear_completed(self) -> int:
         with self.lock:
-            completed = [job_id for job_id, job in self.jobs.items() if job.status == "completed"]
+            completed = [job_id for job_id, job in self.jobs.items() if job.status == "completed" and not job.delete_requested
+                         and not any(job_id in ids for ids in self.running_providers.values())]
             for job_id in completed:
                 self.jobs.pop(job_id, None)
                 delete_job_secrets(job_id)
@@ -3358,6 +3474,7 @@ class Handler(BaseHTTPRequestHandler):
                 "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
                 "auto_extract_archives": AUTO_EXTRACT_ARCHIVES,
                 "job_processing_options": True,
+                "job_safe_delete": True,
                 "browser_handoff_providers": ["akirabox", "vikingfile"],
                 "disk_protection": DISK_PROTECTION,
                 "temporary_folder": ".nasdrop-tmp",
@@ -3520,6 +3637,12 @@ class Handler(BaseHTTPRequestHandler):
                 ids = payload.get("ids", [])
                 if not isinstance(ids, list) or not ids or any(not re.fullmatch(r"[a-f0-9]{12}", str(item)) for item in ids):
                     raise ValueError("삭제할 작업을 선택해 주세요.")
+                stop_active = payload.get("stop_active", False)
+                if not isinstance(stop_active, bool):
+                    raise ValueError("stop_active must be a boolean")
+                if stop_active:
+                    result = CONTROLLER.request_delete([str(item) for item in ids])
+                    return self.send_json(HTTPStatus.ACCEPTED if result["pending"] else HTTPStatus.OK, result)
                 deleted = CONTROLLER.delete([str(item) for item in ids])
                 return self.send_json(HTTPStatus.OK, {"ok": True, "deleted": deleted})
             if path == "/api/jobs/completed/clear":

@@ -31,7 +31,7 @@ Send supported download buttons directly to your own NASDrop server, manage the 
 - **[Download Chrome extension 0.5.1 ZIP](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.1/NASDrop-Chrome-0.5.1.zip)**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
-- **[Compatible NASDrop Server 0.9.22-1 SPK](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/v0.9.22-1/nasdrop-0.9.22-1-x86_64.spk)**
+- **[Compatible NASDrop Server 0.9.23-1 SPK](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/v0.9.23-1/nasdrop-0.9.23-1-x86_64.spk)**
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -44,6 +44,12 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on the websites and APIs operated by GigaFile, GoFile, Pixeldrain, and Buzzheavier. Those providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
+
+## What's new in 0.9.23
+
+- **Delete now safely stops a running job and automatically removes it afterward when using a compatible client.** You no longer need to pause the job and then press Delete again. The server waits for the worker and file writes to finish before deleting the job's private temporary files and record. Published files and extracted output folders are preserved.
+- Pending deletion locks conflicting actions. Cleanup failures preserve the record, and service restarts never replay deletion automatically.
+- Requires a client that supports safe stop-and-delete (Android 0.8.16 or later). Updating the SPK alone does not change the Delete button in older clients, the current web dashboard or Chrome companion 0.5.1; they retain the previous strict deletion behavior. Live DSM and updated Android integration verification remains pending.
 
 ## What's new in 0.9.22
 
@@ -234,26 +240,34 @@ When upgrading from an older release, the former automatically assigned `/volume
 
 ## Run with Docker
 
-The Docker image is suitable for Synology Container Manager, ordinary Linux servers, home servers, and Docker Desktop. Published images target both `linux/amd64` and `linux/arm64`.
+The Docker build supports Synology Container Manager, Linux servers, and Docker Desktop using Linux containers. The release workflow targets `linux/amd64` and `linux/arm64`. The included Compose file builds the supplied source locally; it does not require a published registry image. Docker runtime verification is required on your host.
+
+**[Docker installation guide in Korean](docs/DOCKER.ko.md)**
 
 ### Docker Compose quick start
 
-1. Download `compose.yaml`. Optionally copy `docker/compose.env.example` to `.env` when you want to override the defaults.
+1. Download and extract the complete source or Docker source bundle, then open a terminal in the directory containing `compose.yaml`. Copy `docker/compose.env.example` to `.env` to override the defaults. Docker Compose v2 is required.
 2. If you created `.env`, set `NASDROP_CONFIG_DIR` and `NASDROP_DOWNLOAD_DIR` to persistent host folders.
 3. On Linux or Synology, set `PUID` and `PGID` to the numeric user and group that can write to the download folder. You can find them with `id your-user`.
-4. Create the first NASDrop account interactively. The password is prompted without being placed in the command line or Compose environment:
+4. Create the host folders before starting, and grant the configured user write access to the download folder. If the native SPK already uses port 8791, set `NASDROP_PORT=8792` in `.env`. Build the image:
+
+   ```sh
+   docker compose build --pull
+   ```
+
+5. Create the first NASDrop account interactively. The password is prompted without being placed in the command line or Compose environment:
 
    ```sh
    docker compose run --rm nasdrop account set owner
    ```
 
-5. Start NASDrop and open `http://SERVER-IP:8791`:
+6. Start NASDrop and open `http://SERVER-IP:8791` (or your configured host port):
 
    ```sh
    docker compose up -d
    ```
 
-6. Sign in, open **Settings**, and select the default download folder once so NASDrop verifies write access.
+7. Sign in, open **Settings**, and select `/downloads` as the default download folder so NASDrop verifies write access.
 
 The default Compose configuration persists application state in `./nasdrop-config`, mounts `./downloads` as `/downloads`, and stores partial files in `/downloads/.nasdrop-tmp`. Recreating or updating the container does not remove those host folders.
 
@@ -284,14 +298,16 @@ NASDrop never recursively changes permissions on mounted download folders. If th
 
 ### Docker update and HTTPS
 
-Update without deleting persistent data:
+Replace the source files with the new version, keeping `.env` and the persistent host folders, then rebuild:
 
 ```sh
-docker compose pull
+docker compose build --pull
 docker compose up -d
 ```
 
 After an update, open **Settings** and select the default download folder again. For access outside the local network, place NASDrop behind an HTTPS reverse proxy and do not expose plain HTTP port `8791` directly to the internet.
+
+For a fresh migration from SPK, finish or pause native-package jobs first, mount the existing download directory, and create a separate Docker account and config directory. Do not copy native `config.json` or unfinished jobs directly: they refer to DSM paths rather than container mount paths. Existing completed files remain available. Keep the SPK installed until you have verified Docker operation; do not run both services against the same unfinished jobs.
 
 ## Opening NASDrop and setting up client login
 
@@ -350,7 +366,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.22-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.23-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 

@@ -1,4 +1,11 @@
-# NASDrop 0.9.22 릴리스 체크리스트
+# NASDrop 0.9.23 릴리스 체크리스트
+
+## 0.9.23 Safe stop-and-delete
+
+- [x] Capability-gated stop-and-delete waits for worker/process completion.
+- [x] Completed output is preserved; only the selected private workspace and record are removed.
+- [x] Cleanup failure retains the record; restart does not replay destructive requests.
+- [ ] Verify the updated Android client and SPK together on DSM, including extraction cancellation.
 
 ## 0.9.14 GoFile 연결 제한
 
