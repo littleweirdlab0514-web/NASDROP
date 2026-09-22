@@ -59,6 +59,8 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertNotIn('chown "${PUID}:${PGID}" "$target_dir"', entrypoint)
         self.assertIn('gosu "${PUID}:${PGID}"', entrypoint)
         self.assertIn('python3 /app/docker/account.py bootstrap', entrypoint)
+        account_source = (ROOT / "docker" / "account.py").read_text(encoding="utf-8")
+        self.assertIn("enforce_docker_default_password_change", account_source)
 
         account_command = (ROOT / "docker" / "account-command.sh").read_text(encoding="utf-8")
         self.assertIn('gosu "${PUID}:${PGID}" python3 /app/docker/account.py', account_command)

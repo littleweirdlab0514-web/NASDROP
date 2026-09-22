@@ -12,7 +12,7 @@ NASDrop publishes one multi-platform image for `linux/amd64` and `linux/arm64`. 
 The official image is:
 
 ```text
-ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3
+ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
 ```
 
 Use the numbered tag for reproducible installations. Use `latest` only when you intentionally want the newest release during updates.
@@ -46,7 +46,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Open `http://SERVER-IP:8791`. On a new `/config` folder, sign in with temporary ID `nasdrop` and temporary password `nasdrop`. NASDrop immediately opens the account form and blocks downloads, folders, settings, and job APIs until you save a new ID and a password of 10–128 characters. The short temporary password is accepted only for this initial login/current-password check; it cannot be saved as the new password. Existing `credentials.json` files are never overwritten. After changing the login, select `/downloads` as the default destination so NASDrop can verify that the mounted folder is writable.
+Open `http://SERVER-IP:8791`. On a new `/config` folder, sign in with temporary ID `nasdrop` and temporary password `nasdrop`. NASDrop immediately opens the account form and blocks downloads, folders, settings, and job APIs until you save a new ID and a password of 10–128 characters. The short temporary password is accepted only for this initial login/current-password check; it cannot be saved as the new password. Existing custom credentials are preserved. If an existing account still verifies as the exact default `nasdrop` / `nasdrop`, every Docker start restores the mandatory-change flag. After changing the login, select `/downloads` as the default destination so NASDrop can verify that the mounted folder is writable.
 
 Check startup state and logs:
 
@@ -69,7 +69,7 @@ The Docker image works on both Intel/AMD and ARM Synology models that support Co
 ```yaml
 services:
   nasdrop:
-    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3
+    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
     container_name: nasdrop
     restart: unless-stopped
     init: true
@@ -92,7 +92,7 @@ services:
       - no-new-privileges:true
 ```
 
-Replace the example `1026:100` IDs with the values from your NAS. The temporary credentials are created only when `/config/credentials.json` is absent.
+Replace the example `1026:100` IDs with the values from your NAS. The temporary credentials are created when `/config/credentials.json` is absent. An existing exact `nasdrop` / `nasdrop` account is also marked for mandatory replacement on every Docker start; custom credentials are left unchanged.
 
 If the native Synology package already uses port `8791`, change the Docker mapping to `8792:8791` and open `http://NAS-IP:8792`.
 
@@ -113,7 +113,7 @@ Create persistent folders first, then create the account and start the service:
 
 ```sh
 mkdir -p nasdrop-config downloads
-docker pull ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3
+docker pull ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
 docker run -d --name nasdrop --restart unless-stopped --init \
   --read-only --security-opt no-new-privileges:true \
   --tmpfs /tmp:size=1g,mode=1777 \
@@ -123,7 +123,7 @@ docker run -d --name nasdrop --restart unless-stopped --init \
   -e NAS_PORTAL_STORAGE_ROOTS=/downloads \
   -v "$PWD/nasdrop-config:/config" \
   -v "$PWD/downloads:/downloads" \
-  ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3
+  ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
 ```
 
 ## Additional download folders
@@ -192,7 +192,7 @@ For an ARM64 host, use `NASDrop-0.9.23-arm64.tar`. Run `docker image ls` after l
 
 **The container restarts repeatedly:** inspect the logs and confirm that `/config` is writable by `PUID:PGID`. Do not remove the read-only or no-new-privileges settings merely to hide a mount-permission error.
 
-**The wrong architecture is reported:** `docker image inspect ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3 --format '{{.Architecture}}'` shows the local image architecture. Remove a manually imported image for the wrong CPU and pull the multi-platform GHCR tag again.
+**The wrong architecture is reported:** `docker image inspect ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4 --format '{{.Architecture}}'` shows the local image architecture. Remove a manually imported image for the wrong CPU and pull the multi-platform GHCR tag again.
 
 **Port 8791 is occupied:** set `NASDROP_PORT=8792` in `.env`, or change the mapping to `8792:8791`.
 

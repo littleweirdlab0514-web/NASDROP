@@ -1,6 +1,7 @@
 import json
 import os
 import http.client
+import secrets
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import threading
@@ -177,6 +178,33 @@ class AccountAuthTests(unittest.TestCase):
         self.assertEqual(backend.AUTH_FILE.read_bytes(), original)
         with self.assertRaises(ValueError):
             backend.replace_credentials("owner", "nasdrop")
+
+    def test_docker_bootstrap_migrates_legacy_default_credentials_to_forced_change(self):
+        salt = secrets.token_bytes(16)
+        legacy = {
+            "algorithm": "pbkdf2_sha256",
+            "iterations": backend.PASSWORD_HASH_ITERATIONS,
+            "username": "nasdrop",
+            "salt": salt.hex(),
+            "password_hash": backend.password_hash("nasdrop", salt),
+        }
+        backend.AUTH_FILE.write_text(json.dumps(legacy, indent=2) + "\n", encoding="utf-8")
+        backend.CREDENTIALS = backend.load_credentials()
+        old_token = backend.create_session("nasdrop")
+
+        self.assertTrue(backend.enforce_docker_default_password_change())
+        saved = json.loads(backend.AUTH_FILE.read_text(encoding="utf-8"))
+        self.assertTrue(saved["must_change_password"])
+        self.assertTrue(backend.verify_credentials("nasdrop", "nasdrop"))
+        self.assertNotIn(old_token, backend.SESSIONS)
+        self.assertFalse(backend.enforce_docker_default_password_change())
+
+    def test_docker_bootstrap_does_not_modify_nondefault_existing_credentials(self):
+        backend.replace_credentials("nasdrop", "a strong custom password")
+        original = backend.AUTH_FILE.read_bytes()
+        self.assertFalse(backend.enforce_docker_default_password_change())
+        self.assertEqual(backend.AUTH_FILE.read_bytes(), original)
+        self.assertFalse(backend.password_change_required())
 
     def test_bootstrap_login_is_confined_until_strong_credentials_replace_it(self):
         backend.create_docker_bootstrap_credentials()

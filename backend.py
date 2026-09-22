@@ -359,6 +359,29 @@ def create_docker_bootstrap_credentials() -> bool:
     return True
 
 
+def enforce_docker_default_password_change() -> bool:
+    """Mark a legacy Docker nasdrop/nasdrop account for mandatory replacement."""
+    global CREDENTIALS
+    if (
+        not CREDENTIALS
+        or password_change_required()
+        or str(CREDENTIALS.get("username", "")).casefold() != "nasdrop"
+        or not verify_credentials("nasdrop", "nasdrop")
+    ):
+        return False
+    updated = dict(CREDENTIALS)
+    updated["must_change_password"] = True
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    temporary = AUTH_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(AUTH_FILE)
+    CREDENTIALS = updated
+    with SESSIONS_LOCK:
+        SESSIONS.clear()
+    return True
+
+
 def verify_credentials(username: object, password: object) -> bool:
     if not CREDENTIALS or not isinstance(username, str) or not isinstance(password, str):
         return False

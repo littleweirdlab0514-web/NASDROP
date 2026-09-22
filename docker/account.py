@@ -18,8 +18,10 @@ def main() -> None:
     if args.command == "bootstrap":
         if args.username is not None:
             parser.error("bootstrap does not accept a username")
-        if backend.create_docker_bootstrap_credentials():
-            print("NASDrop bootstrap account was created. Change its ID and password after signing in.")
+        created = backend.create_docker_bootstrap_credentials()
+        migrated = backend.enforce_docker_default_password_change()
+        if created or migrated:
+            print("NASDrop temporary account is active. Change its ID and password after signing in.")
         return
     if not args.username:
         parser.error("set requires a username")

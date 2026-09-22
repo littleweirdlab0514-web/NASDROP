@@ -12,7 +12,7 @@ NASDrop Docker 이미지는 `linux/amd64`와 `linux/arm64`를 함께 제공합�
 공식 이미지 주소는 다음과 같습니다.
 
 ```text
-ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3
+ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
 ```
 
 버전을 고정하려면 위 태그를 사용합니다. 업데이트할 때마다 최신 버전을 자동으로 받으려는 경우에만 `latest`를 사용하세요.
@@ -46,7 +46,7 @@ docker compose pull
 docker compose up -d
 ```
 
-`http://서버-IP:8791`을 엽니다. 새 `/config` 폴더에서는 임시 ID `nasdrop`, 임시 비밀번호 `nasdrop`으로 로그인합니다. 로그인 직후에는 계정 변경과 로그아웃만 가능하며, 새 ID와 10~128자의 새 비밀번호를 저장할 때까지 다운로드·폴더·설정·작업 API가 차단됩니다. 짧은 임시 비밀번호는 최초 로그인과 현재 비밀번호 확인에서만 예외로 허용되고 새 비밀번호로 저장할 수 없습니다. 기존 `credentials.json`은 절대 덮어쓰지 않습니다. 변경 후 **설정**에서 `/downloads`를 기본 다운로드 폴더로 선택하세요.
+`http://서버-IP:8791`을 엽니다. 새 `/config` 폴더에서는 임시 ID `nasdrop`, 임시 비밀번호 `nasdrop`으로 로그인합니다. 로그인 직후에는 계정 변경과 로그아웃만 가능하며, 새 ID와 10~128자의 새 비밀번호를 저장할 때까지 다운로드·폴더·설정·작업 API가 차단됩니다. 짧은 임시 비밀번호는 최초 로그인과 현재 비밀번호 확인에서만 예외로 허용되고 새 비밀번호로 저장할 수 없습니다. 기존 사용자 지정 계정은 보존합니다. 기존 계정이 정확히 `nasdrop` / `nasdrop`으로 확인되면 Docker를 시작할 때마다 강제 변경 플래그를 다시 적용합니다. 변경 후 **설정**에서 `/downloads`를 기본 다운로드 폴더로 선택하세요.
 
 상태와 로그는 다음 명령으로 확인합니다.
 
@@ -69,7 +69,7 @@ Docker판은 Container Manager를 지원하는 인텔/AMD 및 ARM 시놀로지�
 ```yaml
 services:
   nasdrop:
-    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3
+    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
     container_name: nasdrop
     restart: unless-stopped
     init: true
@@ -92,7 +92,7 @@ services:
       - no-new-privileges:true
 ```
 
-예시의 `1026:100`은 NAS에서 확인한 실제 UID:GID로 바꿔야 합니다. 임시 계정은 `/config/credentials.json`이 없을 때만 생성됩니다.
+예시의 `1026:100`은 NAS에서 확인한 실제 UID:GID로 바꿔야 합니다. `/config/credentials.json`이 없으면 임시 계정을 생성합니다. 기존 계정이 정확히 `nasdrop` / `nasdrop`이면 Docker를 시작할 때마다 반드시 변경하도록 표시하며, 사용자 지정 계정은 변경하지 않습니다.
 
 시놀로지 SPK가 이미 `8791` 포트를 사용한다면 포트 매핑을 `8792:8791`로 바꾸고 `http://NAS-IP:8792`로 접속하세요.
 

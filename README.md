@@ -31,7 +31,7 @@ Send supported download buttons directly to your own NASDrop server, manage the 
 - **[Download Chrome extension 0.5.1 ZIP](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.1/NASDrop-Chrome-0.5.1.zip)**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
-- **[Compatible NASDrop Server 0.9.23-3 SPK](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/v0.9.23-3/nasdrop-0.9.23-3-x86_64.spk)**
+- **[Compatible NASDrop Server 0.9.23-4 SPK](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/v0.9.23-4/nasdrop-0.9.23-4-x86_64.spk)**
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -255,7 +255,7 @@ For complete instructions for Synology Container Manager, Linux, Windows, macOS,
    docker compose up -d
    ```
 
-5. On a new `/config` volume, sign in once with temporary ID `nasdrop` and temporary password `nasdrop`. The web interface permits only changing the ID/password or signing out until you save a new password of 10–128 characters. Existing `credentials.json` files are never replaced by this bootstrap step.
+5. On a new `/config` volume, sign in once with temporary ID `nasdrop` and temporary password `nasdrop`. The web interface permits only changing the ID/password or signing out until you save a new password of 10–128 characters. An existing credentials file is preserved. If it still verifies as the exact default `nasdrop` / `nasdrop` account, Docker marks it for mandatory replacement at every container start.
 6. After changing the login, open **Settings** and select the default download folder once so NASDrop verifies write access.
 
 The default Compose configuration persists application state in `./nasdrop-config`, mounts `./downloads` as `/downloads`, and stores partial files in `/downloads/.nasdrop-tmp`. Recreating or updating the container does not remove those host folders.
@@ -353,7 +353,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.23-3-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.23-4-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
