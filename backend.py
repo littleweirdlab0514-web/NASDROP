@@ -26,6 +26,7 @@ import secrets
 import signal
 import shlex
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -78,7 +79,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.23")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.25")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -215,6 +216,7 @@ def public_error_code(message: object) -> str:
         (("현재 비밀번호",), "current_password_invalid"),
         (("DSM 아이콘 연결",), "launcher_expired"),
         (("권한", "쓰기 권한", "볼 권한"), "permission_denied"),
+        (("GigaFile 다운로드 키",), "download_key_required"),
         (("암호가 필요", "암호를 입력", "Wrong password", "password"), "password_required"),
         (("Gofile 요청이 몰려", "429", "제한되었"), "rate_limited"),
         (("연결하지 못", "HTTP ", "응답을 반환", "응답이 일정 시간 멈춰"), "network_error"),
@@ -662,6 +664,14 @@ class PasswordRequiredError(ValueError):
     """Raised when an encrypted archive needs a new password without redownloading."""
 
 
+class GigaFileDownloadKeyRequiredError(ValueError):
+    """Raised when GigaFile requires a source-side download key."""
+
+
+class GigaFileDownloadKeyInvalidError(GigaFileDownloadKeyRequiredError):
+    """Raised only after the user supplied a key and GigaFile rejected it."""
+
+
 def _load_gofile_cooldown() -> tuple[float, str]:
     if not GOFILE_COOLDOWN_FILE.exists():
         return 0.0, ""
@@ -734,6 +744,13 @@ def _validate_job_password(value: object) -> str:
     return password
 
 
+def _validate_gigafile_download_key(value: object) -> str:
+    key = str(value or "")
+    if len(key) > 4 or any(ord(character) < 0x20 or ord(character) == 0x7f for character in key):
+        raise ValueError("GigaFile 다운로드 키는 제어 문자 없이 4자 이내로 입력해 주세요.")
+    return key
+
+
 def _job_secret_path(job_id: str) -> Path:
     if not re.fullmatch(r"[a-f0-9]{12}", job_id):
         raise ValueError("작업 ID가 올바르지 않습니다.")
@@ -787,6 +804,29 @@ def load_job_password(job_id: str) -> str:
 
 def delete_job_password(job_id: str) -> None:
     save_job_password(job_id, "")
+
+
+def save_job_download_key(job_id: str, download_key: object) -> None:
+    normalized = _validate_gigafile_download_key(download_key)
+    with JOB_SECRET_LOCK:
+        data = _load_job_secrets(job_id)
+        if normalized:
+            data["download_key"] = normalized
+        else:
+            data.pop("download_key", None)
+        _write_job_secrets(job_id, data)
+
+
+def load_job_download_key(job_id: str) -> str:
+    with JOB_SECRET_LOCK:
+        try:
+            return _validate_gigafile_download_key(_load_job_secrets(job_id).get("download_key", ""))
+        except ValueError:
+            return ""
+
+
+def delete_job_download_key(job_id: str) -> None:
+    save_job_download_key(job_id, "")
 
 
 def save_job_download_url(job_id: str, download_url: str) -> None:
@@ -1294,7 +1334,7 @@ class Controller:
     def start(self, file: dict, target: str = "", extract: bool | None = None, password: str = "") -> Job:
         return self.start_many([file], target, extract, password)[0]
 
-    def enqueue_gigafile(self, url: str, target: str = "", extract: bool | None = None, password: str = "") -> Job:
+    def enqueue_gigafile(self, url: str, target: str = "", extract: bool | None = None, password: str = "", download_key: str = "") -> Job:
         parsed = urlparse(url.strip())
         host = (parsed.hostname or "").lower()
         if parsed.scheme != "https" or not GIGAFILE_HOST.fullmatch(host) or parsed.username or parsed.password or parsed.port not in {None, 443}:
@@ -1303,6 +1343,7 @@ class Controller:
         if extract is not None and not isinstance(extract, bool):
             raise ValueError("압축 해제 선택값이 올바르지 않습니다.")
         secret = _validate_job_password(password)
+        source_key = _validate_gigafile_download_key(download_key)
         destination = normalize_target(target or NAS_TARGET)
         with self.condition:
             if self.stopping:
@@ -1314,6 +1355,8 @@ class Controller:
                       extract=AUTO_EXTRACT_ARCHIVES if extract is None else extract, inspection_pending=True)
             if job.extract and secret:
                 save_job_password(job.id, secret)
+            if source_key:
+                save_job_download_key(job.id, source_key)
             self.jobs[job.id] = job
             try:
                 self.save()
@@ -1328,7 +1371,8 @@ class Controller:
         with self.lock:
             job = self.jobs[job_id]
             source = job.source
-        inspected = inspect_gigafile(source)
+        download_key = load_job_download_key(job_id)
+        inspected = inspect_gigafile(source, download_key) if download_key else inspect_gigafile(source)
         files = inspected.get("files") if inspected.get("batch") else [inspected]
         with self.condition:
             if self.stopping or SHUTDOWN_EVENT.is_set() or self.jobs.get(job_id) is not job or job.status != "inspecting":
@@ -1336,19 +1380,23 @@ class Controller:
             # Replace the placeholder and persist children in one state-file write.
             saved_jobs, saved_private = dict(self.jobs), dict(self.private_downloads)
             try:
-                self.start_many(files, job.target, job.extract, load_job_password(job_id), replace_id=job_id)
+                self.start_many(
+                    files, job.target, job.extract, load_job_password(job_id),
+                    download_key=download_key, replace_id=job_id,
+                )
             except Exception:
                 self.jobs, self.private_downloads = saved_jobs, saved_private
                 raise
 
 
-    def start_many(self, files: list[dict], target: str = "", extract: bool | None = None, password: str = "", *, replace_id: str | None = None) -> list[Job]:
+    def start_many(self, files: list[dict], target: str = "", extract: bool | None = None, password: str = "", *, download_key: str = "", replace_id: str | None = None) -> list[Job]:
         if not files:
             raise ValueError("다운로드할 파일이 없습니다.")
         if extract is not None and not isinstance(extract, bool):
             raise ValueError("압축 해제 선택값이 올바르지 않습니다.")
         should_extract = AUTO_EXTRACT_ARCHIVES if extract is None else extract
         normalized_password = _validate_job_password(password)
+        normalized_download_key = _validate_gigafile_download_key(download_key)
         base_destination = normalize_target(target or NAS_TARGET)
         destinations = [prepare_batch_target(base_destination, str(file.get("relative_path", ""))) for file in files]
         jobs = []
@@ -1374,10 +1422,12 @@ class Controller:
                     "expected_sha256": str(file.get("expected_sha256", "")),
                     "target": destination,
                 }
-                if provider in {"buzzheavier", "akirabox", "vikingfile"}:
+                if provider in {"buzzheavier", "akirabox", "vikingfile", "sendnow"}:
                     save_job_download_url(job.id, str(file.get("download_url", "")))
                 if should_extract and normalized_password:
                     save_job_password(job.id, normalized_password)
+                if provider == "gigafile" and normalized_download_key:
+                    save_job_download_key(job.id, normalized_download_key)
                 jobs.append(job)
             replaced = self.jobs.pop(replace_id, None) if replace_id else None
             try:
@@ -1473,6 +1523,11 @@ class Controller:
                     if isinstance(exc, GofileCooldownError):
                         job.status = "queued"
                         job.not_before = _gofile_cooldown_status()["until"]
+                    elif isinstance(exc, GigaFileDownloadKeyRequiredError):
+                        if isinstance(exc, GigaFileDownloadKeyInvalidError):
+                            delete_job_download_key(job_id)
+                        job.status = "download_key_required"
+                        job.not_before = 0
                     else:
                         job.status = "paused" if SHUTDOWN_EVENT.is_set() else "failed"
                     job.error = (str(exc) or "다운로드 준비 중 오류가 발생했습니다.")[-400:]
@@ -1585,7 +1640,7 @@ class Controller:
     def _apply_response_filename(self, job: Job, workspace: Path, artifact: Path, private: dict[str, str]) -> Path:
         headers_path = workspace / ".response-headers"
         try:
-            if private.get("provider") not in {"gigafile", "buzzheavier", "akirabox", "vikingfile"}:
+            if private.get("provider") not in {"gigafile", "buzzheavier", "akirabox", "vikingfile", "sendnow"}:
                 return artifact
             actual_name = response_download_name(headers_path)
             if not actual_name or actual_name == job.name:
@@ -1669,6 +1724,9 @@ class Controller:
                     job.sha256 = ""
                     raise ValueError("임시 완성 파일이 손상되어 삭제했습니다. 작업을 재개하면 처음부터 다시 다운로드합니다.")
             artifact = self._apply_response_filename(job, workspace, artifact, private)
+            # The provider key is no longer needed once the complete artifact is
+            # verified locally. Do not retain it during extraction or publishing.
+            delete_job_download_key(job_id)
             with self.lock:
                 if job.status in {"paused", "cancelled", "stopping"}:
                     return
@@ -1740,7 +1798,8 @@ class Controller:
         parsed = urlparse(job.source)
         provider = private.get("provider") or provider_for_url(job.source)
         if provider == "gigafile" and not private.get("download_url"):
-            refreshed = inspect_gigafile(job.source)
+            download_key = load_job_download_key(job.id)
+            refreshed = inspect_gigafile(job.source, download_key) if download_key else inspect_gigafile(job.source)
             name_changed = refreshed["name"] != job.name
             if int(refreshed["size"]) != job.size or (
                 name_changed and not is_gigafile_fallback_name(job.name, job.source)
@@ -1786,16 +1845,16 @@ class Controller:
                 "target": target_dir,
             }
             self.private_downloads[job_id] = private
-        if provider in {"akirabox", "vikingfile"}:
+        if provider in {"akirabox", "vikingfile", "sendnow"}:
             signed = private.get("download_url") or load_job_download_url(job.id)
-            validator = _validate_akira_url if provider == "akirabox" else _validate_viking_url
+            validator = {"akirabox": _validate_akira_url, "vikingfile": _validate_viking_url, "sendnow": _validate_sendnow_url}[provider]
             validator(job.source, direct=False)
             _validate_handoff_transfer_url(signed, provider)
             private.update(provider=provider, download_url=signed, target=target_dir)
         # Persist layout so a later settings change cannot reinterpret fragments.
         if not job.transfer_mode:
             has_legacy_parts = any(workspace.glob(f".{job.id}.segment.*"))
-            job.transfer_mode = "single" if provider in {"akirabox", "vikingfile"} else ("segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE))
+            job.transfer_mode = "single" if provider in {"akirabox", "vikingfile", "sendnow"} else ("segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE))
             self.save()
         download_mode = job.transfer_mode
         private["transfer_mode"] = download_mode
@@ -1816,7 +1875,7 @@ class Controller:
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 expected_sha256=private.get("expected_sha256", ""), mode=download_mode,
             )
-        elif provider in {"buzzheavier", "akirabox", "vikingfile"}:
+        elif provider in {"buzzheavier", "akirabox", "vikingfile", "sendnow"}:
             script = self._download_script_direct(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 mode=download_mode, capture_headers=True, transient_retries=3 if provider == "akirabox" else 0,
@@ -1824,7 +1883,10 @@ class Controller:
         else:
             file_id = parsed.path.strip("/")
             host = parsed.hostname or ""
-            script = self._download_script(host, file_id, safe_name, job.id, job.size, workspace_dir, mode=download_mode)
+            script = self._download_script(
+                host, file_id, safe_name, job.id, job.size, workspace_dir,
+                mode=download_mode, download_url=private.get("download_url", ""),
+            )
         command = ["sh", "-s"]
         with self.condition:
             if SHUTDOWN_EVENT.is_set() or job.status in {"paused", "cancelled", "stopping"}:
@@ -1872,7 +1934,7 @@ class Controller:
                 current_job.status = "failed"
                 if provider == "gofile" and ((workspace / ".rate-limit").exists() or private.get("rate_limited")):
                     self._defer_gofile(job, workspace)
-                elif provider in {"akirabox", "vikingfile"}:
+                elif provider in {"akirabox", "vikingfile", "sendnow"}:
                     current_job.error = handoff_transfer_error(stderr)
                 elif provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
                     current_job.error = "Buzzheavier 직접 링크가 만료됐거나 사용할 수 없습니다. Copy download link를 다시 받아 새 작업으로 등록해 주세요."
@@ -2011,19 +2073,37 @@ for child in $pids; do wait "$child" || failed=1; done
 printf 'SEGMENTS_READY=%s\\n' "$COUNT"
 '''
 
-    def _download_script(self, host: str, file_id: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented") -> str:
+    def _download_script(self, host: str, file_id: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented", download_url: str = "") -> str:
         page = f"https://{host}/{file_id}"
-        download = f"https://{host}/download.php?file={file_id}"
+        download = download_url or f"https://{host}/download.php?file={file_id}"
+        parsed_download = urlparse(download)
+        query = parse_qs(parsed_download.query, keep_blank_values=True)
+        if (
+            parsed_download.scheme != "https" or (parsed_download.hostname or "").lower() != host.lower()
+            or parsed_download.path != "/download.php" or query.get("file") != [file_id]
+            or any(key not in {"file", "dlkey"} for key in query)
+        ):
+            raise ValueError("GigaFile 다운로드 주소가 올바르지 않습니다.")
         prefix = f"{target_dir}/.{job_id}.segment"
         cookie = f"{target_dir}/.cookies"
         page_copy = f"{target_dir}/.page"
-        curl = f'curl {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error -b "$COOKIE" -e {shlex.quote(page)} {shlex.quote(download)}'
+        curl_config = f"{target_dir}/.curl.conf"
+        config_body = "\n".join((
+            f'url = "{_curl_config_value(download)}"',
+            f'referer = "{_curl_config_value(page)}"',
+            'proto = "=https"', 'proto-redir = "=https"',
+        ))
+        curl = f'curl --config "$CURL_CONFIG" {CURL_HTTPS_ONLY} {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error -b "$COOKIE"'
         setup = f'''#!/bin/sh
 set -eu
 umask 077
 COOKIE={shlex.quote(cookie)}
 PAGE_COPY={shlex.quote(page_copy)}
-cleanup() {{ rm -f "$COOKIE" "$PAGE_COPY"; }}
+CURL_CONFIG={shlex.quote(curl_config)}
+cat > "$CURL_CONFIG" <<'NASDROP_CURL_CONFIG'
+{config_body}
+NASDROP_CURL_CONFIG
+cleanup() {{ rm -f "$COOKIE" "$PAGE_COPY" "$CURL_CONFIG"; }}
 trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
 curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent --show-error -c "$COOKIE" {shlex.quote(page)} -o "$PAGE_COPY"
@@ -2162,6 +2242,23 @@ printf 'SEGMENTS_READY=1\\n'
                 raise ValueError("현재 암호 입력이 필요한 작업이 아닙니다.")
             save_job_password(job_id, normalized)
             job.status = "queued"
+            job.error = ""
+            job.not_before = 0
+            self.save()
+            self.condition.notify_all()
+
+    def submit_download_key(self, job_id: str, download_key: object) -> None:
+        normalized = _validate_gigafile_download_key(download_key)
+        if not normalized:
+            raise ValueError("GigaFile 다운로드 키를 입력해 주세요.")
+        with self.condition:
+            job = self.jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+            if job.delete_requested or job.status != "download_key_required" or self._provider_for_job(job) != "gigafile":
+                raise ValueError("현재 GigaFile 다운로드 키 입력이 필요한 작업이 아닙니다.")
+            save_job_download_key(job_id, normalized)
+            job.status = "inspecting" if job.inspection_pending else "queued"
             job.error = ""
             job.not_before = 0
             self.save()
@@ -2437,6 +2534,47 @@ def _validate_viking_url(value: str, *, direct: bool) -> str:
     return value
 
 
+SENDNOW_SHARE_HOSTS = {"send.now", "www.send.now"}
+SENDNOW_PROVIDER_HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*send\.now\Z")
+
+
+def _validate_sendnow_url(value: str, *, direct: bool) -> str:
+    error = "Send.now 주소가 올바르지 않습니다. 브라우저에서 인증을 마치고 마지막 다운로드 링크를 다시 눌러 주세요."
+    if not isinstance(value, str) or not value or len(value) > 16384 or any(ord(c) < 33 or ord(c) == 127 for c in value) or "\\" in value:
+        raise ValueError(error)
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
+            raise ValueError(error)
+        if direct:
+            return _validate_handoff_transfer_url(value, "sendnow")
+        if parsed.hostname not in SENDNOW_SHARE_HOSTS or parsed.query or not re.fullmatch(r"/[a-zA-Z0-9_-]{6,64}", parsed.path.rstrip("/")):
+            raise ValueError(error)
+    except ValueError:
+        raise ValueError(error) from None
+    return value.rstrip("/")
+
+
+def _public_download_host(host: str) -> bool:
+    """Allow provider-owned hosts and otherwise require every DNS answer to be global."""
+    candidate = host.rstrip(".").lower()
+    if not candidate or candidate == "localhost" or candidate.endswith(".local"):
+        return False
+    if SENDNOW_PROVIDER_HOST.fullmatch(candidate):
+        return True
+    try:
+        literal = ipaddress.ip_address(candidate)
+        return literal.is_global
+    except ValueError:
+        pass
+    try:
+        answers = socket.getaddrinfo(candidate, 443, type=socket.SOCK_STREAM)
+        addresses = {ipaddress.ip_address(answer[4][0].split("%", 1)[0]) for answer in answers}
+    except (OSError, ValueError):
+        return False
+    return bool(addresses) and all(address.is_global for address in addresses)
+
+
 def handoff_transfer_error(stderr: str) -> str:
     """Translate internal transfer status into safe, plain-language errors."""
     markers = re.findall(r"NASDROP_TRANSFER curl=(\d+) merge=(\d+) attempt=(\d+)", stderr)
@@ -2482,6 +2620,15 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
             return _validate_akira_url(value, direct=True)
         if provider == "vikingfile" and parsed.hostname == "vikingfile.com":
             return _validate_viking_url(value, direct=True)
+        if provider == "sendnow":
+            host = (parsed.hostname or "").lower()
+            if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
+                raise ValueError(error)
+            if not parsed.path.startswith("/") or parsed.path == "/" or not _public_download_host(host):
+                raise HandoffError("Send.now가 전달한 다운로드 서버를 안전하게 확인하지 못했습니다.")
+            if host in SENDNOW_SHARE_HOSTS and not parsed.query and re.fullmatch(r"/[a-zA-Z0-9_-]{6,64}/?", parsed.path):
+                raise HandoffError("Send.now 공유 페이지는 직접 다운로드 주소가 아닙니다.")
+            return value
         regional = provider == "vikingfile" and bool(VIKING_FILE_HOST.fullmatch(parsed.hostname or ""))
         if parsed.hostname not in HANDOFF_FILE_HOSTS.get(provider, set()) and not (provider == "vikingfile" and (regional or VIKING_R2_HOST.fullmatch(parsed.hostname or ""))):
             raise HandoffError("허용 목록에 없는 다운로드 서버입니다.")
@@ -2579,9 +2726,9 @@ def _handoff_metadata(response, method: str):
 
 
 def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> dict:
-    if provider not in {"akirabox", "vikingfile"}:
+    if provider not in {"akirabox", "vikingfile", "sendnow"}:
         raise ValueError("지원하지 않는 브라우저 다운로드 전달입니다.")
-    validator = _validate_akira_url if provider == "akirabox" else _validate_viking_url
+    validator = {"akirabox": _validate_akira_url, "vikingfile": _validate_viking_url, "sendnow": _validate_sendnow_url}[provider]
     canonical = validator(share_url, direct=False)
     direct = validator(signed_url, direct=True)
     opener = build_opener(AkiraNoRedirectHandler())
@@ -2720,6 +2867,45 @@ def inspect_buzzheavier(raw_url: str) -> dict:
         "provider": "buzzheavier",
         "download_url": direct_url,
     }
+
+
+def _gigafile_page_requires_download_key(source: str) -> bool:
+    return bool(
+        re.search(r'\bid\s*=\s*["\']dlkey["\']', source, re.I)
+        and re.search(r'\bdownload\s*\([^)]*,\s*true\s*,', source, re.I)
+    )
+
+
+def _check_gigafile_download_key(opener, host: str, file_id: str, download_key: str, canonical: str) -> None:
+    query = urlencode({"file": file_id, "dlkey": download_key, "is_zip": "0"})
+    request = Request(
+        f"https://{host}/check_dlkey.php?{query}",
+        headers={"User-Agent": "Mozilla/5.0 NAS Download Portal", "Referer": canonical},
+    )
+    with opener.open(request, timeout=30) as response:
+        raw = response.read(4096)
+    try:
+        result = json.loads(raw.decode("utf-8", "replace"))
+        status = int(result.get("status", -1))
+    except (AttributeError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        raise ValueError("GigaFile 다운로드 키 확인 응답을 읽지 못했습니다.") from exc
+    if status == 0:
+        return
+    if status == 1:
+        raise GigaFileDownloadKeyInvalidError("GigaFile 다운로드 키가 올바르지 않습니다. 키를 확인해 다시 입력해 주세요.")
+    if status == 3:
+        raise GigaFileDownloadKeyRequiredError("GigaFile 다운로드 키 확인이 일시 잠겼습니다. 잠시 후 키를 다시 입력해 주세요.")
+    raise GigaFileDownloadKeyRequiredError("GigaFile 다운로드 키를 확인하지 못했습니다. 키를 다시 입력해 주세요.")
+
+
+def _apply_gigafile_download_key(inspected: dict, host: str, download_key: str) -> dict:
+    candidates = inspected.get("files") if inspected.get("batch") else [inspected]
+    for item in candidates:
+        if not isinstance(item, dict):
+            continue
+        individual_id = service_path_id(urlparse(str(item.get("url", ""))))
+        item["download_url"] = f"https://{host}/download.php?{urlencode({'file': individual_id, 'dlkey': download_key})}"
+    return inspected
 
 
 def parse_gigafile_page(source: str, canonical: str, host: str, file_id: str) -> dict:
@@ -2879,7 +3065,7 @@ def is_gigafile_fallback_name(name: str, source: str) -> bool:
     return name == f"GigaFile {individual_id}"
 
 
-def inspect_gigafile(raw_url: str) -> dict:
+def inspect_gigafile(raw_url: str, download_key: str = "") -> dict:
     parsed = urlparse(raw_url.strip())
     host = (parsed.hostname or "").lower()
     if parsed.scheme != "https" or not GIGAFILE_HOST.fullmatch(host):
@@ -2891,7 +3077,15 @@ def inspect_gigafile(raw_url: str) -> dict:
     request = Request(canonical, headers={"User-Agent": "Mozilla/5.0 NAS Download Portal"})
     with opener.open(request, timeout=30) as response:
         source = response.read(2_000_000).decode("utf-8", "replace")
+    requires_download_key = _gigafile_page_requires_download_key(source)
+    normalized_download_key = _validate_gigafile_download_key(download_key)
+    if requires_download_key:
+        if not normalized_download_key:
+            raise GigaFileDownloadKeyRequiredError("GigaFile 다운로드 키가 필요합니다. 키를 입력하면 받던 위치에서 계속합니다.")
+        _check_gigafile_download_key(opener, host, file_id, normalized_download_key, canonical)
     inspected = parse_gigafile_page(source, canonical, host, file_id)
+    if requires_download_key:
+        inspected = _apply_gigafile_download_key(inspected, host, normalized_download_key)
     if inspected.get("batch"):
         return resolve_gigafile_batch_names(inspected, host, cookie_jar)
     try:
@@ -3149,6 +3343,8 @@ def provider_for_url(raw_url: str) -> str:
         return "akirabox"
     if host in {"vik1ngfile.site", "vikingfile.com"}:
         return "vikingfile"
+    if host in SENDNOW_SHARE_HOSTS or SENDNOW_PROVIDER_HOST.fullmatch(host):
+        return "sendnow"
     if host in {"gofile.io", "www.gofile.io"}:
         return "gofile"
     if host in {"pixeldrain.com", "www.pixeldrain.com", "pixeldrain.net", "pixeldra.in"}:
@@ -3160,7 +3356,7 @@ def provider_for_url(raw_url: str) -> str:
 
 def inspect_download(raw_url: str) -> dict:
     host = (urlparse(raw_url.strip()).hostname or "").lower()
-    if host in {"akirabox.to", "akirabox.com", "vik1ngfile.site", "vikingfile.com"}:
+    if host in {"akirabox.to", "akirabox.com", "vik1ngfile.site", "vikingfile.com", *SENDNOW_SHARE_HOSTS}:
         raise ValueError("이 서비스는 크롬 확장에서 다운로드 버튼이 준비된 뒤 NAS로 보내 주세요.")
     try:
         if _is_buzzheavier_download_host(host):
@@ -3554,7 +3750,8 @@ class Handler(BaseHTTPRequestHandler):
                 "password_change_required": password_change_required(),
                 "job_processing_options": True,
                 "job_safe_delete": True,
-                "browser_handoff_providers": ["akirabox", "vikingfile"],
+                "gigafile_download_key": True,
+                "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow"],
                 "disk_protection": DISK_PROTECTION,
                 "temporary_folder": ".nasdrop-tmp",
                 "archive_formats": ["zip", "7z", "rar", "tar", "tar.gz", "tgz", "tar.bz2", "tbz2", "tar.xz", "txz"],
@@ -3663,7 +3860,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(HTTPStatus.OK, {"file": cache_inspection(inspected)})
             if path == "/api/enqueue":
                 job = CONTROLLER.enqueue_gigafile(str(payload.get("url", "")), str(payload.get("target", "")),
-                                                  payload.get("extract"), str(payload.get("password", "")))
+                                                  payload.get("extract"), str(payload.get("password", "")),
+                                                  str(payload.get("download_key", "")))
                 return self.send_json(HTTPStatus.ACCEPTED, {"job": asdict(job), "count": 1})
             if path == "/api/start":
                 inspected = consume_inspection(payload)
@@ -3677,6 +3875,7 @@ class Handler(BaseHTTPRequestHandler):
                 extraction_choice = payload.get("extract") if "extract" in payload else None
                 jobs = CONTROLLER.start_many(
                     files, str(payload.get("target", "")), extraction_choice, str(payload.get("password", "")),
+                    download_key=str(payload.get("download_key", "")),
                 )
                 return self.send_json(HTTPStatus.ACCEPTED, {"job": asdict(jobs[0]), "jobs": [asdict(job) for job in jobs], "count": len(jobs)})
             if path == "/api/settings":
@@ -3718,6 +3917,10 @@ class Handler(BaseHTTPRequestHandler):
             password_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/password", path)
             if password_match:
                 CONTROLLER.submit_password(password_match.group(1), payload.get("password", ""))
+                return self.send_json(HTTPStatus.OK, {"ok": True})
+            download_key_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/download-key", path)
+            if download_key_match:
+                CONTROLLER.submit_download_key(download_key_match.group(1), payload.get("download_key", ""))
                 return self.send_json(HTTPStatus.OK, {"ok": True})
             if path == "/api/jobs/delete":
                 ids = payload.get("ids", [])

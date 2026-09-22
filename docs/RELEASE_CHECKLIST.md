@@ -1,4 +1,24 @@
-# NASDrop 0.9.23 릴리스 체크리스트
+# NASDrop 0.9.25 릴리스 체크리스트
+
+## 0.9.25 GigaFile protected downloads
+
+- [x] Download keys and archive passwords use separate fields and server state.
+- [x] Missing or rejected keys pause with `download_key_required` and are never retried automatically.
+- [x] The web portal and Chrome 0.5.5 can submit a key without putting it in a URL, log, public job response, or browser storage.
+- [x] A paused job can accept a corrected key and resume without deleting verified download work.
+- [x] The job secret is removed when it is rejected, no longer needed, or the job is deleted.
+- [x] A real protected GigaFile page was detected as requiring a key without exposing the key.
+- [ ] Complete a protected GigaFile download on the target NAS using the correct key.
+- [ ] Verify wrong-key recovery, service restart, and package update on DSM.
+
+## 0.9.24 Send.now browser handoff
+
+- [x] The extension intercepts only a prepared official final link after user verification.
+- [x] CAPTCHA and Cloudflare controls are not automated or bypassed.
+- [x] The server rejects private/local destinations and unsafe URL forms while allowing changing public HTTPS delivery hosts.
+- [x] Python and Chrome extension regression suites pass together.
+- [ ] Complete a real user-assisted Send.now download on the target NAS.
+- [ ] After the real flow passes, synchronize Docker and run source-parity and multi-architecture smoke tests.
 
 ## 0.9.23 Safe stop-and-delete
 

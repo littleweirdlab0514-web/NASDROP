@@ -11,6 +11,10 @@ Object.assign(messages.en, {clearCompleted:'Clear completed',archivePassword:'Ar
 Object.assign(messages.ko, {clearCompleted:'완료된 작업 삭제',archivePassword:'압축 비밀번호 (선택)',close:'닫기',saveOptions:'설정 저장',clearConfirm:'완료된 작업을 목록에서 삭제할까요? NAS에 저장된 파일은 유지됩니다.',cleared:'완료된 작업 기록을 삭제했습니다. NAS 파일은 유지됩니다.',saved:'설정을 저장했습니다.',passwordAlert:'작업 {count}개에 압축 비밀번호가 필요합니다. 아래 작업을 눌러 입력하세요.',live:'자동 갱신 · {time}',retry:'연결 지연 · 간격을 늘려 다시 확인합니다',locked:'후처리 중이거나 종료된 작업은 설정을 변경할 수 없습니다.',upgrade:'압축 해제 설정 변경은 새 NASDrop 서버가 필요합니다. 비밀번호 대기 작업의 암호 입력은 가능합니다.',optionHint:'비밀번호를 비우면 기존 암호를 유지합니다. 일시정지한 작업은 자동 재개하지 않습니다.',passwordNeeded:'계속하려면 압축 비밀번호를 입력하세요.'});
 Object.assign(messages.ja, {clearCompleted:'完了履歴を削除',archivePassword:'アーカイブのパスワード（任意）',close:'閉じる',saveOptions:'設定を保存',clearConfirm:'完了した履歴を削除しますか？NASのファイルは保持されます。',cleared:'完了履歴を削除しました。ファイルは保持されます。',saved:'設定を保存しました。',passwordAlert:'{count}件にパスワードが必要です。ジョブを選択してください。',live:'自動更新 · {time}',retry:'接続できません。間隔を延ばして再試行します。',locked:'処理中または完了後は変更できません。',upgrade:'展開設定の変更には新しいNASDropサーバーが必要です。',optionHint:'空欄なら既存のパスワードを保持します。一時停止は自動再開しません。',passwordNeeded:'アーカイブのパスワードを入力してください。'});
 Object.assign(messages.zh, {clearCompleted:'清除已完成任务',archivePassword:'压缩密码（可选）',close:'关闭',saveOptions:'保存设置',clearConfirm:'清除已完成任务记录？NAS 文件将保留。',cleared:'已清除完成记录，NAS 文件已保留。',saved:'设置已保存。',passwordAlert:'{count} 个任务需要密码，请点击任务输入。',live:'自动刷新 · {time}',retry:'连接中断，正在延长间隔重试',locked:'处理期间或结束后不能更改设置。',upgrade:'更改解压设置需要新版 NASDrop 服务。',optionHint:'留空以保留现有密码。暂停任务不会自动恢复。',passwordNeeded:'请输入压缩密码以继续。'});
+Object.assign(messages.en,{gigafileDownloadKey:'GigaFile download key (optional)',gigafileDownloadKeyRequired:'GigaFile download key',gigafileDownloadKeyHint:'Used only for a protected GigaFile download. It is not an archive password.',gigafileDownloadKeyRequiredHint:'Enter the 1–4 character key supplied by the sender.',submitDownloadKey:'Submit download key',invalidDownloadKey:'Enter a GigaFile download key containing 1–4 characters.'});
+Object.assign(messages.ko,{gigafileDownloadKey:'GigaFile 다운로드 키 (선택)',gigafileDownloadKeyRequired:'GigaFile 다운로드 키',gigafileDownloadKeyHint:'키가 설정된 GigaFile 다운로드에만 사용합니다. 압축 비밀번호와는 별개입니다.',gigafileDownloadKeyRequiredHint:'보낸 사람이 제공한 1~4자 키를 입력하세요.',submitDownloadKey:'다운로드 키 제출',invalidDownloadKey:'1~4자의 GigaFile 다운로드 키를 입력하세요.'});
+Object.assign(messages.ja,{gigafileDownloadKey:'GigaFileダウンロードキー（任意）',gigafileDownloadKeyRequired:'GigaFileダウンロードキー',gigafileDownloadKeyHint:'保護されたGigaFileのダウンロードにのみ使用します。アーカイブのパスワードとは別です。',gigafileDownloadKeyRequiredHint:'送信者から提供された1～4文字のキーを入力してください。',submitDownloadKey:'ダウンロードキーを送信',invalidDownloadKey:'1～4文字のGigaFileダウンロードキーを入力してください。'});
+Object.assign(messages.zh,{gigafileDownloadKey:'GigaFile 下载密钥（可选）',gigafileDownloadKeyRequired:'GigaFile 下载密钥',gigafileDownloadKeyHint:'仅用于受保护的 GigaFile 下载，与压缩密码不同。',gigafileDownloadKeyRequiredHint:'请输入发送者提供的 1–4 个字符密钥。',submitDownloadKey:'提交下载密钥',invalidDownloadKey:'请输入 1–4 个字符的 GigaFile 下载密钥。'});
 Object.assign(messages.en,{pauseJob:'Pause',resumeJob:'Resume',deleteJob:'Delete',deleteRecord:'Delete record',deleteHint:'Pause first to delete unfinished files. Completed files are kept.',stoppingHint:'Stopping… Delete becomes available after the worker exits.',deletePartialConfirm:'Delete this unfinished job and all its temporary download files? This cannot be undone. Completed output files are kept.',deleteRecordConfirm:'Remove this completed job record? The downloaded files will be kept.',jobActionDone:'Request accepted.',jobDeleted:'Job deleted.'});
 Object.assign(messages.ko,{pauseJob:'멈추기',resumeJob:'다시 시작',deleteJob:'삭제',deleteRecord:'기록 삭제',deleteHint:'미완료 작업은 멈춘 뒤 삭제하면 받던 임시 파일도 삭제됩니다. 완료 파일은 유지됩니다.',stoppingHint:'중지 중… 작업이 완전히 멈추면 삭제할 수 있습니다.',deletePartialConfirm:'이 미완료 작업과 받던 임시 파일을 삭제할까요? 되돌릴 수 없습니다. 이미 완료된 출력 파일은 유지됩니다.',deleteRecordConfirm:'완료된 작업의 기록을 삭제할까요? NAS에 저장된 파일은 유지됩니다.',jobActionDone:'요청을 접수했습니다.',jobDeleted:'작업을 삭제했습니다.'});
 Object.assign(messages.ja,{pauseJob:'停止',resumeJob:'再開',deleteJob:'削除',deleteRecord:'履歴削除',deleteHint:'停止後に削除すると一時ファイルも削除されます。完了ファイルは保持されます。',stoppingHint:'停止処理中です。終了後に削除できます。',deletePartialConfirm:'未完了のジョブと一時ファイルを削除しますか？元に戻せません。完了ファイルは保持されます。',deleteRecordConfirm:'履歴を削除しますか？NASのファイルは保持されます。',jobActionDone:'リクエストを受け付けました。',jobDeleted:'ジョブを削除しました。'});
@@ -19,7 +23,7 @@ let uiState = {connected:false,jobs:[]}, selectedJob = '', optionsDirty = false,
 const jobCards=new Map(), jobDetail=$('#job-detail');
 const pausableStates=new Set(['inspecting','queued','ready','downloading','waiting_processing','verifying']);
 const resumableStates=new Set(['paused','failed','cancelled']);
-const deletableStates=new Set(['paused','failed','cancelled','password_required','completed']);
+const deletableStates=new Set(['paused','failed','cancelled','password_required','download_key_required','completed']);
 const editableStates = new Set(['queued','ready','inspecting','paused','downloading','password_required']);
 const popupPort = chrome.runtime.connect({name:'nasdrop-popup'});
 const polling = NASDropPolling.create({
@@ -128,15 +132,20 @@ function formatBytes(value) {
 function openJob(id) {
   if(mutationBusy) return;
   if(selectedJob===id) { closeJob(); return; }
-  if (selectedJob !== id) { selectedJob=id; optionsDirty=false; $('#job-password').value=''; }
+  if (selectedJob !== id) { selectedJob=id; optionsDirty=false; $('#job-password').value=''; $('#job-download-key').value=''; }
   jobDetail.classList.remove('hidden'); renderJobs(uiState.jobs); syncJobDetail();
 }
-function closeJob() { selectedJob=''; optionsDirty=false; $('#job-password').value=''; jobDetail.classList.add('hidden'); renderJobs(uiState.jobs); }
+function closeJob() { selectedJob=''; optionsDirty=false; $('#job-password').value=''; $('#job-download-key').value=''; jobDetail.classList.add('hidden'); renderJobs(uiState.jobs); }
 function syncJobDetail() {
   const job=uiState.jobs.find(job=>job.id===selectedJob);
   if (!job) { closeJob(); return; }
   $('#job-delete-hint').textContent=t(job.status==='stopping'?'stoppingHint':'deleteHint');
   const modern=Boolean(uiState.status?.job_processing_options), editable=editableStates.has(job.status);
+  const downloadKeyRequired=job.status==='download_key_required';
+  $('#job-options-form').classList.toggle('hidden',downloadKeyRequired);
+  $('#job-download-key-form').classList.toggle('hidden',!downloadKeyRequired);
+  $('#job-download-key').disabled=mutationBusy || !downloadKeyRequired || uiState.status?.gigafile_download_key !== true;
+  $('#save-job-download-key').disabled=$('#job-download-key').disabled;
   $('#job-password').disabled=mutationBusy || !job.extract || !(modern && editable || job.status==='password_required');
   $('#save-job-options').disabled=$('#job-password').disabled;
   $('#job-options-hint').textContent=!modern ? t('upgrade') : !editable ? t('locked') : job.status==='password_required' ? t('passwordNeeded') : t('optionHint');
@@ -155,6 +164,7 @@ function render(state) {
   $('#username').value = state.username || $('#username').value;
   $('#auto-extract').checked = state.autoExtract !== false;
   $('#archive-password').disabled = state.autoExtract === false;
+  $('#gigafile-download-key').disabled = state.status?.gigafile_download_key !== true;
   $('#connection-label').textContent = connected ? state.baseUrl : 'Chrome';
   if (connected) {
     $('#destination-label').textContent = `${t('destination')}: ${state.status?.target || t('noDestination')}`;
@@ -185,9 +195,12 @@ $('#password').addEventListener('keydown',event=>{
 
 $('#send-form').addEventListener('submit', async event => {
   event.preventDefault(); const button = $('#send-button'); button.disabled = true; notice(t('inspecting'));
+  const downloadKey=$('#gigafile-download-key').value;
+  $('#gigafile-download-key').value='';
+  if (downloadKey.length > 4) { notice(t('invalidDownloadKey')); button.disabled=false; return; }
   try {
     await preferenceSave;
-    const result = await send({ type:'submit', url:$('#download-url').value.trim(), password:$('#auto-extract').checked ? $('#archive-password').value : '' });
+    const result = await send({ type:'submit', url:$('#download-url').value.trim(), password:$('#auto-extract').checked ? $('#archive-password').value : '', downloadKey });
     $('#download-url').value = '';
     $('#archive-password').value = '';
     notice(result.count > 1 ? t('addedMany', { count:result.count }) : t('added', { name:result.file.name }), true);
@@ -258,8 +271,21 @@ $('#job-options-form').addEventListener('submit',async event=>{
   } catch(error) { notice(error.message); }
   finally {mutationBusy=false; await polling.start(); syncJobDetail();}
 });
+$('#job-download-key').addEventListener('input',()=>{notice('');});
+$('#job-download-key-form').addEventListener('submit',async event=>{
+  event.preventDefault(); if (mutationBusy || $('#save-job-download-key').disabled) return;
+  const downloadKey=$('#job-download-key').value;
+  $('#job-download-key').value='';
+  if (downloadKey.length < 1 || downloadKey.length > 4) { notice(t('invalidDownloadKey')); return; }
+  mutationBusy=true; polling.stop(); syncJobDetail();
+  try {
+    await send({type:'jobDownloadKey',id:selectedJob,downloadKey});
+    notice(t('jobActionDone'),true);
+  } catch(error) { notice(error.message); }
+  finally {mutationBusy=false; await polling.start(); syncJobDetail();}
+});
 document.addEventListener('visibilitychange',()=>polling.visibilityChanged());
-window.addEventListener('pagehide',()=>{polling.stop(); popupPort.disconnect(); $('#job-password').value=''; $('#archive-password').value='';});
+window.addEventListener('pagehide',()=>{polling.stop(); popupPort.disconnect(); $('#job-password').value=''; $('#archive-password').value=''; $('#gigafile-download-key').value=''; $('#job-download-key').value='';});
 
 localize();
 refresh().then(() => useCurrentTab(false)).catch(error => notice(error.message));

@@ -12,14 +12,14 @@ NASDrop publishes one multi-platform image for `linux/amd64` and `linux/arm64`. 
 The official image is:
 
 ```text
-ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
+ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1
 ```
 
 Use the numbered tag for reproducible installations. Use `latest` only when you intentionally want the newest release during updates.
 
 ## Install with Docker Compose
 
-Create an empty `nasdrop` directory and save the repository's `compose.yaml` in it. Create a `.env` file beside it:
+Create an empty `nasdrop` directory. Download [`docker/compose.release.yaml`](../docker/compose.release.yaml) and save it as `compose.yaml`; this installation file pins the numbered image tag and contains no local `build:` block. Also copy [`docker/compose.env.example`](../docker/compose.env.example) beside it as `.env`, then edit the values:
 
 ```dotenv
 PUID=1000
@@ -29,6 +29,8 @@ NASDROP_CONFIG_DIR=./nasdrop-config
 NASDROP_DOWNLOAD_DIR=./downloads
 NASDROP_PORT=8791
 NASDROP_BIND_ADDRESS=0.0.0.0
+# Keep false unless NASDrop is reachable only through a trusted local reverse proxy.
+NASDROP_TRUST_FORWARDED_FOR=false
 ```
 
 On Linux, find the account IDs that own the download folder:
@@ -46,7 +48,7 @@ docker compose pull
 docker compose up -d
 ```
 
-Open `http://SERVER-IP:8791`. On a new `/config` folder, sign in with temporary ID `nasdrop` and temporary password `nasdrop`. NASDrop immediately opens the account form and blocks downloads, folders, settings, and job APIs until you save a new ID and a password of 10–128 characters. The short temporary password is accepted only for this initial login/current-password check; it cannot be saved as the new password. Existing custom credentials are preserved. If an existing account still verifies as the exact default `nasdrop` / `nasdrop`, every Docker start restores the mandatory-change flag. After changing the login, select `/downloads` as the default destination so NASDrop can verify that the mounted folder is writable.
+Open `http://SERVER-IP:8791`. On a new `/config` folder, sign in with temporary ID `nasdrop` and temporary password `nasdrop`. NASDrop immediately opens the account form and blocks downloads, folders, settings, and job APIs until you save a new ID and a password of 10–128 characters. The short temporary password is accepted only for this initial login/current-password check; it cannot be saved as the new password. Existing custom credentials are preserved. If an existing account still verifies as the exact default `nasdrop` / `nasdrop`, every Docker start restores the mandatory-change flag. `/downloads` is already the default destination through the container environment. After changing the login, opening **Settings** and selecting `/downloads` once is recommended as a write-access check, but is not required to establish the default.
 
 Check startup state and logs:
 
@@ -60,7 +62,7 @@ docker compose logs --tail=100 nasdrop
 The Docker image works on both Intel/AMD and ARM Synology models that support Container Manager, even though the native SPK is currently x86_64 only.
 
 1. In File Station, create `/volume1/docker/nasdrop/config` and a download folder such as `/volume1/downloads`.
-2. If SSH is enabled, run `id your-dsm-user` and record its numeric UID and GID. Give that DSM user read/write permission to the download shared folder.
+2. Record the numeric UID and GID of the DSM user that owns the download folder. If SSH is disabled, temporarily enable it under **Control Panel > Terminal & SNMP**, run `id your-dsm-user`, then disable SSH again. Do not assume the example IDs match your NAS. Give that DSM user read/write permission to the download shared folder.
 3. Open **Container Manager > Project > Create**.
 4. Name the project `nasdrop`, select `/volume1/docker/nasdrop` as its path, and paste the Compose configuration below.
 5. Build the project.
@@ -69,7 +71,7 @@ The Docker image works on both Intel/AMD and ARM Synology models that support Co
 ```yaml
 services:
   nasdrop:
-    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
+    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1
     container_name: nasdrop
     restart: unless-stopped
     init: true
@@ -98,11 +100,12 @@ If the native Synology package already uses port `8791`, change the Docker mappi
 
 ## Windows and macOS with Docker Desktop
 
-Create a folder for the project, save `compose.yaml`, then run the same three Compose commands in PowerShell, Windows Terminal, or macOS Terminal. Relative mounts create `nasdrop-config` and `downloads` next to the Compose file.
+Create a folder for the project, save the release Compose file as `compose.yaml`, then run these three commands in PowerShell, Windows Terminal, or macOS Terminal. Relative mounts create `nasdrop-config` and `downloads` next to the Compose file.
 
 ```powershell
 docker compose pull
 docker compose up -d
+docker compose ps
 ```
 
 If Docker Desktop cannot mount the selected drive, allow that drive or folder in Docker Desktop's file-sharing settings. Use `http://localhost:8791` on the same computer.
@@ -113,7 +116,7 @@ Create persistent folders first, then create the account and start the service:
 
 ```sh
 mkdir -p nasdrop-config downloads
-docker pull ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
+docker pull ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1
 docker run -d --name nasdrop --restart unless-stopped --init \
   --read-only --security-opt no-new-privileges:true \
   --tmpfs /tmp:size=1g,mode=1777 \
@@ -123,7 +126,7 @@ docker run -d --name nasdrop --restart unless-stopped --init \
   -e NAS_PORTAL_STORAGE_ROOTS=/downloads \
   -v "$PWD/nasdrop-config:/config" \
   -v "$PWD/downloads:/downloads" \
-  ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4
+  ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1
 ```
 
 ## Additional download folders
@@ -151,7 +154,7 @@ docker compose pull
 docker compose up -d
 ```
 
-After an update, select the default download folder again in Settings so NASDrop rechecks write access. The `/config` and `/downloads` mounts survive container replacement.
+After an update, selecting the default download folder again in Settings is recommended so NASDrop rechecks write access. The `/config` and `/downloads` mounts survive container replacement.
 
 Back up the host configuration folder while the container is stopped:
 
@@ -174,25 +177,39 @@ docker compose restart nasdrop
 
 Changing the account invalidates existing sessions.
 
+In Synology Container Manager, open the running `nasdrop` container's **Terminal**, create a shell, run `nasdrop-account set owner`, and then restart the container from the **Action** menu.
+
 ## Offline image installation
 
-Download the matching release TAR on a connected computer, copy it to the Docker host, and import it:
+NASDrop does not attach Docker TAR files to GitHub releases. On a connected computer, pull the required architecture and create the transfer file yourself:
 
 ```sh
-docker load -i NASDrop-0.9.23-amd64.tar
+docker pull --platform linux/amd64 ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1
+docker save -o nasdrop-0.9.25-1-amd64.tar ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1
 ```
 
-For an ARM64 host, use `NASDrop-0.9.23-arm64.tar`. Run `docker image ls` after loading and use the loaded image name in `compose.yaml`. Release TARs are optional; a normal connected installation should use GHCR so Docker selects the architecture automatically.
+For an ARM64 host, replace `linux/amd64` and `amd64.tar` with `linux/arm64` and `arm64.tar`. Copy the TAR and the installation files to the offline host, then load and start them:
+
+```sh
+docker load -i nasdrop-0.9.25-1-amd64.tar
+docker compose up -d
+```
+
+Use the ARM64 filename when applicable. Skip `docker compose pull` on the offline host; the loaded image retains the numbered GHCR tag used by `compose.yaml`. A normal connected installation should pull from GHCR so Docker selects the architecture automatically.
 
 ## Troubleshooting
 
 **The web page does not open:** run `docker compose ps` and `docker compose logs --tail=100 nasdrop`. Check that the host port is unused and allowed by the host firewall.
 
-**The download folder is locked or not writable:** verify the bind-mount path, `PUID`, `PGID`, and host permissions. Test from inside the container with `docker compose exec nasdrop sh -c 'id; test -w /downloads && echo writable'`.
+**The download folder is locked or not writable:** verify the bind-mount path, `PUID`, `PGID`, and host permissions. Test as the same numeric account used by the service, rather than as container root:
+
+```sh
+docker compose exec nasdrop sh -c 'gosu "$PUID:$PGID" sh -c "id; test -w /downloads && echo writable || { echo not-writable; exit 1; }"'
+```
 
 **The container restarts repeatedly:** inspect the logs and confirm that `/config` is writable by `PUID:PGID`. Do not remove the read-only or no-new-privileges settings merely to hide a mount-permission error.
 
-**The wrong architecture is reported:** `docker image inspect ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-4 --format '{{.Architecture}}'` shows the local image architecture. Remove a manually imported image for the wrong CPU and pull the multi-platform GHCR tag again.
+**The wrong architecture is reported:** `docker image inspect ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1 --format '{{.Architecture}}'` shows the local image architecture. Remove a manually imported image for the wrong CPU and pull the multi-platform GHCR tag again.
 
 **Port 8791 is occupied:** set `NASDROP_PORT=8792` in `.env`, or change the mapping to `8792:8791`.
 

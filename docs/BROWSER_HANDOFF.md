@@ -1,5 +1,13 @@
 # Experimental browser handoff — 0.9.19
 
+## Send.now extension update
+
+Send.now uses the same authenticated handoff contract but remains user-assisted. The extension does not click or solve Cloudflare/hCaptcha controls. After the user completes the provider flow, only an official prepared `#direct_link a[href]` or `a#downloadbtn[href]` control is intercepted. The original `https://send.now/ID` share URL and issued direct URL are sent separately with provider `sendnow`.
+
+Send.now delivery hosts may change, so the server accepts a public HTTPS destination rather than one hard-coded CDN hostname. It rejects credentials, fragments, non-default ports, local/private DNS results, another bare share page, HTML/JSON responses, missing size, and missing byte-range support. It follows at most three inspected redirects, revalidates every destination, persists only the verified final URL in private job storage, disables transfer-time redirects, and uses one connection. Signed URLs, cookies, tokens, and remote errors stay out of public job data and logs.
+
+This support is not release-ready until the canonical server tests, Chrome extension tests, and a real user-assisted Send.now download all pass. Docker is synchronized only afterward from the same canonical source.
+
 Install the local 0.9.19-1 SPK and compatible Chrome extension 0.4.2 or later. Existing 0.4.2 does not need replacement.
 Refresh the extension connection after updating the NAS.
 Open the original AkiraBox or VikingFile share page and wait for its official Download button to become ready.

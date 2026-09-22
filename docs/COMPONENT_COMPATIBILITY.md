@@ -6,10 +6,10 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.23-4 | Canonical server, API, providers, and web UI |
-| Docker image | 0.9.23-4 | Same core server and web files as Synology; amd64/arm64 verified with pinned 7-Zip 26.03 |
+| Synology package | 0.9.25-1 test build | Canonical server, API, providers, web UI, and protected GigaFile download-key recovery |
+| Docker image | 0.9.25-1 pending | Source version synchronized; build and smoke-test only after the Synology protected-link flow passes |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
-| Chrome extension | 0.5.1 | Uses explicit provider and processing capabilities; keeps strict deletion behavior |
+| Chrome extension | 0.5.5 | Adds protected GigaFile key handoff and user-assisted Send.now handoff; keeps strict deletion behavior |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
@@ -36,6 +36,9 @@ Current coordinated capabilities include:
 - `job_safe_delete`: permits `POST /api/jobs/delete` with `stop_active: true`; legacy deletion remains strict.
 - `job_processing_options`: permits per-job extraction and password updates.
 - `browser_handoff_providers`: lists the exact browser-assisted providers accepted by the server.
+- `gigafile_download_key`: permits a client to submit a GigaFile download key when creating a job and to resume a paused `download_key_required` job through the dedicated key endpoint.
+
+Provider changes shared by the server and Chrome must pass both regression suites and a real provider flow before Docker is synchronized and smoke-tested from the same canonical source. Docker must not add a provider-specific implementation of its own.
 
 An explicit async-enqueue capability must be added before Android removes its remaining legacy version check. Until then, the client must retain the normal inspect/start fallback.
 

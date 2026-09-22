@@ -3,7 +3,9 @@
   let language=NASDropI18n.normalize(navigator.language);
   const text=new Proxy({}, {get:(_,key)=>NASDropI18n.dictionaries[language][key]});
   let pending = false;
+  let sendNowTimer = 0;
   let contextLost = false;
+  let readinessCache = null;
   function invalidContext(error) { return /extension context invalidated/i.test(String(error?.message || error || '')); }
   let panel;
   function show(message) {
@@ -42,7 +44,7 @@
       }
       show(text.sending);
       let response;
-      try { response = await chrome.runtime.sendMessage({type:'pageSubmit', url}); }
+      try { response = await chrome.runtime.sendMessage({type:'pageSubmit', url, downloadKey:action.downloadKey || ''}); }
       catch (error) { if (invalidContext(error)) { contextLost=true; show(text.reloadExtension); } else show(text.uncertain); return; }
       show(response?.ok ? text.success : text[response?.code] || response?.error || text.failed);
     } catch (error) {
@@ -50,15 +52,59 @@
       else show(error.message || text.failed);
     } finally { pending = false; }
   }
+  async function armDownload(action, element) {
+    if (contextLost) { show(text.reloadExtension); return; }
+    pending = true;
+    show(text.sending);
+    try {
+      const response = await chrome.runtime.sendMessage({type:'pageArmDownload',source:action.source});
+      language=NASDropI18n.normalize(response?.result?.language || language);
+      if(panel?.closeButton)panel.closeButton.setAttribute('aria-label',text.close);
+      if (!response?.ok) { pending=false; show(text[response?.code] || response?.error || text.failed); return; }
+      element.click();
+      sendNowTimer=setTimeout(()=>{pending=false;show(text.uncertain);},65000);
+    } catch (error) {
+      pending=false;
+      if (invalidContext(error)) { contextLost=true; show(text.reloadExtension); }
+      else show(error.message || text.failed);
+    }
+  }
+  chrome.runtime.onMessage.addListener(message => {
+    if (message?.type !== 'sendNowResult') return;
+    clearTimeout(sendNowTimer); sendNowTimer=0; pending=false;
+    show(message.ok ? text.success : message.error || text.failed);
+  });
+  async function preloadReadiness() {
+    if (adapters.provider(location.href) !== 'gigafile') return;
+    try {
+      const response = await chrome.runtime.sendMessage({type:'pageReady'});
+      if (response?.ok) readinessCache = response.result;
+    } catch (error) {
+      if (invalidContext(error)) contextLost=true;
+    }
+  }
+  void preloadReadiness();
   // Delegation also covers controls inserted after load and SPA navigation.
   window.addEventListener('click', event => {
     if (!event.isTrusted || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-    const element = event.target?.closest?.('a, button, input[type="button"], input[type="submit"], [data-action]');
+    const element = event.target?.closest?.('a, button, input[type="button"], input[type="submit"], [data-action], [onclick]');
     if (!element || element.disabled || element.getAttribute('aria-disabled') === 'true') return;
-    const action = adapters.resolve(element, location.href);
+    const action = adapters.resolve(element, location.href, document.referrer);
     if (!action) return;
+    if (action.gigafileKeyRequired) {
+      // Unknown, signed-out and older servers leave the site's own download
+      // behavior untouched. Capability is prefetched before the user clicks.
+      if (!readinessCache?.ready || !readinessCache.gigafileDownloadKeySupported) return;
+      const input = document.querySelector('#dlkey');
+      const downloadKey = String(input?.value || '');
+      if (downloadKey.length < 1 || downloadKey.length > 4) {
+        event.preventDefault(); event.stopImmediatePropagation(); input?.focus(); show(text.gigafileKeyPrompt); return;
+      }
+      action.downloadKey = downloadKey;
+      if (input) input.value = '';
+    }
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (!pending) void send(action);
+    if (!pending) void (action.captureDownload ? armDownload(action, element) : send(action));
   }, true);
 })();

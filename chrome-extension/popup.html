@@ -35,6 +35,8 @@
         <label><span data-i18n="downloadLink">Download link</span><textarea id="download-url" rows="3" required></textarea></label>
         <button class="secondary" id="use-tab-button" type="button" data-i18n="useCurrentTab">Use current tab</button>
         <label><span data-i18n="archivePassword">Archive password (optional)</span><input id="archive-password" type="password" autocomplete="off"></label>
+        <label><span data-i18n="gigafileDownloadKey">GigaFile download key (optional)</span><input id="gigafile-download-key" type="password" maxlength="4" autocomplete="off" aria-describedby="gigafile-download-key-hint"></label>
+        <p id="gigafile-download-key-hint" class="muted" data-i18n="gigafileDownloadKeyHint">Used only for a protected GigaFile download. It is not an archive password.</p>
         <button class="primary" id="send-button" type="submit" data-i18n="send">Send to NASDrop</button>
       </form>
       </details>
@@ -50,6 +52,11 @@
           <label><span data-i18n="archivePassword">Archive password (optional)</span><input id="job-password" type="password" autocomplete="off"></label>
           <p id="job-options-hint" class="muted"></p>
           <button id="save-job-options" class="primary" type="submit" data-i18n="saveOptions">Save options</button>
+        </form>
+        <form id="job-download-key-form" class="hidden">
+          <label><span data-i18n="gigafileDownloadKeyRequired">GigaFile download key</span><input id="job-download-key" type="password" maxlength="4" autocomplete="off" aria-describedby="job-download-key-hint" required></label>
+          <p id="job-download-key-hint" class="muted" data-i18n="gigafileDownloadKeyRequiredHint">Enter the 1–4 character key supplied by the sender.</p>
+          <button id="save-job-download-key" class="primary" type="submit" data-i18n="submitDownloadKey">Submit download key</button>
         </form>
       </section>
     </section>

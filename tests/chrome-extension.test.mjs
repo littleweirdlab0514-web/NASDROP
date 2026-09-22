@@ -16,6 +16,7 @@ test('Chrome extension is a least-privilege Manifest V3 package', async () => {
 test('Chrome extension does not persist passwords', async () => {
   const background = await readFile(new URL('background.js', root), 'utf8');
   assert.doesNotMatch(background, /storage\.local\.set\([^)]*password/s);
+  assert.doesNotMatch(background, /storage\.(?:local|session)\.set\([^)]*download(?:_key|Key)/s);
   assert.match(background, /\/api\/inspect/);
   assert.match(background, /\/api\/start/);
 });

@@ -79,7 +79,7 @@ test('errors back off to 60 seconds and auth expiration stops retries',async()=>
 
 const inline=(h,index,row=0)=>h.nodes.get('jobs').children[row].children[1].children[index];
 
-function popupHarness({connected=true,modern=true,preferences={autoExtract:true},confirmAction=()=>true,actionError=false,extraJobs=[],beforeJobs=()=>{}}={}) {
+function popupHarness({connected=true,modern=true,gigafileDownloadKey=true,preferences={autoExtract:true},confirmAction=()=>true,actionError=false,extraJobs=[],beforeJobs=()=>{}}={}) {
   const nodes=new Map(), messages=[], timers=new Map();let timerID=0,deleted=false;
   const job={id:'abcdef012345',name:'archive.zip',status:'downloading',size:100,downloaded:10,extract:true};
   const jobs=[job,...extraJobs];
@@ -106,8 +106,9 @@ function popupHarness({connected=true,modern=true,preferences={autoExtract:true}
       if(message.type==='jobResume')target.status='queued';
       if(message.type==='jobDelete')deleted=true;
       if(message.type==='savePreferences')for(const key of ['autoExtract','language'])if(message[key]!==undefined)preferences[key]=message[key];
-      if(message.type==='getState'||message.type==='login')return {ok:true,result:{connected:message.type==='login'||connected,baseUrl:'https://nas.example',...preferences,jobs,status:{target:'/downloads',job_processing_options:modern}}};
+      if(message.type==='getState'||message.type==='login')return {ok:true,result:{connected:message.type==='login'||connected,baseUrl:'https://nas.example',...preferences,jobs,status:{target:'/downloads',job_processing_options:modern,gigafile_download_key:gigafileDownloadKey}}};
       if(message.type==='getJobs'){beforeJobs(job);return {ok:true,result:{jobs:deleted?[]:jobs.map(j=>({...j}))}};}
+      if(message.type==='submit')return {ok:true,result:{count:1,file:{name:'example.bin'}}};
       return {ok:true,result:{ok:true}};
     }},tabs:{query:async()=>[]},permissions:{request:async()=>true}},
   });
@@ -229,4 +230,36 @@ test('all four languages persist, translate statuses and preserve extraction/pas
     assert.equal(vm.runInContext('language',reopened.c),language);
   }
   assert.equal(vm.runInContext('Object.keys(messages).every(lang=>Object.keys(messages.en).every(key=>Boolean(messages[lang][key])))',h.c),true);
+});
+
+test('manual GigaFile key is separate from archive password and cleared immediately',async()=>{
+  const h=popupHarness();await h.ready();
+  const key=h.nodes.get('gigafile-download-key');
+  assert.equal(key.disabled,false);
+  h.nodes.get('download-url').value='https://38.gigafile.nu/example';
+  h.nodes.get('archive-password').value='archive-only';key.value='k3!';
+  const pending=h.nodes.get('send-form').events.submit({preventDefault(){}});
+  assert.equal(key.value,'');
+  await pending;
+  const sent=h.messages.find(message=>message.type==='submit');
+  assert.equal(sent.downloadKey,'k3!');assert.equal(sent.password,'archive-only');
+  assert.equal(sent.url.includes('k3!'),false);
+  const old=popupHarness({gigafileDownloadKey:false});await old.ready();
+  assert.equal(old.nodes.get('gigafile-download-key').disabled,true);
+});
+
+test('download-key-required job uses the dedicated retry action and keeps the form available',async()=>{
+  const h=popupHarness();await h.ready();h.job.status='download_key_required';await h.poll();
+  h.nodes.get('jobs').children[0].children[0].events.click();
+  assert.equal(h.nodes.get('job-download-key-form').classList.contains('hidden'),false);
+  assert.equal(h.nodes.get('job-options-form').classList.contains('hidden'),true);
+  for(const value of ['x1','y2']) {
+    h.nodes.get('job-download-key').value=value;
+    await h.nodes.get('job-download-key-form').events.submit({preventDefault(){}});
+    assert.equal(h.nodes.get('job-download-key').value,'');
+    assert.equal(h.job.status,'download_key_required');
+  }
+  const sent=h.messages.filter(message=>message.type==='jobDownloadKey');
+  assert.deepEqual(sent.map(message=>message.downloadKey),['x1','y2']);
+  assert.equal(h.nodes.get('job-download-key-form').classList.contains('hidden'),false);
 });

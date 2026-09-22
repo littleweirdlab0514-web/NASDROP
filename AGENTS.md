@@ -10,6 +10,16 @@
 - Additive API changes must retain a safe fallback for clients that do not advertise support. Destructive behavior such as active-job deletion must remain opt-in through its capability.
 - A server release is not complete until Synology packaging tests, Docker source-parity and multi-architecture smoke tests, Android contract tests, and Chrome extension contract tests have recorded compatible results.
 - Record the supported component matrix and release gate in `docs/COMPONENT_COMPATIBILITY.md` whenever a server or client contract changes.
+- For provider work that changes both the canonical server and the Chrome companion, finish and test those two components first. Only after both relevant regression suites and a real provider flow succeed may the Docker maintainer synchronize and verify the same canonical implementation. Never publish or maintain a Docker-only provider fork.
+
+## Mandatory component handoff and release workflow
+
+- Chrome extension work is owned by the dedicated Codex task named `NASDROP_크롬확장`. Hand every Chrome extension implementation, fix, packaging, documentation, and Chrome-specific verification request to that task. The primary NASDrop task coordinates the server contract and reviews the returned result; it must not silently absorb Chrome-owned work.
+- Every Synology NASDrop code update must end with the appropriate automated regression tests and a newly built versioned SPK. Report the SPK path, package version, and SHA-256. A source-only Synology update is not a finished update.
+- Do not install the SPK on the user's NAS unless the user explicitly requests installation. The user normally installs and performs the real DSM/provider test.
+- Keep Docker on the same canonical source contract, but do not ask the Docker maintainer to publish or release a new image merely because the Synology source changed.
+- After the user explicitly reports that the updated Synology package passed the real test, hand the exact Synology changes, API capabilities, version, tests, and any migration notes to the Docker maintainer. Require the Docker implementation to preserve feature parity and pass Docker source-parity and smoke tests.
+- The required sequence is: Synology implementation and automated tests -> versioned SPK build -> user installs and reports real-test success -> Docker maintainer synchronizes and verifies the same update. Chrome-owned work is routed through `NASDROP_크롬확장` at the stage where it is needed.
 
 ## Provider filename invariant
 

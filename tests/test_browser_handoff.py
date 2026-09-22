@@ -12,6 +12,8 @@ import backend
 
 
 SHARES = {'akirabox': 'https://akirabox.to/Test123/file', 'vikingfile': 'https://vik1ngfile.site/f/Test123'}
+SENDNOW_SHARE = 'https://send.now/e0g53wnqs8ze'
+SENDNOW_DIRECT = 'https://cdn-2.send.now/files/synthetic/file.zip?token=synthetic-private-token'
 
 
 def direct(provider):
@@ -35,6 +37,52 @@ class Response:
 
 
 class BrowserHandoffTests(unittest.TestCase):
+    def test_sendnow_user_resolved_link_uses_single_connection_handoff(self):
+        opener = mock.Mock()
+        opener.open.return_value = Response(SENDNOW_DIRECT, '브라우저 파일.zip')
+        with mock.patch.object(backend, 'build_opener', return_value=opener):
+            result = backend.inspect_payload({'url': SENDNOW_SHARE, 'resolved_url': SENDNOW_DIRECT, 'provider': 'sendnow'})
+        self.assertEqual(result['url'], SENDNOW_SHARE)
+        self.assertEqual(result['name'], '브라우저 파일.zip')
+        self.assertEqual(result['provider'], 'sendnow')
+        self.assertNotIn('synthetic-private-token', str(backend.public_inspection(result)))
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.get_method(), 'HEAD')
+        self.assertEqual(request.get_header('Referer'), SENDNOW_SHARE)
+        self.assertIsNone(request.get_header('Cookie'))
+
+    def test_sendnow_allows_public_https_delivery_hosts_but_blocks_ssrf(self):
+        public = 'https://downloads.example/file.zip?token=synthetic'
+        with mock.patch.object(backend.socket, 'getaddrinfo', return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
+            self.assertEqual(backend._validate_handoff_transfer_url(public, 'sendnow'), public)
+        for address in ('127.0.0.1', '10.0.0.1', '169.254.169.254', '192.168.1.157', '::1'):
+            with self.subTest(address=address), mock.patch.object(backend.socket, 'getaddrinfo', return_value=[(2, 1, 6, '', (address, 443))]), self.assertRaises(ValueError):
+                backend._validate_handoff_transfer_url('https://downloads.example/file.zip', 'sendnow')
+        for bad in (SENDNOW_SHARE, 'http://cdn.send.now/file.zip', 'https://user@cdn.send.now/file.zip',
+                    'https://cdn.send.now:8443/file.zip', 'https://cdn.send.now/file.zip#fragment',
+                    'https://send.now.evil.example/file.zip', 'https://127.0.0.1/file.zip'):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                backend.inspect_browser_handoff(SENDNOW_SHARE, bad, 'sendnow')
+
+    def test_sendnow_restart_secret_and_response_filename(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(backend, 'SECRET_DIR', Path(temp) / 'secrets'):
+            c = backend.Controller.__new__(backend.Controller)
+            c.lock = threading.RLock()
+            c.condition = threading.Condition(c.lock)
+            c.jobs, c.private_downloads = {}, {}
+            c.save = mock.Mock()
+            file = {'url': SENDNOW_SHARE, 'name': 'archive.zip', 'size': 100, 'provider': 'sendnow', 'download_url': SENDNOW_DIRECT}
+            with mock.patch.object(backend, 'normalize_target', return_value=temp), mock.patch.object(backend, 'prepare_batch_target', return_value=temp):
+                job = c.start_many([file], temp, False)[0]
+            self.assertEqual(backend.load_job_download_url(job.id), SENDNOW_DIRECT)
+            c.private_downloads = {}
+            c._download_script_direct = mock.Mock(side_effect=RuntimeError('STOP-BEFORE-TRANSFER'))
+            with self.assertRaisesRegex(RuntimeError, 'STOP-BEFORE-TRANSFER'):
+                c._run(job.id)
+            self.assertEqual(job.transfer_mode, 'single')
+            self.assertEqual(c._download_script_direct.call_args.args[0], SENDNOW_DIRECT)
+            self.assertTrue(c._download_script_direct.call_args.kwargs['capture_headers'])
+
     def test_metadata_normal_file_and_archive_and_secret_filter(self):
         for provider in SHARES:
             for name in ('테스트 영상.mp4', '압축.zip'):

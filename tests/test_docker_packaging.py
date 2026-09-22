@@ -10,15 +10,21 @@ ROOT = Path(__file__).resolve().parents[1]
 class DockerPackagingTests(unittest.TestCase):
     def test_versions_follow_the_canonical_server_release(self):
         info = (ROOT / "synology" / "package" / "INFO").read_text(encoding="utf-8")
-        match = re.search(r'^version="(\d+\.\d+\.\d+)-\d+"$', info, re.MULTILINE)
+        match = re.search(r'^version="(\d+\.\d+\.\d+-\d+)"$', info, re.MULTILINE)
         self.assertIsNotNone(match)
-        server_version = match.group(1)
+        package_version = match.group(1)
+        server_version = package_version.rsplit("-", 1)[0]
 
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        release_compose = (ROOT / "docker" / "compose.release.yaml").read_text(encoding="utf-8")
         backend = (ROOT / "backend.py").read_text(encoding="utf-8")
         self.assertIn(f"ARG NASDROP_VERSION={server_version}", dockerfile)
         self.assertIn(f'NASDROP_VERSION: "{server_version}"', compose)
+        self.assertIn(
+            f"image: ghcr.io/littleweirdlab0514-web/nasdrop:{package_version}",
+            release_compose,
+        )
         self.assertIn(
             f'PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "{server_version}")',
             backend,
@@ -74,6 +80,25 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertNotIn("minlength", current)
         self.assertIn('minlength="10"', new)
         self.assertIn('id="password-change-required-warning"', page)
+
+    def test_release_compose_and_install_guides_are_runnable(self):
+        release_compose = (ROOT / "docker" / "compose.release.yaml").read_text(encoding="utf-8")
+        env_example = (ROOT / "docker" / "compose.env.example").read_text(encoding="utf-8")
+        english = (ROOT / "docs" / "DOCKER_INSTALL.md").read_text(encoding="utf-8")
+        korean = (ROOT / "docs" / "DOCKER_INSTALL.ko.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+        self.assertIn("ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1", release_compose)
+        self.assertNotIn("build:", release_compose)
+        self.assertNotIn(":latest", release_compose)
+        self.assertIn("NASDROP_TRUST_FORWARDED_FOR=false", env_example)
+        self.assertIn("docker/compose.release.yaml", readme)
+        for guide in (english, korean):
+            self.assertIn("compose.release.yaml", guide)
+            self.assertIn("docker save -o nasdrop-0.9.25-1-amd64.tar", guide)
+            self.assertIn('gosu "$PUID:$PGID"', guide)
+            self.assertNotIn("NASDrop-0.9.23-amd64.tar", guide)
+            self.assertNotIn("test -w /downloads && echo writable'", guide)
 
     def test_compose_persists_state_and_downloads(self):
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")

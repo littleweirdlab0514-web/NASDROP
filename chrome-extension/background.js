@@ -3,6 +3,7 @@ const currentLanguage=async()=>NASDropI18n.resolve((await settings()).language,c
 const translatedError=async error=>NASDropI18n.error(await currentLanguage(),error.message);
 const storageReady = chrome.storage.local.setAccessLevel({accessLevel: 'TRUSTED_CONTEXTS'});
 const pageTransfers = new Map();
+const SENDNOW_ARM_MS = 60000;
 const MENU_LINK = "nasdrop-send-link";
 const MENU_PAGE = "nasdrop-send-page";
 const ACTIVE_STATUSES = new Set([
@@ -122,6 +123,7 @@ async function login({ baseUrl, username, password }) {
   if (previous.baseUrl !== normalized) await chrome.storage.local.remove(['token', 'username']);
   jobsCache = null;
   await chrome.storage.session.remove('passwordJobs');
+  await chrome.storage.session.remove('sendNowArm');
   await chrome.storage.local.set({ baseUrl: normalized });
   const result = await api('/api/login', {
     method: 'POST',
@@ -140,6 +142,7 @@ async function logout() {
   jobsCache = null;
   await chrome.alarms.clear(JOB_ALARM);
   await chrome.storage.session.remove('passwordJobs');
+  await chrome.storage.session.remove('sendNowArm');
   await updateBadge([]);
   return { ok: true };
 }
@@ -153,17 +156,37 @@ async function submitUrl(rawUrl, notify = false, handoffPage = '', options = {})
     throw new Error('Enter a valid HTTP or HTTPS download link.');
   }
   const saved = await settings();
+  const sourceProvider = NASDropProviders.provider(source.href);
+  const downloadKey = String(options.downloadKey || '');
+  if (downloadKey && sourceProvider !== 'gigafile') throw new Error('A GigaFile download key can only be used with a GigaFile link.');
+  if (downloadKey.length > 4) throw new Error('GigaFile download key must be 1–4 characters.');
+  const common = {target:'',extract:saved.autoExtract !== false,password:saved.autoExtract === false ? '' : String(options.password || '')};
+  if (sourceProvider === 'gigafile') {
+    const body={url:source.href,...common};
+    if (downloadKey) body.download_key=downloadKey;
+    const started=await api('/api/enqueue',{method:'POST',body:JSON.stringify(body)}).catch(error=>{
+      if (!error.status) throw new Error('Result unknown. Check NASDrop jobs before retrying.');
+      throw error;
+    });
+    let fallbackName=source.pathname.split('/').filter(Boolean).at(-1) || 'GigaFile download';
+    try { fallbackName=decodeURIComponent(fallbackName); } catch (_) { /* Keep the encoded safe fallback. */ }
+    const file={name:started.job?.name || fallbackName};
+    if (notify) await chrome.notifications.create({type:'basic',iconUrl:'icons/nasdrop-256.png',title:'NASDrop',message:started.count > 1 ? NASDropI18n.t(await currentLanguage(),'addedMany',{count:started.count}) : file.name}).catch(()=>{});
+    try { await getJobs(true); } catch (_) { /* The accepted job remains successful. */ }
+    return {file,...started};
+  }
   const handoffProvider = handoffPage ? NASDropProviders.provider(handoffPage) : '';
-  const inspectBody = ['akirabox','vikingfile'].includes(handoffProvider)
+  const inspectBody = ['akirabox','vikingfile','sendnow'].includes(handoffProvider)
     ? {url:NASDropProviders.share(handoffPage), resolved_url:source.href, provider:handoffProvider}
     : {url:source.href};
   const inspected = await api('/api/inspect', {
     method: 'POST',
     body: JSON.stringify(inspectBody),
   });
+  const startBody = { ...inspected.file, ...common };
   const started = await api('/api/start', {
     method: 'POST',
-    body: JSON.stringify({ ...inspected.file, target: '', extract: saved.autoExtract !== false, password: saved.autoExtract === false ? '' : String(options.password || '') }),
+    body: JSON.stringify(startBody),
   }).catch(error => {
     if (!error.status) throw new Error('Result unknown. Check NASDrop jobs before retrying.');
     throw error;
@@ -207,20 +230,69 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
   submitUrl(url, true).catch(notifyError);
 });
 
+async function activeSendNowArm() {
+  const arm = (await chrome.storage.session.get({sendNowArm:null})).sendNowArm;
+  if (!arm || arm.expiresAt <= Date.now()) {
+    if (arm) await chrome.storage.session.remove('sendNowArm');
+    return null;
+  }
+  return arm;
+}
+
+async function sendNowResult(tabId, result) {
+  await chrome.tabs.sendMessage(tabId,{type:'sendNowResult',...result}).catch(() => {});
+}
+
+async function captureSendNowDownload(item) {
+  const arm = await activeSendNowArm();
+  if (!arm) return;
+  let referrer;
+  try { referrer = new URL(item.referrer || ''); } catch { return; }
+  if (referrer.protocol !== 'https:' || !['send.now','www.send.now'].includes(referrer.hostname)
+    || referrer.pathname !== '/' || referrer.search || referrer.hash) return;
+  const url = item.finalUrl || item.url || '';
+  if (!NASDropProviders.allowedSubmission(arm.source, url)) return;
+  await chrome.storage.session.remove('sendNowArm');
+  await chrome.downloads.cancel(item.id).catch(() => {});
+  await chrome.downloads.erase({id:item.id}).catch(() => {});
+  try {
+    await submitFromPage(arm.source, url);
+    await sendNowResult(arm.tabId,{ok:true});
+  } catch (error) {
+    await sendNowResult(arm.tabId,{ok:false,error:await translatedError(error)});
+  }
+}
+chrome.downloads.onCreated.addListener(item => { void captureSendNowDownload(item); });
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
   // Provider content scripts never receive settings, credentials or job metadata.
   if (sender.tab) {
     const page = sender.url || '';
-    if (sender.frameId !== 0 || !NASDropProviders.share(page)) return false;
+    if (sender.frameId !== 0) return false;
     let operation;
-    if (message?.type === 'pageReady') {
+    if (message?.type === 'pageArmDownload') {
+      let current, source;
+      try { current=new URL(page); source=NASDropProviders.share(message.source); } catch { return false; }
+      if (!source || NASDropProviders.provider(source) !== 'sendnow'
+        || current.protocol !== 'https:' || !['send.now','www.send.now'].includes(current.hostname)
+        || current.pathname !== '/' || current.search || current.hash || current.origin !== new URL(source).origin) return false;
+      operation = pageReadiness(source).then(async readiness => {
+        if (!readiness.ready) throw Object.assign(new Error('Sign in to NASDrop first.'), {code:'login'});
+        if (readiness.handoffSupported === false) throw Object.assign(new Error('This NASDrop server does not support browser handoff for this site yet.'), {code:'serverUnsupported'});
+        const active = await activeSendNowArm();
+        if (active && active.tabId !== sender.tab.id) throw new Error('Another Send.now handoff is already waiting for its download.');
+        await chrome.storage.session.set({sendNowArm:{tabId:sender.tab.id,source,expiresAt:Date.now()+SENDNOW_ARM_MS}});
+        return {armed:true,language:readiness.language};
+      });
+    } else if (!NASDropProviders.share(page)) return false;
+    else if (message?.type === 'pageReady') {
       operation = pageReadiness(page);
     } else if (message?.type === 'pageSubmit' && NASDropProviders.allowedSubmission(page, message.url)) {
       const key = `${sender.tab.id}:${message.url}`;
       if (pageTransfers.has(key)) operation = pageTransfers.get(key);
       else {
-        operation = submitFromPage(page, message.url).then(result => ({count: result.count}));
+        operation = submitFromPage(page, message.url, {downloadKey:message.downloadKey}).then(result => ({count: result.count}));
         pageTransfers.set(key, operation);
         operation.finally(() => pageTransfers.delete(key)).catch(() => {});
       }
@@ -238,13 +310,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return result;
     },
     jobPassword: () => updateJob(message, 'password'),
+    jobDownloadKey: () => updateJob(message, 'download-key'),
     jobPause: () => controlJob(message, 'pause'),
     jobResume: () => controlJob(message, 'resume'),
     jobDelete: () => controlJob(message, 'delete'),
     jobProcessing: () => updateJob(message, 'processing'),
     login: () => login(message),
     logout,
-    submit: () => submitUrl(message.url, false, '', message),
+    submit: () => submitFromPopup(message),
     savePreferences: async () => {
       const values={};
       if(typeof message.autoExtract==='boolean')values.autoExtract=message.autoExtract;
@@ -276,7 +349,13 @@ async function controlJob(message, action) {
 
 async function updateJob(message, action) {
   if (!/^[a-f0-9]{12}$/.test(message.id || '')) throw new Error('Invalid job ID.');
-  const body = action === 'password' ? {password:String(message.password || '')} : {extract:message.extract};
+  let body;
+  if (action === 'password') body = {password:String(message.password || '')};
+  else if (action === 'download-key') {
+    const downloadKey=String(message.downloadKey || '');
+    if (downloadKey.length < 1 || downloadKey.length > 4) throw new Error('GigaFile download key must be 1–4 characters.');
+    body={download_key:downloadKey};
+  } else body = {extract:message.extract};
   if (action === 'processing') {
     if (typeof body.extract !== 'boolean') throw new Error('Invalid extraction option.');
     if (message.password) body.password = String(message.password);
@@ -292,16 +371,32 @@ async function pageReadiness(page) {
   const ready = Boolean(saved.baseUrl && saved.token);
   const language=NASDropI18n.resolve(saved.language,chrome.i18n.getUILanguage());
   const provider = NASDropProviders.provider(page);
-  if (!ready || !['akirabox','vikingfile'].includes(provider)) return {ready,language};
+  if (!ready || !['akirabox','vikingfile','sendnow','gigafile'].includes(provider)) return {ready,language};
   const status = await api('/api/status');
+  if (provider === 'gigafile') return {ready:true,language,gigafileDownloadKeySupported:status.gigafile_download_key === true};
   return {ready:true, language,handoffSupported:Array.isArray(status.browser_handoff_providers) && status.browser_handoff_providers.includes(provider)};
 }
 
-async function submitFromPage(page, url) {
+async function submitFromPopup(message) {
+  if (message.downloadKey) {
+    const status=await api('/api/status');
+    if (status.gigafile_download_key !== true) {
+      const error=new Error('This NASDrop server does not support GigaFile download keys yet.');
+      error.code='serverUnsupported'; throw error;
+    }
+  }
+  return submitUrl(message.url,false,'',message);
+}
+
+async function submitFromPage(page, url, options = {}) {
   const readiness = await pageReadiness(page);
   if (readiness.handoffSupported === false) {
     const error = new Error('This NASDrop server does not support browser handoff for this site yet.');
     error.code = 'serverUnsupported'; throw error;
   }
-  return submitUrl(url, false, page);
+  if (NASDropProviders.provider(page) === 'gigafile' && options.downloadKey && !readiness.gigafileDownloadKeySupported) {
+    const error = new Error('This NASDrop server does not support GigaFile download keys yet.');
+    error.code = 'serverUnsupported'; throw error;
+  }
+  return submitUrl(url, false, page, options);
 }

@@ -1,10 +1,6 @@
 services:
   nasdrop:
-    image: ghcr.io/littleweirdlab0514-web/nasdrop:latest
-    build:
-      context: .
-      args:
-        NASDROP_VERSION: "0.9.25"
+    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.25-1
     container_name: nasdrop
     restart: unless-stopped
     init: true
