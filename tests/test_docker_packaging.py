@@ -8,6 +8,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DockerPackagingTests(unittest.TestCase):
+    def test_versions_follow_the_canonical_server_release(self):
+        info = (ROOT / "synology" / "package" / "INFO").read_text(encoding="utf-8")
+        match = re.search(r'^version="(\d+\.\d+\.\d+)-\d+"$', info, re.MULTILINE)
+        self.assertIsNotNone(match)
+        server_version = match.group(1)
+
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
+        backend = (ROOT / "backend.py").read_text(encoding="utf-8")
+        self.assertIn(f"ARG NASDROP_VERSION={server_version}", dockerfile)
+        self.assertIn(f'NASDROP_VERSION: "{server_version}"', compose)
+        self.assertIn(
+            f'PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "{server_version}")',
+            backend,
+        )
+
     def test_every_copy_source_is_explicitly_included_in_build_context(self):
         rules = (ROOT / '.dockerignore').read_text(encoding='utf-8').splitlines()
         self.assertEqual(rules[0], '**')
@@ -26,7 +42,11 @@ class DockerPackagingTests(unittest.TestCase):
         for package in ("python3", "nodejs", "curl", "7zip", "gosu"):
             self.assertRegex(dockerfile, rf"\b{re.escape(package)}\b")
         self.assertIn("NAS_PORTAL_STORAGE_ROOTS=/downloads", dockerfile)
-        self.assertIn("NAS_PORTAL_7ZZ=/usr/bin/7zz", dockerfile)
+        self.assertIn("NAS_PORTAL_7ZZ=/usr/local/bin/7zz", dockerfile)
+        self.assertIn("ARG TARGETARCH", dockerfile)
+        self.assertIn("SEVENZIP_SHA256_AMD64", dockerfile)
+        self.assertIn("SEVENZIP_SHA256_ARM64", dockerfile)
+        self.assertIn("grep -q ' Rar5 '", dockerfile)
         self.assertIn("/api/auth/status", dockerfile)
         self.assertIn('ENTRYPOINT ["/usr/local/bin/nasdrop-entrypoint"]', dockerfile)
         self.assertIn("docker/account.py /app/docker/account.py", dockerfile)
@@ -45,7 +65,9 @@ class DockerPackagingTests(unittest.TestCase):
     def test_compose_persists_state_and_downloads(self):
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
         self.assertIn("ghcr.io/littleweirdlab0514-web/nasdrop:latest", compose)
-        self.assertIn('"8791:8791"', compose)
+        self.assertIn('${NASDROP_PORT:-8791}:8791', compose)
+        self.assertIn("init: true", compose)
+        self.assertIn("stop_grace_period: 60s", compose)
         self.assertIn(":/config", compose)
         self.assertIn(":/downloads", compose)
         self.assertIn("read_only: true", compose)
@@ -58,6 +80,9 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertIn("packages: write", workflow)
         self.assertIn("nasdrop:smoke", workflow)
         self.assertIn("/api/auth/status", workflow)
+        self.assertIn("Verify image embeds canonical server files", workflow)
+        self.assertIn("source-core.sha256", workflow)
+        self.assertIn("source-web.sha256", workflow)
 
 
 if __name__ == "__main__":

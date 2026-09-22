@@ -2,6 +2,15 @@
 
 - Public GitHub README text, release titles, and release notes must be written in English. Keep user-facing app localization separate from release-document language.
 
+## Component ownership and compatibility
+
+- Treat the Synology package server implementation as the canonical NASDrop behavior. Docker must package the same `backend.py`, `transfer_parts.py`, `gofile_wt.mjs`, and `synology/web` files; do not maintain a Docker-only fork of provider or API behavior.
+- Keep the Synology package version, backend default version, Docker build argument, Compose build argument, and release tag aligned. Packaging tests must fail on drift.
+- Android and Chrome clients must enable optional behavior from explicit `/api/status` capabilities, never by comparing server version strings.
+- Additive API changes must retain a safe fallback for clients that do not advertise support. Destructive behavior such as active-job deletion must remain opt-in through its capability.
+- A server release is not complete until Synology packaging tests, Docker source-parity and multi-architecture smoke tests, Android contract tests, and Chrome extension contract tests have recorded compatible results.
+- Record the supported component matrix and release gate in `docs/COMPONENT_COMPATIBILITY.md` whenever a server or client contract changes.
+
 ## Provider filename invariant
 
 - Never treat a provider page's visible filename as authoritative. Providers may mask, replace, localize, or duplicate it.

@@ -87,6 +87,27 @@ jobs:
           echo "NASDrop health endpoint did not become ready." >&2
           exit 1
 
+      - name: Verify image embeds canonical server files
+        shell: bash
+        run: |
+          set -euo pipefail
+          sha256sum backend.py transfer_parts.py gofile_wt.mjs \
+            > "${RUNNER_TEMP}/source-core.sha256"
+          docker run --rm --entrypoint sha256sum nasdrop:smoke \
+            /app/backend.py /app/transfer_parts.py /app/gofile_wt.mjs \
+            | sed 's# /app/# #' \
+            > "${RUNNER_TEMP}/image-core.sha256"
+          diff -u "${RUNNER_TEMP}/source-core.sha256" "${RUNNER_TEMP}/image-core.sha256"
+
+          (
+            cd synology/web
+            find . -type f -print0 | sort -z | xargs -0 sha256sum
+          ) > "${RUNNER_TEMP}/source-web.sha256"
+          docker run --rm --entrypoint sh nasdrop:smoke -c \
+            'cd /app/synology/web && find . -type f -print0 | sort -z | xargs -0 sha256sum' \
+            > "${RUNNER_TEMP}/image-web.sha256"
+          diff -u "${RUNNER_TEMP}/source-web.sha256" "${RUNNER_TEMP}/image-web.sha256"
+
       - name: Build and publish amd64/arm64 image
         uses: docker/build-push-action@v6
         with:

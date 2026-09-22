@@ -25,4 +25,16 @@ NASDrop's Synology x86_64 package includes the official 7-Zip Linux console exec
 
 7-Zip is primarily licensed under the GNU LGPL, with BSD-licensed components and an unRAR restriction for portions of the RAR code. The verbatim upstream `License.txt` is included in the SPK.
 
+## 7-Zip 26.03 (Docker)
+
+NASDrop's Docker image installs the official 7-Zip Linux console executable during the image build. The image selects the archive by Docker target architecture, verifies it before extraction, and installs the upstream `License.txt` at `/usr/share/doc/7zip/License.txt`.
+
+- Upstream release: https://github.com/ip7z/7zip/releases/tag/26.03
+- AMD64 archive: `7z2603-linux-x64.tar.xz`
+- AMD64 SHA-256: `dc99eff5008f1ab79bd7084c68513701547a808a89502bf4133683535ab3c695`
+- ARM64 archive: `7z2603-linux-arm64.tar.xz`
+- ARM64 SHA-256: `2389ba20e4d8295e8709c20b6263b69bd1ec4972fe38a04ad7a1badbf595b996`
+
+The Docker build fails if the checksum does not match or the resulting executable does not advertise both RAR and RAR5 read support.
+
 NASDrop's own license is available in [`LICENSE`](LICENSE) and is also included in the SPK.

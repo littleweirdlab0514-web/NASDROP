@@ -4,12 +4,14 @@ services:
     build:
       context: .
       args:
-        NASDROP_VERSION: "0.9.11"
+        NASDROP_VERSION: "0.9.23"
     container_name: nasdrop
     restart: unless-stopped
+    init: true
+    stop_grace_period: 60s
     read_only: true
     ports:
-      - "8791:8791"
+      - "${NASDROP_BIND_ADDRESS:-0.0.0.0}:${NASDROP_PORT:-8791}:8791"
     environment:
       PUID: "${PUID:-1000}"
       PGID: "${PGID:-1000}"

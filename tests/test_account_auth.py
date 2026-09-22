@@ -1,4 +1,5 @@
 import json
+import os
 import http.client
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -65,7 +66,7 @@ class AccountAuthTests(unittest.TestCase):
         body = json.dumps(payload).encode() if payload is not None else None
         request = Request(self.base + path, data=body, method=method, headers=headers)
         try:
-            with urlopen(request, timeout=3) as response:
+            with urlopen(request, timeout=float(os.environ.get('NASDROP_TEST_HTTP_TIMEOUT', '3'))) as response:
                 return response.status, json.loads(response.read())
         except HTTPError as exc:
             return exc.code, json.loads(exc.read())
