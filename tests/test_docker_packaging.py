@@ -58,9 +58,20 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertNotRegex(entrypoint, r"chown\s+(?:-[Rr]|--recursive)")
         self.assertNotIn('chown "${PUID}:${PGID}" "$target_dir"', entrypoint)
         self.assertIn('gosu "${PUID}:${PGID}"', entrypoint)
+        self.assertIn('python3 /app/docker/account.py bootstrap', entrypoint)
 
         account_command = (ROOT / "docker" / "account-command.sh").read_text(encoding="utf-8")
         self.assertIn('gosu "${PUID}:${PGID}" python3 /app/docker/account.py', account_command)
+
+    def test_web_accepts_only_the_short_bootstrap_password_as_current_credentials(self):
+        page = (ROOT / "synology" / "web" / "index.html").read_text(encoding="utf-8")
+        login = re.search(r'<input id="login-password"[^>]+>', page).group(0)
+        current = re.search(r'<input id="current-password"[^>]+>', page).group(0)
+        new = re.search(r'<input id="new-password"[^>]+>', page).group(0)
+        self.assertNotIn("minlength", login)
+        self.assertNotIn("minlength", current)
+        self.assertIn('minlength="10"', new)
+        self.assertIn('id="password-change-required-warning"', page)
 
     def test_compose_persists_state_and_downloads(self):
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")

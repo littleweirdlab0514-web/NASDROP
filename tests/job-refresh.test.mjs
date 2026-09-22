@@ -66,3 +66,50 @@ test('stopping jobs cannot be resumed or deleted by the selection toolbar', asyn
   assert.match(source,/#delete-selected"\)\.disabled = .*"stopping"/);
   assert.match(source,/error\.status === 401/);
 });
+
+test('bootstrap login forces the web account form and hides every other operation', async () => {
+  const source = await readFile(new URL('../synology/web/app.js', import.meta.url), 'utf8');
+  const fn = source.slice(source.indexOf('  function renderPasswordChangeGate('), source.indexOf('  function renderStatus('));
+  const classes = (...initial) => {
+    const values = new Set(initial);
+    return {
+      add:value=>values.add(value), remove:value=>values.delete(value),
+      toggle(value, force){ force ? values.add(value) : values.delete(value); },
+      contains:value=>values.has(value), values,
+    };
+  };
+  const warning={classList:classes('hidden')}, dashboard={classList:classes()}, settings={classList:classes('hidden')};
+  const dashboardNav={classList:classes('active'),disabled:false};
+  const settingsNav={classList:classes(),disabled:false};
+  const accountCard={classList:classes('account-card')}, otherCard={classList:classes()};
+  let focused=false;
+  const nodes={
+    '#password-change-required-warning':warning, '#dashboard-view':dashboard,
+    '#settings-view':settings, '#account-message':{}, '#current-password':{focus(){focused=true;}},
+  };
+  const state={passwordChangeRequired:true,account:{password_change_required:true}};
+  const document={
+    querySelector(selector){
+      if(selector==='.nav[data-view="dashboard"]')return dashboardNav;
+      if(selector==='.nav[data-view="settings"]')return settingsNav;
+      return nodes[selector];
+    },
+    querySelectorAll(selector){return selector==='.setting-card'?[accountCard,otherCard]:[];},
+  };
+  const context=vm.createContext({state,document,$:selector=>nodes[selector],t:key=>key});
+  vm.runInContext(fn,context);
+  context.renderPasswordChangeGate();
+  assert.equal(warning.classList.contains('hidden'),false);
+  assert.equal(accountCard.classList.contains('hidden'),false);
+  assert.equal(otherCard.classList.contains('hidden'),true);
+  assert.equal(dashboardNav.disabled,true);
+  assert.equal(dashboard.classList.contains('hidden'),true);
+  assert.equal(settings.classList.contains('hidden'),false);
+  assert.equal(focused,true);
+
+  state.passwordChangeRequired=false; state.account.password_change_required=false;
+  context.renderPasswordChangeGate();
+  assert.equal(warning.classList.contains('hidden'),true);
+  assert.equal(otherCard.classList.contains('hidden'),false);
+  assert.equal(dashboardNav.disabled,false);
+});

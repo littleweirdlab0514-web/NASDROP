@@ -92,6 +92,7 @@ async function api(path, init = {}, requireAuth = true) {
     if (response.status === 401 && requireAuth) await chrome.storage.local.remove('token');
     const error = new Error(payload.error || `NASDrop request failed (${response.status}).`);
     error.status = response.status;
+    error.code = payload.code || '';
     throw error;
   }
   return payload;
@@ -111,7 +112,7 @@ async function getState() {
     await updateBadge(jobResult.jobs);
     return { ...saved, connected: true, status, jobs: jobResult.jobs };
   } catch (error) {
-    return { ...saved, token: error.status === 401 ? '' : saved.token, connected: false, jobs: [], error: error.message };
+    return { ...saved, token: error.status === 401 ? '' : saved.token, connected: false, jobs: [], passwordChangeRequired:error.code === 'password_change_required', error: error.message };
   }
 }
 
@@ -127,6 +128,9 @@ async function login({ baseUrl, username, password }) {
     body: JSON.stringify({ username: String(username || '').trim(), password: String(password || '') }),
   }, false);
   await chrome.storage.local.set({ token: result.token, username: result.username || String(username || '').trim() });
+  if (result.password_change_required) {
+    return { ...(await settings()), connected:false, jobs:[], passwordChangeRequired:true };
+  }
   return getState();
 }
 

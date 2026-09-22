@@ -73,7 +73,7 @@ class AccountAuthTests(unittest.TestCase):
 
     def test_launcher_creates_account_and_direct_login_receives_session(self):
         status, payload = self.request("/api/auth/status")
-        self.assertEqual((status, payload), (200, {"configured": False}))
+        self.assertEqual((status, payload), (200, {"configured": False, "password_change_required": False}))
 
         launcher_token = backend.LAUNCHER_TOKEN
         self.assertEqual(
@@ -162,6 +162,70 @@ class AccountAuthTests(unittest.TestCase):
         self.assertNotEqual(changed["token"], old_token)
         self.assertEqual(self.request("/api/account", token=old_token)[0], 401)
         self.assertEqual(self.request("/api/account", token=changed["token"])[0], 200)
+
+    def test_docker_bootstrap_is_exclusive_hashed_and_does_not_weaken_password_policy(self):
+        self.assertTrue(backend.create_docker_bootstrap_credentials())
+        stored = json.loads(backend.AUTH_FILE.read_text(encoding="utf-8"))
+        self.assertEqual(stored["username"], "nasdrop")
+        self.assertTrue(stored["must_change_password"])
+        self.assertNotIn("nasdrop", stored["password_hash"])
+        self.assertNotIn('"password": "nasdrop"', backend.AUTH_FILE.read_text(encoding="utf-8"))
+        self.assertTrue(backend.verify_credentials("nasdrop", "nasdrop"))
+
+        original = backend.AUTH_FILE.read_bytes()
+        self.assertFalse(backend.create_docker_bootstrap_credentials())
+        self.assertEqual(backend.AUTH_FILE.read_bytes(), original)
+        with self.assertRaises(ValueError):
+            backend.replace_credentials("owner", "nasdrop")
+
+    def test_bootstrap_login_is_confined_until_strong_credentials_replace_it(self):
+        backend.create_docker_bootstrap_credentials()
+        status, logged_in = self.request(
+            "/api/login", method="POST", payload={"username": "nasdrop", "password": "nasdrop"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(logged_in["password_change_required"])
+        old_token = logged_in["token"]
+
+        status, server_status = self.request("/api/status", token=old_token)
+        self.assertEqual(status, 200)
+        self.assertTrue(server_status["password_change_required"])
+        status, account = self.request("/api/account", token=old_token)
+        self.assertEqual(status, 200)
+        self.assertTrue(account["password_change_required"])
+        for path, method, payload in (
+            ("/api/jobs", "GET", None),
+            ("/api/folders?path=/", "GET", None),
+            ("/api/settings", "POST", {"target": "/tmp"}),
+            ("/api/inspect", "POST", {"url": "https://example.invalid/file"}),
+        ):
+            with self.subTest(path=path):
+                blocked_status, blocked = self.request(path, method=method, payload=payload, token=old_token)
+                self.assertEqual(blocked_status, 403)
+                self.assertEqual(blocked["code"], "password_change_required")
+
+        status, changed = self.request(
+            "/api/account", method="POST", token=old_token,
+            payload={"username": "new-owner", "password": "replacement password", "current_password": "nasdrop"},
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(changed["password_change_required"])
+        self.assertNotEqual(changed["token"], old_token)
+        self.assertEqual(self.request("/api/account", token=old_token)[0], 401)
+        self.assertEqual(self.request("/api/jobs", token=changed["token"])[0], 200)
+        saved = json.loads(backend.AUTH_FILE.read_text(encoding="utf-8"))
+        self.assertNotIn("must_change_password", saved)
+        self.assertFalse(backend.verify_credentials("nasdrop", "nasdrop"))
+        self.assertTrue(backend.verify_credentials("new-owner", "replacement password"))
+
+    def test_bootstrap_session_can_logout_before_changing_password(self):
+        backend.create_docker_bootstrap_credentials()
+        _, logged_in = self.request(
+            "/api/login", method="POST", payload={"username": "nasdrop", "password": "nasdrop"},
+        )
+        token = logged_in["token"]
+        self.assertEqual(self.request("/api/logout", method="POST", payload={}, token=token)[0], 200)
+        self.assertEqual(self.request("/api/account", token=token)[0], 401)
 
     def test_validation_and_login_rate_limit(self):
         for username in ("ab", "spaces are invalid", "x" * 33):

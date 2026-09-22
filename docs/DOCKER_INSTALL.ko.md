@@ -12,7 +12,7 @@ NASDrop Docker 이미지는 `linux/amd64`와 `linux/arm64`를 함께 제공합�
 공식 이미지 주소는 다음과 같습니다.
 
 ```text
-ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-2
+ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3
 ```
 
 버전을 고정하려면 위 태그를 사용합니다. 업데이트할 때마다 최신 버전을 자동으로 받으려는 경우에만 `latest`를 사용하세요.
@@ -39,15 +39,14 @@ id 사용자이름
 
 출력된 `uid`를 `PUID`, `gid`를 `PGID`에 입력하고 해당 계정에 다운로드 폴더 쓰기 권한을 부여합니다. NASDrop은 마운트한 다운로드 폴더의 권한을 재귀적으로 변경하지 않습니다.
 
-이미지를 받고 최초 로그인 계정을 만든 뒤 실행합니다. 비밀번호는 대화형으로 입력되므로 Compose 파일이나 명령 기록에 남지 않습니다.
+이미지를 받은 뒤 NASDrop을 실행합니다.
 
 ```sh
 docker compose pull
-docker compose run --rm nasdrop account set owner
 docker compose up -d
 ```
 
-`http://서버-IP:8791`을 열어 로그인합니다. **설정**에서 `/downloads`를 기본 다운로드 폴더로 한 번 선택해 쓰기 권한 검사를 완료하세요.
+`http://서버-IP:8791`을 엽니다. 새 `/config` 폴더에서는 임시 ID `nasdrop`, 임시 비밀번호 `nasdrop`으로 로그인합니다. 로그인 직후에는 계정 변경과 로그아웃만 가능하며, 새 ID와 10~128자의 새 비밀번호를 저장할 때까지 다운로드·폴더·설정·작업 API가 차단됩니다. 짧은 임시 비밀번호는 최초 로그인과 현재 비밀번호 확인에서만 예외로 허용되고 새 비밀번호로 저장할 수 없습니다. 기존 `credentials.json`은 절대 덮어쓰지 않습니다. 변경 후 **설정**에서 `/downloads`를 기본 다운로드 폴더로 선택하세요.
 
 상태와 로그는 다음 명령으로 확인합니다.
 
@@ -64,13 +63,13 @@ Docker판은 Container Manager를 지원하는 인텔/AMD 및 ARM 시놀로지�
 2. SSH에서 `id DSM사용자이름`을 실행해 UID와 GID를 확인하고, 그 DSM 사용자에게 다운로드 공유 폴더 읽기/쓰기 권한을 줍니다.
 3. **Container Manager > 프로젝트 > 생성**을 엽니다.
 4. 프로젝트 이름은 `nasdrop`, 경로는 `/volume1/docker/nasdrop`으로 지정하고 아래 Compose 내용을 입력합니다.
-5. 프로젝트를 생성한 다음 컨테이너 터미널에서 `nasdrop-account set owner`를 실행하거나 SSH에서 계정 생성 명령을 실행합니다.
-6. `http://NAS-IP:8791`을 열고 **설정**에서 `/downloads`를 선택합니다.
+5. 프로젝트를 생성합니다.
+6. `http://NAS-IP:8791`을 열어 `nasdrop` / `nasdrop`으로 로그인하고 안내에 따라 ID와 비밀번호를 변경한 뒤 **설정**에서 `/downloads`를 선택합니다.
 
 ```yaml
 services:
   nasdrop:
-    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-2
+    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.23-3
     container_name: nasdrop
     restart: unless-stopped
     init: true
@@ -93,11 +92,7 @@ services:
       - no-new-privileges:true
 ```
 
-예시의 `1026:100`은 NAS에서 확인한 실제 UID:GID로 바꿔야 합니다. SSH에서 프로젝트 폴더로 이동한 후 최초 계정을 생성할 수도 있습니다.
-
-```sh
-docker compose run --rm nasdrop account set owner
-```
+예시의 `1026:100`은 NAS에서 확인한 실제 UID:GID로 바꿔야 합니다. 임시 계정은 `/config/credentials.json`이 없을 때만 생성됩니다.
 
 시놀로지 SPK가 이미 `8791` 포트를 사용한다면 포트 매핑을 `8792:8791`로 바꾸고 `http://NAS-IP:8792`로 접속하세요.
 
@@ -107,7 +102,6 @@ docker compose run --rm nasdrop account set owner
 
 ```powershell
 docker compose pull
-docker compose run --rm nasdrop account set owner
 docker compose up -d
 ```
 

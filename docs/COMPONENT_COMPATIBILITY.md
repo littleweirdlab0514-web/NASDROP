@@ -6,8 +6,8 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.23-2 | Canonical server, API, providers, and web UI |
-| Docker image | 0.9.23-2 | Same core server and web files as Synology; amd64/arm64 verified with pinned 7-Zip 26.03 |
+| Synology package | 0.9.23-3 | Canonical server, API, providers, and web UI |
+| Docker image | 0.9.23-3 | Same core server and web files as Synology; amd64/arm64 verified with pinned 7-Zip 26.03 |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.1 | Uses explicit provider and processing capabilities; keeps strict deletion behavior |
 
@@ -30,6 +30,8 @@ The version numbers document tested combinations. Runtime feature decisions must
 5. Signed provider URLs, passwords, cookies, and authorization headers are never exposed through capability data or logs.
 
 Current coordinated capabilities include:
+
+- `password_change_required`: a Docker bootstrap account may authenticate only to read status/account data, replace its credentials, or log out; downloads, folders, settings, and job operations return HTTP 403 with this code until the change succeeds.
 
 - `job_safe_delete`: permits `POST /api/jobs/delete` with `stop_active: true`; legacy deletion remains strict.
 - `job_processing_options`: permits per-job extraction and password updates.

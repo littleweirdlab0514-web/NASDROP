@@ -16,6 +16,11 @@ mkdir -p "$state_dir"
 chown "${PUID}:${PGID}" "$state_dir"
 chmod 0700 "$state_dir"
 
+# Only a missing credentials file receives the one-time Docker bootstrap
+# account. The exclusive create in account.py protects existing and concurrent
+# mounts; normal account creation continues to enforce the full password rules.
+gosu "${PUID}:${PGID}" python3 /app/docker/account.py bootstrap
+
 if [ -n "$target_dir" ]; then
   if [ ! -d "$target_dir" ]; then
     echo "NASDrop: warning: download target does not exist: $target_dir" >&2

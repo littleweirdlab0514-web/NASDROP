@@ -4,7 +4,7 @@
   const serverError = (code, fallback, vars) => window.NASDropI18n.error(code, fallback, vars);
   const launchedToken = new URLSearchParams(location.hash.slice(1)).get("token") || "";
   if (launchedToken) history.replaceState(null, "", location.pathname + location.search);
-  const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, selected: new Set(), extractionInitialized: false };
+  const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, passwordChangeRequired: false, selected: new Set(), extractionInitialized: false };
   const statusKeys = { inspecting:"statusInspecting", queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", stopping:"statusStopping", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
 
   function isPrivateHost(rawHost) {
@@ -33,7 +33,7 @@
   async function api(path, init = {}) {
     const response = await fetch(path, { ...init, headers:{ "content-type":"application/json", authorization:`Bearer ${state.token}`, ...(init.headers || {}) } });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) { const error = new Error(serverError(payload.code, payload.error || t("requestFailed"), payload.params)); error.status = response.status; throw error; }
+    if (!response.ok) { const error = new Error(serverError(payload.code, payload.error || t("requestFailed"), payload.params)); error.status = response.status; error.code = payload.code || ""; throw error; }
     return payload;
   }
   async function publicApi(path, init = {}) {
@@ -42,13 +42,36 @@
     if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed"), payload.params));
     return payload;
   }
-  function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); refresh(); state.timer = setInterval(refreshJobs, 2500); }
+  function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); refresh(); clearInterval(state.timer); state.timer = setInterval(refreshJobs, 2500); }
   function showLogin(message = "") { clearInterval(state.timer); $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); $("#login-error").textContent = message; }
   async function refresh() {
-    try { const [status, jobs, account] = await Promise.all([api("/api/status"), api("/api/jobs"), api("/api/account")]); state.status = status; state.jobs = jobs.jobs; state.account = account; renderStatus(); renderJobs(); renderAccount(); }
+    try {
+      const [status, account] = await Promise.all([api("/api/status"), api("/api/account")]);
+      state.status = status; state.account = account;
+      state.passwordChangeRequired = Boolean(status.password_change_required || account.password_change_required);
+      renderStatus(); renderAccount();
+      if (state.passwordChangeRequired) { state.jobs = []; renderJobs(); return; }
+      state.jobs = (await api("/api/jobs")).jobs; renderJobs();
+    }
     catch (error) { localStorage.removeItem("nasdrop-session-token"); state.token = ""; showLogin(error.message); }
   }
-  async function refreshJobs() { try { state.jobs = (await api("/api/jobs")).jobs; renderJobs(); } catch (error) { if (error.status === 401) { state.token = ""; localStorage.removeItem("nasdrop-session-token"); showLogin(error.message); } } }
+  async function refreshJobs() { if (state.passwordChangeRequired) return; try { state.jobs = (await api("/api/jobs")).jobs; renderJobs(); } catch (error) { if (error.status === 401) { state.token = ""; localStorage.removeItem("nasdrop-session-token"); showLogin(error.message); } } }
+
+  function renderPasswordChangeGate() {
+    const required = Boolean(state.passwordChangeRequired || state.account?.password_change_required);
+    state.passwordChangeRequired = required;
+    $("#password-change-required-warning").classList.toggle("hidden", !required);
+    document.querySelectorAll(".setting-card").forEach(card => card.classList.toggle("hidden", required && !card.classList.contains("account-card")));
+    const dashboardNav = document.querySelector('.nav[data-view="dashboard"]');
+    const settingsNav = document.querySelector('.nav[data-view="settings"]');
+    dashboardNav.disabled = required;
+    if (required) {
+      dashboardNav.classList.remove("active"); settingsNav.classList.add("active");
+      $("#dashboard-view").classList.add("hidden"); $("#settings-view").classList.remove("hidden");
+      $("#account-message").textContent = t("passwordChangeRequiredBody");
+      $("#current-password").focus();
+    }
+  }
   function renderStatus() {
     const s = state.status;
     if (!state.selectedTarget) state.selectedTarget = s.target;
@@ -119,6 +142,8 @@
     $("#save-account").disabled = locked;
     $("#reset-account").classList.toggle("hidden", !launcherResetAvailable);
     $("#current-password-row").classList.toggle("hidden", !state.account.configured || launcherResetAvailable);
+    $("#current-password").required = Boolean(state.account.configured && !launcherResetAvailable);
+    renderPasswordChangeGate();
   }
   async function loadAccount() {
     try { state.account = await api("/api/account"); renderAccount(); }
@@ -188,7 +213,7 @@
     $("#login-error").textContent = "";
     try {
       const result = await publicApi("/api/login", {method:"POST",body:JSON.stringify({username:$("#login-username").value.trim(),password:$("#login-password").value})});
-      state.token = result.token; localStorage.setItem("nasdrop-session-token", state.token); $("#login-password").value = ""; showApp();
+      state.token = result.token; state.passwordChangeRequired = Boolean(result.password_change_required); localStorage.setItem("nasdrop-session-token", state.token); $("#login-password").value = ""; showApp();
     } catch (error) { $("#login-error").textContent = error.message; }
   });
   $("#download-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("#start-button"); const url = $("#download-url").value.trim(); const extract = $("#extract-download").checked; const password = extract ? $("#archive-password").value : ""; button.disabled = true; $("#notice").textContent = t("inspectLink"); try { const parsedUrl = new URL(url); if (parsedUrl.protocol === "https:" && /^[a-z0-9-]+\.gigafile\.nu$/i.test(parsedUrl.hostname)) { const result = await api("/api/enqueue", {method:"POST",body:JSON.stringify({url,target:state.selectedTarget,extract,password})}); $("#download-url").value = ""; $("#archive-password").value = ""; $("#notice").textContent = t("statusInspecting"); await refreshJobs(); return; } const checked = await api("/api/inspect", {method:"POST",body:JSON.stringify({url})}); const started = await api("/api/start", {method:"POST",body:JSON.stringify({...checked.file,target:state.selectedTarget,extract,password})}); $("#download-url").value = ""; $("#archive-password").value = ""; $("#notice").textContent = started.count > 1 ? t("addedMany", {count:started.count,target:state.selectedTarget}) : t("addedOne", {name:checked.file.name,target:state.selectedTarget}); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; } finally { button.disabled = false; } });
@@ -305,7 +330,8 @@
       if (result.token) { state.token = result.token; localStorage.setItem("nasdrop-session-token", state.token); }
       $("#current-password").value = ""; $("#new-password").value = ""; $("#confirm-password").value = "";
       state.accountResetMode = false;
-      await loadAccount(); $("#account-message").textContent = t("accountSaved");
+      state.passwordChangeRequired = Boolean(result.password_change_required);
+      await refresh(); $("#account-message").textContent = t("accountSaved");
     } catch (error) { $("#account-message").textContent = error.message; }
     finally { button.disabled = false; }
   });

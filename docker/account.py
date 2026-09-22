@@ -10,10 +10,19 @@ import backend
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create or reset the NASDrop login account.")
-    parser.add_argument("command", choices=("set",))
-    parser.add_argument("username", help="NASDrop login ID (3-32 letters, numbers, dot, underscore, or hyphen)")
+    parser = argparse.ArgumentParser(description="Create, bootstrap, or reset the NASDrop login account.")
+    parser.add_argument("command", choices=("bootstrap", "set"))
+    parser.add_argument("username", nargs="?", help="NASDrop login ID (3-32 letters, numbers, dot, underscore, or hyphen)")
     args = parser.parse_args()
+
+    if args.command == "bootstrap":
+        if args.username is not None:
+            parser.error("bootstrap does not accept a username")
+        if backend.create_docker_bootstrap_credentials():
+            print("NASDrop bootstrap account was created. Change its ID and password after signing in.")
+        return
+    if not args.username:
+        parser.error("set requires a username")
 
     password = getpass("New NASDrop password: ")
     confirmation = getpass("Confirm password: ")

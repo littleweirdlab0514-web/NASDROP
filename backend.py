@@ -299,6 +299,8 @@ def load_credentials() -> dict[str, object]:
         return {}
     if not re.fullmatch(r"[0-9a-f]{64}", str(data.get("password_hash", ""))):
         return {}
+    if "must_change_password" in data and not isinstance(data["must_change_password"], bool):
+        return {}
     return data
 
 
@@ -316,8 +318,45 @@ def credentials_configured() -> bool:
     return bool(CREDENTIALS)
 
 
+def password_change_required() -> bool:
+    return CREDENTIALS.get("must_change_password") is True
+
+
 def password_hash(password: str, salt: bytes, iterations: int = PASSWORD_HASH_ITERATIONS) -> str:
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations).hex()
+
+
+def create_docker_bootstrap_credentials() -> bool:
+    """Create the one-time Docker login without weakening normal password validation."""
+    global CREDENTIALS
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    salt = secrets.token_bytes(16)
+    updated = {
+        "algorithm": "pbkdf2_sha256",
+        "iterations": PASSWORD_HASH_ITERATIONS,
+        "username": "nasdrop",
+        "salt": salt.hex(),
+        "password_hash": password_hash("nasdrop", salt),
+        "must_change_password": True,
+    }
+    encoded = (json.dumps(updated, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    try:
+        descriptor = os.open(AUTH_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return False
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(encoded)
+            output.flush()
+            os.fsync(output.fileno())
+    except BaseException:
+        try:
+            AUTH_FILE.unlink()
+        except OSError:
+            pass
+        raise
+    CREDENTIALS = updated
+    return True
 
 
 def verify_credentials(username: object, password: object) -> bool:
@@ -3420,6 +3459,15 @@ class Handler(BaseHTTPRequestHandler):
     def authorized(self) -> bool:
         return bool(self.auth_kind())
 
+    def require_completed_password_change(self) -> bool:
+        if not password_change_required():
+            return True
+        self.send_json(HTTPStatus.FORBIDDEN, {
+            "error": "초기 ID와 비밀번호를 변경해야 계속할 수 있습니다.",
+            "code": "password_change_required",
+        })
+        return False
+
     def body(self) -> dict:
         try:
             length = int(self.headers.get("content-length", "0"))
@@ -3443,14 +3491,21 @@ class Handler(BaseHTTPRequestHandler):
         parsed_path = urlparse(self.path)
         path = parsed_path.path
         if path == "/api/auth/status":
-            return self.send_json(HTTPStatus.OK, {"configured": credentials_configured()})
+            return self.send_json(HTTPStatus.OK, {
+                "configured": credentials_configured(),
+                "password_change_required": password_change_required(),
+            })
         if path == "/api/jobs":
             if not self.authorized():
                 return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
+            if not self.require_completed_password_change():
+                return
             return self.send_json(HTTPStatus.OK, {"jobs": CONTROLLER.public_jobs()})
         if parsed_path.path == "/api/folders":
             if not self.authorized():
                 return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
+            if not self.require_completed_password_change():
+                return
             try:
                 requested = parse_qs(parsed_path.query).get("path", ["/"])[0]
                 return self.send_json(HTTPStatus.OK, browse_folders(requested))
@@ -3473,6 +3528,7 @@ class Handler(BaseHTTPRequestHandler):
                 "launcher_port": LAUNCHER_PORT,
                 "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
                 "auto_extract_archives": AUTO_EXTRACT_ARCHIVES,
+                "password_change_required": password_change_required(),
                 "job_processing_options": True,
                 "job_safe_delete": True,
                 "browser_handoff_providers": ["akirabox", "vikingfile"],
@@ -3493,6 +3549,7 @@ class Handler(BaseHTTPRequestHandler):
                 "username": str(CREDENTIALS.get("username", "")),
                 "launcher_session": self.auth_kind() == "launcher",
                 "launcher_reset_available": launcher_account_reset_allowed(token),
+                "password_change_required": password_change_required(),
             })
         if path.startswith("/api/"):
             return self.send_json(HTTPStatus.NOT_FOUND, {"error": "찾을 수 없습니다."})
@@ -3531,7 +3588,11 @@ class Handler(BaseHTTPRequestHandler):
                     record_global_login_failure()
                     return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "ID 또는 비밀번호가 올바르지 않습니다."})
                 token = create_session(str(CREDENTIALS["username"]))
-                return self.send_json(HTTPStatus.OK, {"token": token, "username": str(CREDENTIALS["username"])})
+                return self.send_json(HTTPStatus.OK, {
+                    "token": token,
+                    "username": str(CREDENTIALS["username"]),
+                    "password_change_required": password_change_required(),
+                })
             except (ValueError, json.JSONDecodeError) as exc:
                 return self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
         if path == "/api/launcher/session":
@@ -3552,6 +3613,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(HTTPStatus.OK, {"token": token})
         if not self.authorized():
             return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
+        if path not in {"/api/logout", "/api/account"} and not self.require_completed_password_change():
+            return
         try:
             payload = self.body()
             if path == "/api/logout":
@@ -3568,7 +3631,7 @@ class Handler(BaseHTTPRequestHandler):
                     rotate_launcher_token()
                 except OSError:
                     LOGGER.exception("DSM launcher handoff could not be rotated after account update")
-                result = {"ok": True, "username": username}
+                result = {"ok": True, "username": username, "password_change_required": False}
                 if auth_kind in {"session", "launcher"}:
                     result["token"] = create_session(username)
                 return self.send_json(HTTPStatus.OK, result)
