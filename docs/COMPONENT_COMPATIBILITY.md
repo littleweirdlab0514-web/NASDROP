@@ -40,6 +40,8 @@ Current coordinated capabilities include:
 
 Provider changes shared by the server and Chrome must pass both regression suites and a real provider flow before Docker is synchronized and smoke-tested from the same canonical source. Docker must not add a provider-specific implementation of its own.
 
+Creating a normal `v*` server tag builds, smoke-tests, and publishes only an immutable `candidate-<package-version>` Docker manifest. It must not move the version, minor, or `latest` tags. After the user confirms the Synology package on real hardware and the Docker maintainer verifies parity, run the separate `Docker promote candidate` workflow manually. Promotion attaches the version, minor, and `latest` tags to the already-tested candidate digest without rebuilding it.
+
 An explicit async-enqueue capability must be added before Android removes its remaining legacy version check. Until then, the client must retain the normal inspect/start fallback.
 
 ## Release gate

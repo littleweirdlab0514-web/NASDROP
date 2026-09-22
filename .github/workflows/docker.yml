@@ -1,17 +1,15 @@
-name: Docker image
+name: Docker candidate image
 
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-
 permissions:
   contents: read
   packages: write
 
 jobs:
-  publish:
+  publish-candidate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,6 +24,7 @@ jobs:
           set -euo pipefail
           version=$(sed -n 's/^version="\([^"]*\)"$/\1/p' synology/package/INFO)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]
+          [[ "${GITHUB_REF_NAME}" == "v${version}" ]]
           echo "value=$version" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
@@ -44,10 +43,7 @@ jobs:
         with:
           images: ghcr.io/littleweirdlab0514-web/nasdrop
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=${{ steps.version.outputs.value }}
-            type=raw,value=latest
+            type=raw,value=candidate-${{ steps.version.outputs.value }}
 
       - name: Build amd64 smoke-test image
         uses: docker/build-push-action@v6
@@ -109,7 +105,7 @@ jobs:
             > "${RUNNER_TEMP}/image-web.sha256"
           diff -u "${RUNNER_TEMP}/source-web.sha256" "${RUNNER_TEMP}/image-web.sha256"
 
-      - name: Build and publish amd64/arm64 image
+      - name: Build and publish candidate amd64/arm64 image
         uses: docker/build-push-action@v6
         with:
           context: .

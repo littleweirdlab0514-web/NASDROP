@@ -20,6 +20,7 @@
 - Keep Docker on the same canonical source contract, but do not ask the Docker maintainer to publish or release a new image merely because the Synology source changed.
 - After the user explicitly reports that the updated Synology package passed the real test, hand the exact Synology changes, API capabilities, version, tests, and any migration notes to the Docker maintainer. Require the Docker implementation to preserve feature parity and pass Docker source-parity and smoke tests.
 - The required sequence is: Synology implementation and automated tests -> versioned SPK build -> user installs and reports real-test success -> Docker maintainer synchronizes and verifies the same update. Chrome-owned work is routed through `NASDROP_크롬확장` at the stage where it is needed.
+- A normal `v*` tag may automatically build and push only `candidate-<package-version>`. It must never move the version, minor, or `latest` Docker tags. After the required user and Docker verification succeeds, use the manual promotion workflow to retag that exact candidate digest without rebuilding it.
 
 ## Provider filename invariant
 

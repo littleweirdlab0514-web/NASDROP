@@ -123,6 +123,26 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertIn("Verify image embeds canonical server files", workflow)
         self.assertIn("source-core.sha256", workflow)
         self.assertIn("source-web.sha256", workflow)
+        self.assertIn("candidate-${{ steps.version.outputs.value }}", workflow)
+        self.assertNotIn("type=raw,value=latest", workflow)
+        self.assertNotIn("type=semver", workflow)
+
+    def test_verified_candidate_is_promoted_without_rebuilding(self):
+        workflow = (ROOT / ".github" / "workflows" / "docker-promote.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("workflow_dispatch", workflow)
+        self.assertIn('[[ "$CONFIRMATION" == "promote" ]]', workflow)
+        self.assertIn("candidate-$VERSION", workflow)
+        self.assertIn("linux", workflow)
+        self.assertIn("amd64", workflow)
+        self.assertIn("arm64", workflow)
+        self.assertIn("imagetools create", workflow)
+        self.assertIn('--tag "$IMAGE:$VERSION"', workflow)
+        self.assertIn('--tag "$IMAGE:$MINOR"', workflow)
+        self.assertIn('--tag "$IMAGE:latest"', workflow)
+        self.assertIn('"$IMAGE@$DIGEST"', workflow)
+        self.assertNotIn("docker/build-push-action", workflow)
 
 
 if __name__ == "__main__":

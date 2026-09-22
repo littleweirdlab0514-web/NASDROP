@@ -1,0 +1,83 @@
+name: Docker promote candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Candidate version to promote, for example 0.9.25-1
+        required: true
+        type: string
+      confirmation:
+        description: Type promote after Synology and Docker verification succeeds
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate promotion request
+        id: release
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]
+          [[ "$CONFIRMATION" == "promote" ]]
+          minor=$(printf '%s' "$VERSION" | awk -F. '{print $1 "." $2}')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "minor=$minor" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Sign in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify candidate manifest
+        id: candidate
+        shell: bash
+        env:
+          IMAGE: ghcr.io/littleweirdlab0514-web/nasdrop
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          source="$IMAGE:candidate-$VERSION"
+          raw=$(docker buildx imagetools inspect "$source" --raw)
+          printf '%s' "$raw" | jq -e \
+            '([.manifests[].platform | select(.os == "linux" and .architecture == "amd64")] | length) >= 1 and
+             ([.manifests[].platform | select(.os == "linux" and .architecture == "arm64")] | length) >= 1' \
+            >/dev/null
+          manifest=$(docker buildx imagetools inspect "$source" --format '{{json .Manifest}}')
+          digest=$(printf '%s' "$manifest" | jq -r '.digest // .Digest // empty')
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Promote the verified manifest without rebuilding
+        shell: bash
+        env:
+          IMAGE: ghcr.io/littleweirdlab0514-web/nasdrop
+          VERSION: ${{ steps.release.outputs.version }}
+          MINOR: ${{ steps.release.outputs.minor }}
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker buildx imagetools create \
+            --tag "$IMAGE:$VERSION" \
+            --tag "$IMAGE:$MINOR" \
+            --tag "$IMAGE:latest" \
+            "$IMAGE@$DIGEST"
+          for tag in "$VERSION" "$MINOR" latest; do
+            manifest=$(docker buildx imagetools inspect "$IMAGE:$tag" --format '{{json .Manifest}}')
+            actual=$(printf '%s' "$manifest" | jq -r '.digest // .Digest // empty')
+            [[ "$actual" == "$DIGEST" ]]
+          done
