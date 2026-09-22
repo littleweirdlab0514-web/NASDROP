@@ -10,3 +10,5 @@ __pycache__/
 NASDrop-Chrome-*.zip
 .env*
 !.env.example
+docker/live-provider-*/
+docker/test/

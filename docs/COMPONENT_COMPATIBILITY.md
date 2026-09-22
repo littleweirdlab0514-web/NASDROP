@@ -6,8 +6,8 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.23-1 | Canonical server, API, providers, and web UI |
-| Docker image | 0.9.23 | Same core server and web files as Synology; amd64/arm64 verified with pinned 7-Zip 26.03 |
+| Synology package | 0.9.23-2 | Canonical server, API, providers, and web UI |
+| Docker image | 0.9.23-2 | Same core server and web files as Synology; amd64/arm64 verified with pinned 7-Zip 26.03 |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.1 | Uses explicit provider and processing capabilities; keeps strict deletion behavior |
 

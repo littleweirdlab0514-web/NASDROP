@@ -31,7 +31,7 @@ Send supported download buttons directly to your own NASDrop server, manage the 
 - **[Download Chrome extension 0.5.1 ZIP](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/chrome-v0.5.1/NASDrop-Chrome-0.5.1.zip)**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
-- **[Compatible NASDrop Server 0.9.23-1 SPK](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/v0.9.23-1/nasdrop-0.9.23-1-x86_64.spk)**
+- **[Compatible NASDrop Server 0.9.23-2 SPK](https://github.com/littleweirdlab0514-web/NASDROP/releases/download/v0.9.23-2/nasdrop-0.9.23-2-x86_64.spk)**
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -242,6 +242,8 @@ When upgrading from an older release, the former automatically assigned `/volume
 
 The Docker image is suitable for Synology Container Manager, ordinary Linux servers, home servers, and Docker Desktop. Published images target both `linux/amd64` and `linux/arm64`.
 
+For complete instructions for Synology Container Manager, Linux, Windows, macOS, permissions, updates, backups, offline images, and troubleshooting, see the **[Docker installation guide](docs/DOCKER_INSTALL.md)**. A **[Korean guide](docs/DOCKER_INSTALL.ko.md)** is also available.
+
 ### Docker Compose quick start
 
 1. Download `compose.yaml`. Optionally copy `docker/compose.env.example` to `.env` when you want to override the defaults.
@@ -356,7 +358,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.23-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.23-2-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
 
