@@ -79,7 +79,8 @@ jobs:
           trap 'docker logs nasdrop-smoke || true; docker rm -f nasdrop-smoke >/dev/null 2>&1 || true' EXIT
           for attempt in $(seq 1 30); do
             if response=$(curl --fail --silent http://127.0.0.1:18791/api/auth/status); then
-              printf '%s' "$response" | grep -q '"configured": false'
+              printf '%s' "$response" | grep -q '"configured": true'
+              printf '%s' "$response" | grep -q '"must_change_password": true'
               exit 0
             fi
             sleep 1
