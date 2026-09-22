@@ -92,7 +92,7 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertIn("nasdrop:smoke", workflow)
         self.assertIn("/api/auth/status", workflow)
         self.assertIn('"configured": true', workflow)
-        self.assertIn('"must_change_password": true', workflow)
+        self.assertIn('"password_change_required": true', workflow)
         self.assertIn("Verify image embeds canonical server files", workflow)
         self.assertIn("source-core.sha256", workflow)
         self.assertIn("source-web.sha256", workflow)

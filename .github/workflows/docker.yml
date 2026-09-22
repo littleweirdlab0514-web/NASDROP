@@ -80,7 +80,7 @@ jobs:
           for attempt in $(seq 1 30); do
             if response=$(curl --fail --silent http://127.0.0.1:18791/api/auth/status); then
               printf '%s' "$response" | grep -q '"configured": true'
-              printf '%s' "$response" | grep -q '"must_change_password": true'
+              printf '%s' "$response" | grep -q '"password_change_required": true'
               exit 0
             fi
             sleep 1
