@@ -1,4 +1,4 @@
-FROM debian:trixie-slim
+FROM debian:bookworm-slim
 
 ARG NASDROP_VERSION=0.9.23
 ARG VCS_REF=unknown
@@ -17,7 +17,6 @@ RUN apt-get update \
        gosu \
        nodejs \
        python3 \
-       tzdata \
        7zip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -29,8 +28,7 @@ COPY docker/account.py /app/docker/account.py
 COPY docker/entrypoint.sh /usr/local/bin/nasdrop-entrypoint
 COPY docker/account-command.sh /usr/local/bin/nasdrop-account
 
-RUN sed -i 's/\r$//' /usr/local/bin/nasdrop-entrypoint /usr/local/bin/nasdrop-account \
-    && chmod 0755 /usr/local/bin/nasdrop-entrypoint /usr/local/bin/nasdrop-account \
+RUN chmod 0755 /usr/local/bin/nasdrop-entrypoint /usr/local/bin/nasdrop-account \
     && mkdir -p /config /downloads \
     && python3 -m py_compile /app/backend.py /app/docker/account.py \
     && node --check /app/gofile_wt.mjs \

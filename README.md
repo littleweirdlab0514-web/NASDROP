@@ -240,34 +240,26 @@ When upgrading from an older release, the former automatically assigned `/volume
 
 ## Run with Docker
 
-The Docker build supports Synology Container Manager, Linux servers, and Docker Desktop using Linux containers. The release workflow targets `linux/amd64` and `linux/arm64`. The included Compose file builds the supplied source locally; it does not require a published registry image. Docker runtime verification is required on your host.
-
-**[Docker installation guide in Korean](docs/DOCKER.ko.md)**
+The Docker image is suitable for Synology Container Manager, ordinary Linux servers, home servers, and Docker Desktop. Published images target both `linux/amd64` and `linux/arm64`.
 
 ### Docker Compose quick start
 
-1. Download and extract the complete source or Docker source bundle, then open a terminal in the directory containing `compose.yaml`. Copy `docker/compose.env.example` to `.env` to override the defaults. Docker Compose v2 is required.
+1. Download `compose.yaml`. Optionally copy `docker/compose.env.example` to `.env` when you want to override the defaults.
 2. If you created `.env`, set `NASDROP_CONFIG_DIR` and `NASDROP_DOWNLOAD_DIR` to persistent host folders.
 3. On Linux or Synology, set `PUID` and `PGID` to the numeric user and group that can write to the download folder. You can find them with `id your-user`.
-4. Create the host folders before starting, and grant the configured user write access to the download folder. If the native SPK already uses port 8791, set `NASDROP_PORT=8792` in `.env`. Build the image:
-
-   ```sh
-   docker compose build --pull
-   ```
-
-5. Create the first NASDrop account interactively. The password is prompted without being placed in the command line or Compose environment:
+4. Create the first NASDrop account interactively. The password is prompted without being placed in the command line or Compose environment:
 
    ```sh
    docker compose run --rm nasdrop account set owner
    ```
 
-6. Start NASDrop and open `http://SERVER-IP:8791` (or your configured host port):
+5. Start NASDrop and open `http://SERVER-IP:8791`:
 
    ```sh
    docker compose up -d
    ```
 
-7. Sign in, open **Settings**, and select `/downloads` as the default download folder so NASDrop verifies write access.
+6. Sign in, open **Settings**, and select the default download folder once so NASDrop verifies write access.
 
 The default Compose configuration persists application state in `./nasdrop-config`, mounts `./downloads` as `/downloads`, and stores partial files in `/downloads/.nasdrop-tmp`. Recreating or updating the container does not remove those host folders.
 
@@ -298,16 +290,14 @@ NASDrop never recursively changes permissions on mounted download folders. If th
 
 ### Docker update and HTTPS
 
-Replace the source files with the new version, keeping `.env` and the persistent host folders, then rebuild:
+Update without deleting persistent data:
 
 ```sh
-docker compose build --pull
+docker compose pull
 docker compose up -d
 ```
 
 After an update, open **Settings** and select the default download folder again. For access outside the local network, place NASDrop behind an HTTPS reverse proxy and do not expose plain HTTP port `8791` directly to the internet.
-
-For a fresh migration from SPK, finish or pause native-package jobs first, mount the existing download directory, and create a separate Docker account and config directory. Do not copy native `config.json` or unfinished jobs directly: they refer to DSM paths rather than container mount paths. Existing completed files remain available. Keep the SPK installed until you have verified Docker operation; do not run both services against the same unfinished jobs.
 
 ## Opening NASDrop and setting up client login
 
