@@ -182,6 +182,8 @@ test("DSM launcher preserves the protocol used to open DSM", async () => {
 
 test("web UI exchanges DSM launcher handoffs instead of using them as API sessions", async () => {
   const app = await readFile(new URL("synology/web/app.js", root), "utf8");
+  const launcher = await readFile(new URL("synology/package-inner/ui/launcher.html", root), "utf8");
   assert.match(app, /publicApi\("\/api\/launcher\/session"/);
   assert.doesNotMatch(app, /token:\s*launchedToken\s*\|\|/);
+  assert.doesNotMatch(launcher, /#token=|access_token|Bearer/);
 });

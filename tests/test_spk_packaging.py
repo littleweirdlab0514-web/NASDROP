@@ -98,6 +98,16 @@ class SpkPackagingTests(unittest.TestCase):
             self.assertIn('location.replace(targetProtocol + host', source, str(path))
             self.assertIn('+ host + ":8791/', source, str(path))
             self.assertNotIn('privateHost ? "http://" : "https://"', source, str(path))
+            self.assertNotIn("#token=", source, str(path))
+            self.assertNotIn('token="$(cat', source, str(path))
+
+        config = json.loads((ROOT / "synology" / "package-inner" / "ui" / "config").read_text(encoding="utf-8"))
+        launcher = config[".url"]["com.littleweirdlab.NasDownloadPortal"]
+        self.assertEqual(launcher["url"], "/webman/3rdparty/nasdownloadportal/launcher.cgi")
+        cgi = (ROOT / "synology" / "package-inner" / "ui" / "launcher.cgi").read_text(encoding="utf-8")
+        self.assertIn("authenticate.cgi", cgi)
+        self.assertIn('"administrators" not in groups.stdout.split()', cgi)
+        self.assertIn("Cache-Control: no-store", cgi)
 
     def test_launcher_port_setting_updates_installed_dsm_launcher(self):
         start_script = (PACKAGE_ROOT / "scripts" / "start-stop-status").read_text(encoding="utf-8")

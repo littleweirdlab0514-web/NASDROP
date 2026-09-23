@@ -6,7 +6,7 @@ import test from "node:test";
 const helper = fileURLToPath(new URL("../gofile_wt.mjs", import.meta.url));
 
 function execute(script) {
-  const result = spawnSync(process.execPath, [helper], {
+  const result = spawnSync(process.execPath, ["--permission", `--allow-fs-read=${helper}`, helper], {
     encoding: "utf8",
     input: JSON.stringify({
       userAgent: "NASDrop test",
@@ -29,6 +29,13 @@ test("GoFile scripts retain context-local Date and Math support", () => {
 test("GoFile scripts cannot escape through a host Date constructor", () => {
   assert.throws(
     () => execute('function generateWT() { return Date.constructor("return process.version")(); }'),
+    /Code generation from strings disallowed|EvalError/,
+  );
+});
+
+test("GoFile scripts cannot escape through a host navigator constructor", () => {
+  assert.throws(
+    () => execute('function generateWT() { return navigator.constructor.constructor("return process.version")(); }'),
     /Code generation from strings disallowed|EvalError/,
   );
 });

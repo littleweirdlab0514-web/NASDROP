@@ -28,10 +28,10 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.5 ZIP is paired with the NASDrop Server 0.9.25-1 test build.**
+- **Chrome extension 0.5.5 ZIP is paired with the NASDrop Server 0.9.26-1 security test build.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
-- **Compatible NASDrop Server 0.9.25-1 test build adds protected GigaFile download-key handoff.**
+- **Compatible NASDrop Server 0.9.26-1 includes the protected GigaFile handoff and the security hardening described below.**
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -44,6 +44,13 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on external download websites and APIs. Providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
+
+## What's new in 0.9.26 (security test build)
+
+- Replaced the static DSM launcher bearer token with a DSM-authenticated administrator CGI and an HMAC-signed, 30-second, one-use handoff. Static launcher files no longer contain credentials, and an existing NASDrop account can no longer be replaced from a DSM launcher session without its current NASDrop password.
+- Hardened GoFile's remote helper: injected values are created inside the VM context, string/Wasm code generation stays disabled, the helper process runs with Node's permission model and read access only to its own entry file, and navigator-constructor escape coverage is included.
+- Send.now inspection pins each connection to the public IP set that was validated, and the final curl transfer uses a validated `resolve` entry so DNS cannot be re-resolved to a private address between validation and use.
+- Docker keeps the documented one-time `nasdrop` / `nasdrop` bootstrap login. It exposes only minimal account/status operations until both credentials are replaced, and restores the mandatory-change flag if a legacy untouched default account is found.
 
 ## What's new in 0.9.25 (test build)
 
@@ -231,7 +238,7 @@ The optional **Single connection** mode writes one resumable temporary file with
 - `config.example.json`: Example package configuration
 - `runtime/`: Hashed account credentials, sessions, configuration, logs, and job state; excluded from Git
 - `tests/`: Python and Node.js regression tests for providers, packaging, authentication, extraction, and the rendered UI
-- `docs/`: Release, provider-filename, and DSM-launcher regression checklists
+- `docs/`: Release notes, the consolidated [provider/security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), and focused regression guides
 - `assets/`: Documentation screenshots and translated setup guides
 - `.github/`: Release and container publishing workflows
 
@@ -268,7 +275,7 @@ For complete instructions for Synology Container Manager, Linux, Windows, macOS,
    docker compose up -d
    ```
 
-5. On a new `/config` volume, sign in once with temporary ID `nasdrop` and temporary password `nasdrop`. The web interface permits only changing the ID/password or signing out until you save a new password of 10–128 characters. An existing credentials file is preserved. If it still verifies as the exact default `nasdrop` / `nasdrop` account, Docker marks it for mandatory replacement at every container start.
+5. On a new `/config` volume, sign in with the temporary ID `nasdrop` and password `nasdrop`. The web interface permits only minimal account/status reads, changing the ID/password, or signing out until you save a new password of 10–128 characters. The short bootstrap password cannot be reused as the replacement. Existing custom credentials are preserved, and a legacy untouched `nasdrop` / `nasdrop` account has its mandatory-change flag restored without changing the credentials.
 6. Docker already defaults to `/downloads`. After changing the login, opening **Settings** and selecting `/downloads` once is recommended to verify write access.
 
 The default Compose configuration persists application state in `./nasdrop-config`, mounts `./downloads` as `/downloads`, and stores partial files in `/downloads/.nasdrop-tmp`. Recreating or updating the container does not remove those host folders.
@@ -311,14 +318,14 @@ After an update, open **Settings** and select the default download folder again.
 
 ## Opening NASDrop and setting up client login
 
-- Sign in to DSM with an account that is allowed to open NASDrop, then launch it from the DSM desktop or Package Center icon. The icon provides a one-time privileged handoff that can create or reset the NASDrop login.
-- After installing or updating, use that DSM icon launch and create a NASDrop ID and password under **Settings > Client connection**. Only grant NASDrop application access to DSM users who are allowed to reset this login.
+- Sign in to DSM with an administrator account, then launch NASDrop from the DSM desktop or Package Center icon. The icon creates a 30-second, one-use authenticated handoff without placing credentials in a static launcher file.
+- After installing or updating, use that DSM icon launch to create the first NASDrop ID and password under **Settings > Client connection**. If an account already exists, changing it still requires the current NASDrop password; DSM launch does not bypass that check.
 - Opening the service address directly, using another browser, or connecting a client app requires that ID and password.
-- If the ID or password is forgotten, sign in to DSM, open NASDrop from its DSM icon, and reset both values under **Settings > Client connection**. The old password cannot be displayed or recovered.
+- If the ID or password is forgotten, it cannot be displayed or reset through the DSM launcher in this security build. Recovery requires a separate administrator-controlled procedure; do not weaken the current-password requirement as a shortcut.
 - Passwords are stored only as salted PBKDF2-SHA256 hashes. Successful logins receive a time-limited session token; changing the account credentials revokes existing sessions.
 - Five consecutive failed login attempts from the same client IP trigger a 15-minute login block.
 
-The DSM launcher uses a separate one-time browser handoff value and removes it from the address immediately. The server exchanges it for a short-lived launcher session, rotates the handoff at once, and never treats the value embedded in the launcher file as a reusable API credential.
+The DSM launcher CGI validates the current DSM administrator session and creates an HMAC-signed handoff that expires after 30 seconds and is accepted only once. The web UI removes it from the address immediately after exchange. Static launcher files contain no reusable API credential.
 
 ## Chrome extension
 
@@ -366,9 +373,9 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.25-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.26-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
-Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). Provider filename handling and DSM launcher-title rules are documented in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md) and [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) so those regressions are checked before future releases.
+Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 
 ## Configuring a download folder
 
@@ -528,13 +535,13 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 
 - JSON API request bodies are limited to 16 KiB and idle request handling times out after 30 seconds.
 - Login failure tracking retains inactive entries for 15 minutes and is capped at 4,096 client addresses.
-- Browser login sessions last seven days; DSM launcher sessions last one hour, while the handoff that creates them is single-use.
+- Browser sessions, including a session obtained through the DSM launcher, last seven days. The DSM CGI handoff used to obtain that session expires after 30 seconds and is single-use.
 - Archive extraction is stopped after six hours. Archive safety checks also cap entries at 100,000 and extracted data at 1 TiB.
 - Individual source files are limited to 300 GiB, and the global download scheduler runs at most three jobs concurrently.
 
 ## Supported links and rate-limit protection
 
-NASDrop currently supports standard GigaFile links, GoFile share links, Pixeldrain file-share links, and Buzzheavier signed direct links copied from the provider page. The Chrome companion additionally supports user-assisted AkiraBox, VikingFile, and Send.now handoff when the server advertises the matching capability. For Pixeldrain, NASDrop compares the SHA-256 value reported by the public API with the final downloaded file hash.
+NASDrop currently supports standard GigaFile links, GoFile share links, Pixeldrain file-share links, and Buzzheavier signed direct links copied from the provider page. The Chrome companion additionally supports user-assisted AkiraBox, VikingFile, and Send.now handoff when the server advertises the matching capability. For Pixeldrain, NASDrop compares the SHA-256 value reported by the public API with the final downloaded file hash. Provider-specific input, concurrency, expiry, retry, and security rules are maintained in the [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md).
 
 ### Send.now browser-assisted downloads
 

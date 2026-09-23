@@ -40,7 +40,9 @@ class BrowserHandoffTests(unittest.TestCase):
     def test_sendnow_user_resolved_link_uses_single_connection_handoff(self):
         opener = mock.Mock()
         opener.open.return_value = Response(SENDNOW_DIRECT, '브라우저 파일.zip')
-        with mock.patch.object(backend, 'build_opener', return_value=opener):
+        with mock.patch.object(backend, 'build_opener', return_value=opener), mock.patch.object(
+            backend.socket, 'getaddrinfo', return_value=[(2, 1, 6, '', ('93.184.216.34', 443))],
+        ):
             result = backend.inspect_payload({'url': SENDNOW_SHARE, 'resolved_url': SENDNOW_DIRECT, 'provider': 'sendnow'})
         self.assertEqual(result['url'], SENDNOW_SHARE)
         self.assertEqual(result['name'], '브라우저 파일.zip')
@@ -55,6 +57,9 @@ class BrowserHandoffTests(unittest.TestCase):
         public = 'https://downloads.example/file.zip?token=synthetic'
         with mock.patch.object(backend.socket, 'getaddrinfo', return_value=[(2, 1, 6, '', ('93.184.216.34', 443))]):
             self.assertEqual(backend._validate_handoff_transfer_url(public, 'sendnow'), public)
+        mixed = [(2, 1, 6, '', ('93.184.216.34', 443)), (2, 1, 6, '', ('127.0.0.1', 443))]
+        with mock.patch.object(backend.socket, 'getaddrinfo', return_value=mixed), self.assertRaises(ValueError):
+            backend._validate_handoff_transfer_url(public, 'sendnow')
         for address in ('127.0.0.1', '10.0.0.1', '169.254.169.254', '192.168.1.157', '::1'):
             with self.subTest(address=address), mock.patch.object(backend.socket, 'getaddrinfo', return_value=[(2, 1, 6, '', (address, 443))]), self.assertRaises(ValueError):
                 backend._validate_handoff_transfer_url('https://downloads.example/file.zip', 'sendnow')
@@ -77,11 +82,15 @@ class BrowserHandoffTests(unittest.TestCase):
             self.assertEqual(backend.load_job_download_url(job.id), SENDNOW_DIRECT)
             c.private_downloads = {}
             c._download_script_direct = mock.Mock(side_effect=RuntimeError('STOP-BEFORE-TRANSFER'))
-            with self.assertRaisesRegex(RuntimeError, 'STOP-BEFORE-TRANSFER'):
+            with mock.patch.object(
+                backend.socket, 'getaddrinfo', return_value=[(2, 1, 6, '', ('93.184.216.34', 443))],
+            ), self.assertRaisesRegex(RuntimeError, 'STOP-BEFORE-TRANSFER'):
                 c._run(job.id)
             self.assertEqual(job.transfer_mode, 'single')
             self.assertEqual(c._download_script_direct.call_args.args[0], SENDNOW_DIRECT)
             self.assertTrue(c._download_script_direct.call_args.kwargs['capture_headers'])
+            self.assertEqual(c._download_script_direct.call_args.kwargs['resolve_host'], 'cdn-2.send.now')
+            self.assertEqual(c._download_script_direct.call_args.kwargs['resolve_address'], '93.184.216.34')
 
     def test_metadata_normal_file_and_archive_and_secret_filter(self):
         for provider in SHARES:

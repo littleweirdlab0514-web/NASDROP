@@ -6,13 +6,16 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
+import base64
 from email.message import Message
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
+from http.client import HTTPSConnection
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
 from http.cookiejar import CookieJar
 import hashlib
+import hmac
 import html
 import ipaddress
 import json
@@ -37,18 +40,20 @@ import unicodedata
 import zipfile
 from urllib.error import HTTPError
 from urllib.parse import parse_qs, unquote, urlencode, urlparse
-from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, ProxyHandler, Request, build_opener
 from transfer_parts import commit_fragment, segment_count, segment_chunk, initial_transfer_mode
 
 
 ROOT = Path(__file__).resolve().parent
 STATE_DIR = Path(os.environ.get("NAS_PORTAL_STATE_DIR", str(ROOT / "runtime"))).resolve()
 STATE_FILE = STATE_DIR / "jobs.json"
-TOKEN_FILE = STATE_DIR / "access_token"
 AUTH_FILE = STATE_DIR / "credentials.json"
 CONFIG_FILE = STATE_DIR / "config.json"
 GOFILE_COOLDOWN_FILE = STATE_DIR / "gofile_cooldown.json"
 SECRET_DIR = STATE_DIR / "job-secrets"
+DSM_LAUNCHER_SECRET_FILE = Path(
+    os.environ.get("NAS_PORTAL_DSM_LAUNCHER_SECRET_FILE", str(STATE_DIR / "dsm_launcher_secret")),
+).resolve()
 
 
 def load_config() -> dict[str, object]:
@@ -79,7 +84,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.25")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.26")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -110,8 +115,8 @@ GLOBAL_LOGIN_FAILURE_LIMIT = 30
 GLOBAL_LOGIN_COOLDOWN_SECONDS = 5
 REQUEST_BODY_LIMIT = 16_384
 REQUEST_TIMEOUT_SECONDS = 30
-LAUNCHER_SESSION_TTL_SECONDS = 60 * 60
-LAUNCHER_ACCOUNT_RESET_WINDOW_SECONDS = 5 * 60
+DSM_LAUNCHER_HANDOFF_TTL_SECONDS = 30
+MAX_DSM_LAUNCHER_HANDOFFS = 32
 ARCHIVE_EXTRACT_TIMEOUT_SECONDS = 6 * 60 * 60
 CURL_HTTPS_ONLY = "--proto '=https' --proto-redir '=https'"
 CURL_NO_REDIRECTS = "--location --max-redirs 0"
@@ -124,7 +129,8 @@ LOGGER = logging.getLogger("nasdrop")
 LOGGER.addHandler(logging.NullHandler())
 JOB_SECRET_LOCK = threading.RLock()
 CONFIG_LOCK = threading.RLock()
-LAUNCHER_TOKEN_LOCK = threading.RLock()
+DSM_LAUNCHER_HANDOFFS: dict[str, float] = {}
+DSM_LAUNCHER_HANDOFFS_LOCK = threading.Lock()
 FORWARDED_HEADER_LOCK = threading.Lock()
 SHUTDOWN_EVENT = threading.Event()
 UNTRUSTED_FORWARDED_HEADER_SEEN = False
@@ -258,19 +264,6 @@ def now() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def load_launcher_token() -> str:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    token = secrets.token_urlsafe(32)
-    temporary = TOKEN_FILE.with_suffix(".tmp")
-    temporary.write_text(token + "\n", encoding="utf-8")
-    temporary.chmod(0o600)
-    temporary.replace(TOKEN_FILE)
-    return token
-
-
-LAUNCHER_TOKEN = load_launcher_token()
-
-
 def normalize_username(value: object) -> str:
     username = str(value).strip()
     if not re.fullmatch(r"[A-Za-z0-9._-]{3,32}", username):
@@ -329,7 +322,7 @@ def password_hash(password: str, salt: bytes, iterations: int = PASSWORD_HASH_IT
 
 
 def create_docker_bootstrap_credentials() -> bool:
-    """Create the one-time Docker login without weakening normal password validation."""
+    """Create the documented one-time Docker login without weakening normal password validation."""
     global CREDENTIALS
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     salt = secrets.token_bytes(16)
@@ -362,7 +355,7 @@ def create_docker_bootstrap_credentials() -> bool:
 
 
 def enforce_docker_default_password_change() -> bool:
-    """Mark a legacy Docker nasdrop/nasdrop account for mandatory replacement."""
+    """Keep the documented Docker bootstrap login confined until it is replaced."""
     global CREDENTIALS
     if (
         not CREDENTIALS
@@ -441,17 +434,93 @@ def session_kind(token: str) -> str:
         return kind
 
 
-def launcher_account_reset_allowed(token: str) -> bool:
-    with SESSIONS_LOCK:
-        session = SESSIONS.get(token)
-        if not session:
-            return False
-        _, expiry, kind, issued_at = session
-        current = time.time()
-        if expiry <= current:
-            SESSIONS.pop(token, None)
-            return False
-        return kind == "launcher" and current - issued_at <= LAUNCHER_ACCOUNT_RESET_WINDOW_SECONDS
+def load_dsm_launcher_secret() -> bytes:
+    try:
+        encoded = DSM_LAUNCHER_SECRET_FILE.read_text(encoding="ascii").strip()
+        secret = bytes.fromhex(encoded)
+        if len(secret) == 32:
+            return secret
+    except (OSError, UnicodeError, ValueError):
+        pass
+    # The signed DSM handoff exists only for the installed Synology package.
+    # Development and Docker runs do not configure a launcher path, so avoid an
+    # import-time filesystem mutation and use a process-local secret instead.
+    if LAUNCHER_FILE is None:
+        return secrets.token_bytes(32)
+    DSM_LAUNCHER_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+    secret = secrets.token_bytes(32)
+    temporary = DSM_LAUNCHER_SECRET_FILE.with_suffix(".tmp")
+    temporary.write_text(secret.hex() + "\n", encoding="ascii")
+    temporary.chmod(0o600)
+    temporary.replace(DSM_LAUNCHER_SECRET_FILE)
+    return secret
+
+
+DSM_LAUNCHER_SECRET = load_dsm_launcher_secret()
+
+
+def create_dsm_launcher_handoff(username: str, current: int | None = None) -> str:
+    """Create a signed short-lived handoff after DSM authenticated the CGI."""
+    if not username or len(username) > 128 or any(ord(character) < 32 or ord(character) == 127 for character in username):
+        raise ValueError("DSM 사용자 정보가 올바르지 않습니다.")
+    issued = int(time.time()) if current is None else int(current)
+    payload = json.dumps(
+        {"u": username, "e": issued + DSM_LAUNCHER_HANDOFF_TTL_SECONDS, "n": secrets.token_hex(8)},
+        ensure_ascii=False, separators=(",", ":"),
+    ).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(payload).rstrip(b"=")
+    signature = hmac.new(DSM_LAUNCHER_SECRET, encoded, hashlib.sha256).digest()
+    return encoded.decode("ascii") + "." + base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+
+
+def validate_dsm_launcher_handoff(token: str, *, consume: bool) -> str:
+    if not token or len(token) > 1024 or token.count(".") != 1:
+        return ""
+    encoded, supplied_signature = token.split(".", 1)
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", encoded) or not re.fullmatch(r"[A-Za-z0-9_-]+", supplied_signature):
+        return ""
+    try:
+        signature = base64.urlsafe_b64decode(supplied_signature + "=" * (-len(supplied_signature) % 4))
+        payload_bytes = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        # Reject non-canonical encodings. Otherwise unused trailing Base64 bits
+        # can create multiple token strings for one signature and bypass the
+        # one-use fingerprint registry.
+        canonical_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
+        canonical_payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode("ascii")
+        if canonical_signature != supplied_signature or canonical_payload != encoded:
+            return ""
+        expected = hmac.new(DSM_LAUNCHER_SECRET, encoded.encode("ascii"), hashlib.sha256).digest()
+        if not hmac.compare_digest(signature, expected):
+            return ""
+        payload = json.loads(payload_bytes)
+        username = str(payload.get("u", ""))
+        expiry = int(payload.get("e", 0))
+        nonce = str(payload.get("n", ""))
+    except (UnicodeError, ValueError, TypeError, json.JSONDecodeError):
+        return ""
+    current = time.time()
+    if expiry <= current or expiry > current + DSM_LAUNCHER_HANDOFF_TTL_SECONDS + 5:
+        return ""
+    if not username or len(username) > 128 or not re.fullmatch(r"[0-9a-f]{16}", nonce):
+        return ""
+    fingerprint = hashlib.sha256(token.encode("ascii")).hexdigest()
+    with DSM_LAUNCHER_HANDOFFS_LOCK:
+        expired = [value for value, saved_expiry in DSM_LAUNCHER_HANDOFFS.items() if saved_expiry <= current]
+        for value in expired:
+            DSM_LAUNCHER_HANDOFFS.pop(value, None)
+        if fingerprint in DSM_LAUNCHER_HANDOFFS:
+            return ""
+        if consume:
+            overflow = len(DSM_LAUNCHER_HANDOFFS) - MAX_DSM_LAUNCHER_HANDOFFS + 1
+            if overflow > 0:
+                for value in list(DSM_LAUNCHER_HANDOFFS)[:overflow]:
+                    DSM_LAUNCHER_HANDOFFS.pop(value, None)
+            DSM_LAUNCHER_HANDOFFS[fingerprint] = float(expiry)
+    return username
+
+
+def consume_dsm_launcher_handoff(token: str) -> str:
+    return validate_dsm_launcher_handoff(token, consume=True)
 
 
 def revoke_session(token: str) -> None:
@@ -591,8 +660,7 @@ def note_forwarded_header(peer_ip: str, forwarded_for: str) -> None:
     )
 
 
-def render_launcher_html(token: str, public_port: int) -> str:
-    encoded_token = json.dumps(str(token))
+def render_launcher_html(public_port: int) -> str:
     return f'''<!doctype html>
 <html><head><meta charset="utf-8"><title>NASDrop</title></head>
 <body><script>
@@ -606,39 +674,19 @@ def render_launcher_html(token: str, public_port: int) -> str:
   var targetPort = privateHost ? {LISTEN_PORT} : {int(public_port)};
   var targetProtocol = location.protocol === "https:" ? "https://" : "http://";
   if (privateHost) targetProtocol = "http://";
-  var token = {encoded_token};
-  location.replace(targetProtocol + host + ":" + targetPort + "/#token=" + encodeURIComponent(token));
+  location.replace(targetProtocol + host + ":" + targetPort + "/");
 </script></body></html>
 '''
 
 
-def write_launcher_file(token: str | None = None, public_port: int | None = None) -> None:
+def write_launcher_file(public_port: int | None = None) -> None:
     if LAUNCHER_FILE is None:
         return
-    with LAUNCHER_TOKEN_LOCK:
-        port = LAUNCHER_PORT if public_port is None else normalize_launcher_port(public_port)
-        temporary = LAUNCHER_FILE.with_suffix(".tmp")
-        temporary.write_text(render_launcher_html(token or LAUNCHER_TOKEN, port), encoding="utf-8")
-        temporary.chmod(0o644)
-        temporary.replace(LAUNCHER_FILE)
-
-
-def rotate_launcher_token() -> str:
-    global LAUNCHER_TOKEN
-    with LAUNCHER_TOKEN_LOCK:
-        previous = LAUNCHER_TOKEN
-        try:
-            LAUNCHER_TOKEN = load_launcher_token()
-            write_launcher_file(LAUNCHER_TOKEN)
-        except OSError:
-            LAUNCHER_TOKEN = previous
-            STATE_DIR.mkdir(parents=True, exist_ok=True)
-            temporary = TOKEN_FILE.with_suffix(".tmp")
-            temporary.write_text(previous + "\n", encoding="utf-8")
-            temporary.chmod(0o600)
-            temporary.replace(TOKEN_FILE)
-            raise
-        return LAUNCHER_TOKEN
+    port = LAUNCHER_PORT if public_port is None else normalize_launcher_port(public_port)
+    temporary = LAUNCHER_FILE.with_suffix(".tmp")
+    temporary.write_text(render_launcher_html(port), encoding="utf-8")
+    temporary.chmod(0o644)
+    temporary.replace(LAUNCHER_FILE)
 
 
 def refresh_launcher_safely() -> None:
@@ -1851,6 +1899,12 @@ class Controller:
             validator(job.source, direct=False)
             _validate_handoff_transfer_url(signed, provider)
             private.update(provider=provider, download_url=signed, target=target_dir)
+            if provider == "sendnow":
+                resolve_host = (urlparse(signed).hostname or "").lower()
+                resolved = _resolve_public_addresses(resolve_host)
+                if not resolved:
+                    raise ValueError("Send.now가 전달한 다운로드 서버를 안전하게 확인하지 못했습니다.")
+                private.update(resolve_host=resolve_host, resolve_address=resolved[0])
         # Persist layout so a later settings change cannot reinterpret fragments.
         if not job.transfer_mode:
             has_legacy_parts = any(workspace.glob(f".{job.id}.segment.*"))
@@ -1879,6 +1933,7 @@ class Controller:
             script = self._download_script_direct(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 mode=download_mode, capture_headers=True, transient_retries=3 if provider == "akirabox" else 0,
+                resolve_host=private.get("resolve_host", ""), resolve_address=private.get("resolve_address", ""),
             )
         else:
             file_id = parsed.path.strip("/")
@@ -2117,7 +2172,7 @@ curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent -
             raise ValueError("Gofile 다운로드 인증 정보가 없습니다.")
         return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}", mode=mode, max_parallel=2)
 
-    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False, max_parallel: int = 8, transient_retries: int = 0) -> str:
+    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False, max_parallel: int = 8, transient_retries: int = 0, resolve_host: str = "", resolve_address: str = "") -> str:
         if not download.startswith("https://"):
             raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
         config_lines = [
@@ -2127,6 +2182,12 @@ curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent -
         ]
         if cookie:
             config_lines.append(f'header = "{_curl_config_value("Cookie: " + cookie)}"')
+        if resolve_host or resolve_address:
+            parsed_host = (urlparse(download).hostname or "").lower()
+            if parsed_host != resolve_host or not _resolve_public_addresses(resolve_address):
+                raise ValueError("고정할 다운로드 서버 주소가 올바르지 않습니다.")
+            pinned = f"[{resolve_address}]" if ":" in resolve_address else resolve_address
+            config_lines.append(f'resolve = "{_curl_config_value(resolve_host + ":443:" + pinned)}"')
         config_body = "\n".join(config_lines)
         setup = f'''#!/bin/sh
 set -eu
@@ -2555,24 +2616,28 @@ def _validate_sendnow_url(value: str, *, direct: bool) -> str:
     return value.rstrip("/")
 
 
-def _public_download_host(host: str) -> bool:
-    """Allow provider-owned hosts and otherwise require every DNS answer to be global."""
+def _resolve_public_addresses(host: str) -> tuple[str, ...]:
+    """Resolve once and return only an all-public address set suitable for pinning."""
     candidate = host.rstrip(".").lower()
     if not candidate or candidate == "localhost" or candidate.endswith(".local"):
-        return False
-    if SENDNOW_PROVIDER_HOST.fullmatch(candidate):
-        return True
+        return ()
     try:
         literal = ipaddress.ip_address(candidate)
-        return literal.is_global
+        return (str(literal),) if literal.is_global else ()
     except ValueError:
         pass
     try:
         answers = socket.getaddrinfo(candidate, 443, type=socket.SOCK_STREAM)
         addresses = {ipaddress.ip_address(answer[4][0].split("%", 1)[0]) for answer in answers}
     except (OSError, ValueError):
-        return False
-    return bool(addresses) and all(address.is_global for address in addresses)
+        return ()
+    if not addresses or not all(address.is_global for address in addresses):
+        return ()
+    return tuple(str(address) for address in sorted(addresses, key=lambda item: (item.version, int(item))))
+
+
+def _public_download_host(host: str) -> bool:
+    return bool(_resolve_public_addresses(host))
 
 
 def handoff_transfer_error(stderr: str) -> str:
@@ -2672,6 +2737,58 @@ class AkiraNoRedirectHandler(HTTPRedirectHandler):
         return None
 
 
+class PinnedHTTPSConnection(HTTPSConnection):
+    """Connect to a validated IP while retaining the URL host for TLS SNI."""
+
+    def __init__(self, host: str, *, pinned_ip: str, **kwargs):
+        self.pinned_ip = pinned_ip
+        super().__init__(host, **kwargs)
+
+    def connect(self) -> None:
+        self.sock = self._create_connection(
+            (self.pinned_ip, self.port), self.timeout, self.source_address,
+        )
+        if self._tunnel_host:
+            self._tunnel()
+        self.sock = self._context.wrap_socket(self.sock, server_hostname=self.host)
+
+
+class PinnedHTTPSHandler(HTTPSHandler):
+    def __init__(self, hostname: str, address: str):
+        super().__init__()
+        self.hostname = hostname.rstrip(".").lower()
+        self.address = address
+
+    def https_open(self, request):
+        if (urlparse(request.full_url).hostname or "").rstrip(".").lower() != self.hostname:
+            raise HandoffError("다운로드 서버 주소가 확인한 호스트와 달라졌습니다.")
+        return self.do_open(
+            lambda host, **kwargs: PinnedHTTPSConnection(host, pinned_ip=self.address, **kwargs),
+            request,
+        )
+
+
+def _open_sendnow_pinned(url: str, method: str, headers: dict):
+    host = (urlparse(url).hostname or "").lower()
+    addresses = _resolve_public_addresses(host)
+    if not addresses:
+        raise HandoffError("Send.now가 전달한 다운로드 서버를 안전하게 확인하지 못했습니다.")
+    last_error: OSError | None = None
+    for address in addresses:
+        # Ignore ambient proxy variables: going through a proxy would make the
+        # proxy resolve the hostname again and defeat DNS pinning.
+        opener = build_opener(ProxyHandler({}), AkiraNoRedirectHandler(), PinnedHTTPSHandler(host, address))
+        try:
+            return opener.open(Request(url, method=method, headers=headers), timeout=20)
+        except HTTPError:
+            raise
+        except OSError as exc:
+            last_error = exc
+    if last_error:
+        raise last_error
+    raise HandoffError("Send.now 다운로드 서버에 연결하지 못했습니다.")
+
+
 def _open_handoff_response(opener, url: str, method: str, headers: dict, provider: str):
     from urllib.parse import urljoin
     visited = set()
@@ -2681,7 +2798,11 @@ def _open_handoff_response(opener, url: str, method: str, headers: dict, provide
             raise HandoffError("다운로드 서버 이동이 반복됩니다.")
         visited.add(url)
         try:
-            response = opener.open(Request(url, method=method, headers=headers), timeout=20)
+            response = (
+                _open_sendnow_pinned(url, method, headers)
+                if provider == "sendnow"
+                else opener.open(Request(url, method=method, headers=headers), timeout=20)
+            )
             if response.geturl() != url:
                 response.close()
                 raise HandoffError("예상하지 못한 다운로드 서버 이동입니다.")
@@ -3189,7 +3310,11 @@ def _gofile_website_token(account_token: str) -> str:
             "GoFile 연결이 응답하지 않습니다.",
         ) from exc
     payload = json.dumps({"script": script, "token": account_token, "userAgent": GOFILE_USER_AGENT, "language": "en-US"})
-    result = subprocess.run(["node", str(ROOT / "gofile_wt.mjs")], input=payload, text=True, capture_output=True, timeout=10)
+    helper = (ROOT / "gofile_wt.mjs").resolve()
+    result = subprocess.run(
+        ["node", "--permission", f"--allow-fs-read={helper}", str(helper)],
+        input=payload, text=True, capture_output=True, timeout=10,
+    )
     if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{64}", result.stdout.strip()):
         raise ValueError("Gofile 웹 인증 토큰을 만들지 못했습니다.")
     return result.stdout.strip()
@@ -3733,6 +3858,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/status":
             if not self.authorized():
                 return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
+            if password_change_required():
+                return self.send_json(HTTPStatus.OK, {
+                    "version": PACKAGE_VERSION,
+                    "password_change_required": True,
+                })
             target = Path(NAS_TARGET) if NAS_TARGET else None
             target_exists = bool(target and target.is_dir())
             return self.send_json(HTTPStatus.OK, {
@@ -3763,12 +3893,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/account":
             if not self.authorized():
                 return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
-            token = self.authorization_token()
             return self.send_json(HTTPStatus.OK, {
                 "configured": credentials_configured(),
                 "username": str(CREDENTIALS.get("username", "")),
-                "launcher_session": self.auth_kind() == "launcher",
-                "launcher_reset_available": launcher_account_reset_allowed(token),
+                "launcher_session": False,
+                "launcher_reset_available": False,
                 "password_change_required": password_change_required(),
             })
         if path.startswith("/api/"):
@@ -3815,21 +3944,15 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except (ValueError, json.JSONDecodeError) as exc:
                 return self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+        if path == "/api/dsm/launcher-config":
+            if not validate_dsm_launcher_handoff(self.authorization_token(), consume=False):
+                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "DSM 아이콘 연결이 올바르지 않습니다."})
+            return self.send_json(HTTPStatus.OK, {"launcher_port": LAUNCHER_PORT})
         if path == "/api/launcher/session":
-            supplied = self.authorization_token()
-            with LAUNCHER_TOKEN_LOCK:
-                if not supplied or not secrets.compare_digest(
-                    supplied.encode("utf-8"), LAUNCHER_TOKEN.encode("utf-8"),
-                ):
-                    return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "DSM 아이콘 연결이 만료되었습니다. 아이콘을 다시 열어 주세요."})
-                try:
-                    rotate_launcher_token()
-                except OSError:
-                    LOGGER.exception("DSM launcher handoff could not be rotated")
-                    return self.send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "DSM 아이콘 연결을 갱신하지 못했습니다."})
-                token = create_session(
-                    str(CREDENTIALS.get("username", "")), kind="launcher", ttl=LAUNCHER_SESSION_TTL_SECONDS,
-                )
+            username = consume_dsm_launcher_handoff(self.authorization_token())
+            if not username:
+                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "DSM 아이콘 연결이 만료되었습니다. 아이콘을 다시 열어 주세요."})
+            token = create_session(username)
             return self.send_json(HTTPStatus.OK, {"token": token})
         if not self.authorized():
             return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
@@ -3842,15 +3965,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(HTTPStatus.OK, {"ok": True})
             if path == "/api/account":
                 auth_kind = self.auth_kind()
-                reset_allowed = launcher_account_reset_allowed(self.authorization_token())
-                if credentials_configured() and not reset_allowed:
+                if credentials_configured():
                     if not verify_credentials(str(CREDENTIALS.get("username", "")), payload.get("current_password")):
                         raise ValueError("현재 비밀번호가 올바르지 않습니다.")
                 username = replace_credentials(payload.get("username"), payload.get("password"))
-                try:
-                    rotate_launcher_token()
-                except OSError:
-                    LOGGER.exception("DSM launcher handoff could not be rotated after account update")
                 result = {"ok": True, "username": username, "password_change_required": False}
                 if auth_kind in {"session", "launcher"}:
                     result["token"] = create_session(username)

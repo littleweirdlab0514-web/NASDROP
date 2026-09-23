@@ -7,14 +7,20 @@ process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => { input += chunk; });
 process.stdin.on("end", () => {
   const payload = JSON.parse(input);
-  const sandbox = {
-    navigator: {
-      userAgent: String(payload.userAgent),
-      language: String(payload.language),
-    },
-  };
-  vm.createContext(sandbox, { codeGeneration: { strings: false, wasm: false } });
-  vm.runInContext(payload.script, sandbox, { timeout: 2_000 });
-  if (typeof sandbox.generateWT !== "function") throw new Error("generateWT is unavailable");
-  process.stdout.write(String(sandbox.generateWT(payload.token)));
+  const context = vm.createContext(Object.create(null), {
+    codeGeneration: { strings: false, wasm: false },
+  });
+  vm.runInContext(
+    `globalThis.navigator = Object.freeze({userAgent:${JSON.stringify(String(payload.userAgent))},language:${JSON.stringify(String(payload.language))}});`,
+    context,
+    { timeout: 2_000 },
+  );
+  vm.runInContext(String(payload.script), context, { timeout: 2_000 });
+  const result = vm.runInContext(
+    `typeof generateWT === "function" ? String(generateWT(${JSON.stringify(String(payload.token))})) : null`,
+    context,
+    { timeout: 2_000 },
+  );
+  if (result === null) throw new Error("generateWT is unavailable");
+  process.stdout.write(result);
 });

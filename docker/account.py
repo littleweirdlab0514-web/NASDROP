@@ -21,7 +21,7 @@ def main() -> None:
         created = backend.create_docker_bootstrap_credentials()
         migrated = backend.enforce_docker_default_password_change()
         if created or migrated:
-            print("NASDrop temporary account is active. Change its ID and password after signing in.")
+            print("NASDrop temporary account nasdrop / nasdrop is active. Change its ID and password immediately after signing in.")
         return
     if not args.username:
         parser.error("set requires a username")

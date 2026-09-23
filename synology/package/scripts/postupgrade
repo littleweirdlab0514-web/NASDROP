@@ -29,11 +29,21 @@ PY
   chmod 600 "$config_path"
 fi
 
-if [ ! -s "${SYNOPKG_PKGVAR}/access_token" ]; then
-  /usr/bin/python3 -c 'import secrets; print(secrets.token_urlsafe(32))' > "${SYNOPKG_PKGVAR}/access_token"
+rm -f "${SYNOPKG_PKGVAR}/access_token"
+launcher_secret="${SYNOPKG_PKGVAR}/dsm_launcher_secret"
+if ! [ -s "$launcher_secret" ] || ! /usr/bin/python3 - "$launcher_secret" <<'PY'
+from pathlib import Path
+import sys
+try:
+    value = bytes.fromhex(Path(sys.argv[1]).read_text(encoding="ascii").strip())
+except (OSError, UnicodeError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if len(value) == 32 else 1)
+PY
+then
+  /usr/bin/python3 -c 'import secrets; print(secrets.token_hex(32))' > "$launcher_secret"
 fi
-chmod 600 "${SYNOPKG_PKGVAR}/access_token"
-token="$(cat "${SYNOPKG_PKGVAR}/access_token")"
+chmod 600 "$launcher_secret"
 cat > "${SYNOPKG_PKGDEST}/ui/launcher.html" <<EOF
 <!doctype html>
 <html><head><meta charset="utf-8"><title>NASDrop</title></head>
@@ -47,7 +57,7 @@ cat > "${SYNOPKG_PKGDEST}/ui/launcher.html" <<EOF
     plainHost.endsWith(".local") || plainHost.indexOf(".") === -1));
   var targetProtocol = location.protocol === "https:" ? "https://" : "http://";
   if (privateHost) targetProtocol = "http://";
-  location.replace(targetProtocol + host + ":8791/#token=${token}");
+  location.replace(targetProtocol + host + ":8791/");
 </script></body></html>
 EOF
 chmod 644 "${SYNOPKG_PKGDEST}/ui/launcher.html"

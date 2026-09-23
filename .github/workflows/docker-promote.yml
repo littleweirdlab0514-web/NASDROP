@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Candidate version to promote, for example 0.9.25-1
+        description: Candidate version to promote, for example 0.9.26-1
         required: true
         type: string
       confirmation:

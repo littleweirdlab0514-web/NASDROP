@@ -19,15 +19,11 @@ class AccountAuthTests(unittest.TestCase):
         self.temporary = TemporaryDirectory(prefix="nasdrop-auth-test-")
         self.original_state_dir = backend.STATE_DIR
         self.original_auth_file = backend.AUTH_FILE
-        self.original_token_file = backend.TOKEN_FILE
         self.original_launcher_file = backend.LAUNCHER_FILE
-        self.original_launcher_token = backend.LAUNCHER_TOKEN
         self.original_credentials = backend.CREDENTIALS
         backend.STATE_DIR = Path(self.temporary.name)
         backend.AUTH_FILE = backend.STATE_DIR / "credentials.json"
-        backend.TOKEN_FILE = backend.STATE_DIR / "access_token"
         backend.LAUNCHER_FILE = backend.STATE_DIR / "launcher.html"
-        backend.LAUNCHER_TOKEN = backend.load_launcher_token()
         backend.CREDENTIALS = {}
         with backend.SESSIONS_LOCK:
             backend.SESSIONS.clear()
@@ -47,9 +43,7 @@ class AccountAuthTests(unittest.TestCase):
         self.thread.join(timeout=2)
         backend.STATE_DIR = self.original_state_dir
         backend.AUTH_FILE = self.original_auth_file
-        backend.TOKEN_FILE = self.original_token_file
         backend.LAUNCHER_FILE = self.original_launcher_file
-        backend.LAUNCHER_TOKEN = self.original_launcher_token
         backend.CREDENTIALS = self.original_credentials
         with backend.SESSIONS_LOCK:
             backend.SESSIONS.clear()
@@ -72,23 +66,27 @@ class AccountAuthTests(unittest.TestCase):
         except HTTPError as exc:
             return exc.code, json.loads(exc.read())
 
-    def test_launcher_creates_account_and_direct_login_receives_session(self):
+    def test_dsm_handoff_creates_account_and_is_one_use(self):
         status, payload = self.request("/api/auth/status")
         self.assertEqual((status, payload), (200, {"configured": False, "password_change_required": False}))
 
-        launcher_token = backend.LAUNCHER_TOKEN
-        self.assertEqual(
-            self.request("/api/account", method="POST", token=launcher_token, payload={})[0],
-            401,
+        launcher_token = backend.create_dsm_launcher_handoff("DSM Admin")
+        status, config = self.request(
+            "/api/dsm/launcher-config", method="POST", token=launcher_token, payload={},
         )
+        self.assertEqual(status, 200)
+        self.assertEqual(config["launcher_port"], backend.LAUNCHER_PORT)
         status, handoff = self.request(
             "/api/launcher/session", method="POST", token=launcher_token, payload={},
         )
         self.assertEqual(status, 200)
         self.assertTrue(handoff["token"])
-        self.assertNotEqual(backend.LAUNCHER_TOKEN, launcher_token)
         self.assertEqual(
             self.request("/api/launcher/session", method="POST", token=launcher_token, payload={})[0],
+            401,
+        )
+        self.assertEqual(
+            self.request("/api/dsm/launcher-config", method="POST", token=launcher_token, payload={})[0],
             401,
         )
 
@@ -114,19 +112,11 @@ class AccountAuthTests(unittest.TestCase):
         self.assertFalse(account_status["launcher_session"])
         self.assertFalse(account_status["launcher_reset_available"])
 
-    def test_launcher_account_reset_window_expires_without_expiring_session(self):
+    def test_dsm_session_cannot_reset_existing_account_without_current_password(self):
         backend.replace_credentials("owner", "original password")
-        launcher_token = backend.create_session(
-            "owner", kind="launcher", ttl=backend.LAUNCHER_SESSION_TTL_SECONDS,
-        )
-        current = time.time()
-        with backend.SESSIONS_LOCK:
-            backend.SESSIONS[launcher_token] = (
-                "owner", current + backend.LAUNCHER_SESSION_TTL_SECONDS, "launcher",
-                current - backend.LAUNCHER_ACCOUNT_RESET_WINDOW_SECONDS - 1,
-            )
-        self.assertEqual(backend.session_kind(launcher_token), "launcher")
-        self.assertFalse(backend.launcher_account_reset_allowed(launcher_token))
+        handoff = backend.create_dsm_launcher_handoff("DSM Admin")
+        _, exchanged = self.request("/api/launcher/session", method="POST", token=handoff, payload={})
+        launcher_token = exchanged["token"]
         status, account = self.request("/api/account", token=launcher_token)
         self.assertEqual(status, 200)
         self.assertFalse(account["launcher_reset_available"])
@@ -135,6 +125,15 @@ class AccountAuthTests(unittest.TestCase):
             payload={"username": "owner", "password": "replacement password", "current_password": ""},
         )
         self.assertEqual(status, 400)
+
+    def test_dsm_handoff_rejects_tampering_and_expiry(self):
+        token = backend.create_dsm_launcher_handoff("DSM Admin")
+        replacement = "A" if token[-1] != "A" else "B"
+        self.assertEqual(backend.consume_dsm_launcher_handoff(token[:-1] + replacement), "")
+        expired = backend.create_dsm_launcher_handoff(
+            "DSM Admin", current=int(time.time()) - backend.DSM_LAUNCHER_HANDOFF_TTL_SECONDS - 1,
+        )
+        self.assertEqual(backend.consume_dsm_launcher_handoff(expired), "")
 
     def test_session_registry_is_bounded_and_oldest_session_is_evicted(self):
         with mock.patch.object(backend.time, "time", side_effect=range(1, backend.MAX_SESSION_ENTRIES + 3)):
@@ -217,7 +216,7 @@ class AccountAuthTests(unittest.TestCase):
 
         status, server_status = self.request("/api/status", token=old_token)
         self.assertEqual(status, 200)
-        self.assertTrue(server_status["password_change_required"])
+        self.assertEqual(server_status, {"version": backend.PACKAGE_VERSION, "password_change_required": True})
         status, account = self.request("/api/account", token=old_token)
         self.assertEqual(status, 200)
         self.assertTrue(account["password_change_required"])

@@ -1,4 +1,19 @@
-# NASDrop 0.9.25 릴리스 체크리스트
+# NASDrop 0.9.26 릴리스 체크리스트
+
+## 0.9.26 security hardening
+
+- [x] Static DSM launcher files contain no bearer token or reusable credential.
+- [x] DSM launcher uses `authenticate.cgi`, requires the administrators group, and returns no cacheable response.
+- [x] Launcher handoffs are HMAC-signed, expire after 30 seconds, and are accepted once.
+- [x] Existing NASDrop credentials still require the current password when opened through DSM.
+- [x] GoFile navigator-constructor and Date-constructor escape regressions are blocked.
+- [x] GoFile helper runs with Node permission restrictions.
+- [x] Send.now inspection and transfer pin the validated public destination address.
+- [x] Docker bootstrap remains `nasdrop` / `nasdrop`, is PBKDF2-hashed at rest, and is confined to minimal account/status operations until mandatory replacement.
+- [x] `docs/PROVIDER_AND_SECURITY_POLICY.md` records every supported provider's input, transfer limits, failure response, browser responsibilities, and current security boundaries.
+- [ ] Install 0.9.26-1 on DSM and verify admin launch, signed-out rejection, non-admin rejection, initial setup, and existing-account password protection.
+- [ ] Complete one real GoFile and one real Send.now download on DSM.
+- [ ] After DSM confirmation, synchronize and smoke-test Docker, then promote the exact candidate digest.
 
 ## 0.9.25 GigaFile protected downloads
 

@@ -12,6 +12,15 @@
 - Record the supported component matrix and release gate in `docs/COMPONENT_COMPATIBILITY.md` whenever a server or client contract changes.
 - For provider work that changes both the canonical server and the Chrome companion, finish and test those two components first. Only after both relevant regression suites and a real provider flow succeed may the Docker maintainer synchronize and verify the same canonical implementation. Never publish or maintain a Docker-only provider fork.
 
+## Docker bootstrap identity invariant
+
+- A new Docker `/config` must use the documented temporary credentials `nasdrop` / `nasdrop`. Store the password only as a salted PBKDF2 hash; never write plaintext credentials to the configuration file.
+- The bootstrap account must always carry `must_change_password: true`. After it signs in, allow only the minimal account/status reads, credential replacement, and logout. Block downloads, folders, settings, inspection, and job operations until both the ID and password are replaced.
+- Accept the short `nasdrop` password only for bootstrap authentication and the current-password confirmation. Never allow it as the replacement password; normal passwords remain subject to the 10–128 character policy.
+- Preserve custom credentials across container restarts. If an existing account still verifies as exactly `nasdrop` / `nasdrop`, restore the mandatory-change flag and revoke existing sessions without rotating or randomizing the credentials.
+- Do not replace this fixed bootstrap flow with a random password, environment-generated password, or log-only secret unless the user explicitly changes this product requirement. Security comes from immediate API confinement and forced credential replacement.
+- Keep regression coverage for initial creation, legacy-flag restoration, API confinement, replacement, old-session revocation, logout, and preservation of custom credentials.
+
 ## Mandatory component handoff and release workflow
 
 - Chrome extension work is owned by the dedicated Codex task named `NASDROP_크롬확장`. Hand every Chrome extension implementation, fix, packaging, documentation, and Chrome-specific verification request to that task. The primary NASDrop task coordinates the server contract and reviews the returned result; it must not silently absorb Chrome-owned work.
@@ -23,6 +32,8 @@
 - A normal `v*` tag may automatically build and push only `candidate-<package-version>`. It must never move the version, minor, or `latest` Docker tags. After the required user and Docker verification succeeds, use the manual promotion workflow to retag that exact candidate digest without rebuilding it.
 
 ## Provider filename invariant
+
+- Before changing any provider adapter, host rule, concurrency/retry policy, or provider security boundary, read and update `docs/PROVIDER_AND_SECURITY_POLICY.md`. It is the consolidated provider and security baseline; narrower provider guides remain authoritative where they impose stricter rules.
 
 - Never treat a provider page's visible filename as authoritative. Providers may mask, replace, localize, or duplicate it.
 - For every file type—not only archives—prefer the final download response's RFC 5987 `Content-Disposition: filename*`, then `filename`, and only then inspected page/API metadata.

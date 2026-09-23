@@ -6,8 +6,8 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.25-1 test build | Canonical server, API, providers, web UI, and protected GigaFile download-key recovery |
-| Docker image | 0.9.25-1 pending | Source version synchronized; build and smoke-test only after the Synology protected-link flow passes |
+| Synology package | 0.9.26-1 security test build | Canonical server, DSM-authenticated launcher handoff, provider security, API, and web UI |
+| Docker image | 0.9.26-1 pending | Source version synchronized; build and smoke-test only after the Synology security flow passes |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.5 | Adds protected GigaFile key handoff and user-assisted Send.now handoff; keeps strict deletion behavior |
 
@@ -31,7 +31,7 @@ The version numbers document tested combinations. Runtime feature decisions must
 
 Current coordinated capabilities include:
 
-- `password_change_required`: a Docker bootstrap account may authenticate only to read status/account data, replace its credentials, or log out; downloads, folders, settings, and job operations return HTTP 403 with this code until the change succeeds.
+- `password_change_required`: the Docker `nasdrop` / `nasdrop` bootstrap account may authenticate only to read a minimal version/change-required status, read account data, replace its credentials, or log out; downloads, folders, settings, inspection, and job operations return HTTP 403 with this code until both credentials are replaced. A legacy untouched default account keeps the same credentials and has the mandatory-change flag restored.
 
 - `job_safe_delete`: permits `POST /api/jobs/delete` with `stop_active: true`; legacy deletion remains strict.
 - `job_processing_options`: permits per-job extraction and password updates.

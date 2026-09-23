@@ -15,22 +15,23 @@ class LauncherPortTests(unittest.TestCase):
                     backend.normalize_launcher_port(value)
 
     def test_rendered_launcher_keeps_lan_port_and_uses_public_port(self):
-        html = backend.render_launcher_html("test-token", 8795)
+        html = backend.render_launcher_html(8795)
         self.assertIn("privateHost ? 8791 : 8795", html)
         self.assertIn('location.protocol === "https:" ? "https://" : "http://"', html)
         self.assertIn("location.replace(targetProtocol + host", html)
         self.assertNotIn('privateHost ? "http://" : "https://"', html)
-        self.assertIn('var token = "test-token";', html)
-        self.assertIn('encodeURIComponent(token)', html)
+        self.assertNotIn("test-token", html)
+        self.assertNotIn("#token=", html)
 
     def test_launcher_file_is_replaced_with_selected_port(self):
         with TemporaryDirectory() as directory:
             launcher = Path(directory) / "launcher.html"
             with patch.object(backend, "LAUNCHER_FILE", launcher):
-                backend.write_launcher_file("test-token", 8795)
+                backend.write_launcher_file(8795)
             contents = launcher.read_text(encoding="utf-8")
             self.assertIn("privateHost ? 8791 : 8795", contents)
             self.assertIn("location.replace(targetProtocol + host", contents)
+            self.assertNotIn("#token=", contents)
             self.assertFalse(launcher.with_suffix(".tmp").exists())
 
 
