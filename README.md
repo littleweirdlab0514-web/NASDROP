@@ -28,7 +28,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.5 ZIP is compatible with the NASDrop Server 0.9.26-6 credential-bootstrap test build.**
+- **Chrome extension 0.5.5 ZIP is compatible with the NASDrop Server 0.9.26-6 stable release.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
@@ -45,7 +45,7 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on external download websites and APIs. Providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
-## What's new in 0.9.26-6 (credential-bootstrap test build)
+## What's new in 0.9.26-6 (stable release)
 
 - The DSM icon now opens the normal NASDrop login page. DSM auto-login, its CGI, handoff endpoints, and shared secret are removed.
 - A fresh Synology installation starts with temporary `nasdrop` / `nasdrop` credentials, like Docker. Both ID and password must be replaced before downloads or settings are available. Updates preserve existing custom credentials.
@@ -321,6 +321,7 @@ After an update, open **Settings** and select the default download folder again.
 ## Opening NASDrop and setting up client login
 
 - The DSM desktop or Package Center icon is a shortcut to the ordinary NASDrop login page. It does not use your DSM session to sign in.
+- DSM auto-login was replaced because its original static launcher token could expose NASDrop access, while the attempted DSM-session replacement failed repeatedly on the tested NAS. A separate NASDrop sign-in now provides one explicit authentication boundary across DSM, direct browsers, and client apps.
 - On a new installation, enter the temporary ID `nasdrop` and password `nasdrop`. Only the account form and sign-out are available until you enter the current password `nasdrop` and save a different ID and a new password of 10–128 characters. The temporary password cannot be reused.
 - Existing custom credentials are preserved on update. Use those credentials after updating; changing them still requires the current NASDrop password.
 - The service address, other browsers, Android app, and Chrome extension use the same NASDrop ID and password. If forgotten, recovery requires a separate administrator-controlled procedure; DSM sign-in does not reset the NASDrop account.

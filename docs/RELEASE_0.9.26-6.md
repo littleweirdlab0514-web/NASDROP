@@ -1,6 +1,8 @@
-# NASDrop 0.9.26-6 credential-bootstrap test build
+# NASDrop 0.9.26-6 stable release
 
-This prerelease replaces the unsuccessful DSM auto-login experiment with the same explicit account-login model used by Docker. Real DSM installation testing is still required.
+This stable release replaces the unsuccessful DSM auto-login experiment with the same explicit account-login model used by Docker. The user confirmed the installed Synology package works; Docker amd64 and arm64 smoke tests passed against the identical canonical server source.
+
+DSM auto-login was dropped because the older static launcher token risked exposing NASDrop access, while the replacement DSM-session checks failed repeatedly on the real NAS. The DSM icon now only opens NASDrop. Users sign in separately with a NASDrop account, which makes the authentication boundary explicit across DSM, direct browsers, and client apps.
 
 ## Changes
 
@@ -14,7 +16,7 @@ This prerelease replaces the unsuccessful DSM auto-login experiment with the sam
 
 For a fresh install, open the DSM icon, sign in with `nasdrop` / `nasdrop`, verify that downloads and settings are blocked, enter current password `nasdrop`, and save a **different ID** and a new password of 10–128 characters. Sign out and confirm the old credentials fail and the new credentials work. On an upgrade, confirm the prior custom ID/password still works without reset. Also verify that the DSM icon never signs in automatically.
 
-The temporary login must not be left unchanged on an internet-facing installation. Use HTTPS through a trusted reverse proxy. Docker promotion remains gated on successful Synology testing and parity verification.
+The temporary login must not be left unchanged on an internet-facing installation. Use HTTPS through a trusted reverse proxy. Docker promotion reused the verified multi-platform candidate manifest digest `sha256:ac92592779f5c0a720c1a483cd984de803861c598af306a0bbb9aed0a130036c` without rebuilding it.
 
 ## Test asset
 
