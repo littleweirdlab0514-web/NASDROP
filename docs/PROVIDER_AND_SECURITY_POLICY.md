@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
 Last updated: 2026-09-23
-Applies to: NASDrop Server 0.9.26-1 security test build
+Applies to: NASDrop Server 0.9.26-2 security test build
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 

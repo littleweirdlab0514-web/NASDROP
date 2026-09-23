@@ -50,7 +50,10 @@ def authenticated_admin() -> str:
     except (OSError, subprocess.SubprocessError):
         fail("503 Service Unavailable", "DSM 로그인을 확인하지 못했습니다.")
     username = result.stdout.strip()
-    if result.returncode != 0 or not username or len(username) > 128 or any(ord(c) < 32 or ord(c) == 127 for c in username):
+    # Synology documents stdout (username vs. no output) as the authentication
+    # contract.  Its reference CGI intentionally does not use the child exit
+    # status, which is not stable across DSM releases.
+    if not username or len(username) > 128 or any(ord(c) < 32 or ord(c) == 127 for c in username):
         fail("401 Unauthorized", "DSM에 로그인한 뒤 NASDrop을 다시 열어 주세요.")
     try:
         groups = subprocess.run(
