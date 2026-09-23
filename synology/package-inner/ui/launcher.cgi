@@ -14,7 +14,7 @@ import secrets
 import subprocess
 import time
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPHandler, HTTPRedirectHandler, ProxyHandler, Request, build_opener, urlopen
 
 
 AUTHENTICATE_CGIS = (
@@ -53,6 +53,72 @@ def valid_dsm_username(value: str) -> bool:
     return DSM_USERNAME.fullmatch(value) is not None
 
 
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, message, headers, newurl):
+        # A DSM session cookie must never follow a redirect to another service.
+        return None
+
+
+def dsm_http_port() -> int:
+    try:
+        with open("/etc/synoinfo.conf", encoding="utf-8") as source:
+            for line in source:
+                key, separator, value = line.partition("=")
+                if separator and key.strip() == "adminport":
+                    port = int(value.strip().strip('"\''))
+                    return port if 1 <= port <= 65535 else 5000
+    except (OSError, ValueError):
+        pass
+    return 5000
+
+
+def dsm_http_get(path: str, cookie: str, token: str = "", *, limit: int = 8192) -> str:
+    if not cookie or len(cookie) > 8192 or any(char in cookie for char in "\r\n\x00"):
+        return ""
+    if token and not SYNO_TOKEN.fullmatch(token):
+        return ""
+    headers = {"Cookie": cookie}
+    if token:
+        headers["X-Syno-Token"] = token
+    url = f"http://127.0.0.1:{dsm_http_port()}{path}"
+    if token:
+        url += "?SynoToken=" + token
+    # No environment proxy, and no redirect: keep the cookie on this DSM loopback URL.
+    opener = build_opener(ProxyHandler({}), HTTPHandler(), NoRedirect())
+    try:
+        with opener.open(Request(url, headers=headers), timeout=5) as result:
+            body = result.read(limit + 1)
+        return body.decode("utf-8", "replace") if len(body) <= limit else ""
+    except (HTTPError, URLError, OSError, ValueError):
+        return ""
+
+
+def authenticate_via_http(cookie: str, token: str = "") -> str:
+    username = dsm_http_get("/webman/modules/authenticate.cgi", cookie, token, limit=512).strip()
+    return username if valid_dsm_username(username) else ""
+
+
+def token_from_login_output(output: str) -> str:
+    start = output.find("{")
+    if start < 0 or len(output) > 8192:
+        return ""
+    try:
+        payload = json.loads(output[start:])
+    except (ValueError, TypeError):
+        return ""
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        return ""
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        data = {}
+    token = payload.get("SynoToken") or data.get("SynoToken") or data.get("synotoken")
+    return token if isinstance(token, str) and SYNO_TOKEN.fullmatch(token) else ""
+
+
+def syno_token_via_http(cookie: str) -> str:
+    return token_from_login_output(dsm_http_get("/webman/login.cgi", cookie))
+
+
 def authenticate_with_env(env: dict[str, str]) -> tuple[str, list[str]]:
     outcomes = []
     for authenticator in AUTHENTICATE_CGIS:
@@ -81,26 +147,13 @@ def dsm_syno_token(env: dict[str, str]) -> str:
         )
     except (OSError, subprocess.SubprocessError):
         return ""
-    output = result.stdout
-    if len(output) > 8192:
-        return ""
-    start = output.find("{")
-    if start < 0:
-        return ""
-    try:
-        payload = json.loads(output[start:])
-    except (ValueError, TypeError):
-        return ""
-    if not isinstance(payload, dict) or payload.get("success") is not True:
-        return ""
-    token = payload.get("SynoToken")
-    return token if isinstance(token, str) and SYNO_TOKEN.fullmatch(token) else ""
+    return token_from_login_output(result.stdout)
 
 
 def authenticated_admin() -> str:
     env = os.environ.copy()
     username, outcomes = authenticate_with_env(env)
-    if not username:
+    if not username and "rejected" in outcomes:
         token = dsm_syno_token(env)
         if token:
             token_env = env.copy()
@@ -110,6 +163,17 @@ def authenticated_admin() -> str:
             outcomes.extend(retry_outcomes)
         else:
             outcomes.append("token-unavailable")
+    if not username and outcomes and all(outcome in {"empty", "unavailable"} for outcome in outcomes):
+        cookie = env.get("HTTP_COOKIE", "")
+        username = authenticate_via_http(cookie)
+        outcomes.append("http-ok" if username else "http-empty")
+        if not username:
+            token = syno_token_via_http(cookie)
+            if token:
+                username = authenticate_via_http(cookie, token)
+                outcomes.append("http-token-ok" if username else "http-token-empty")
+            else:
+                outcomes.append("token-unavailable")
     # Synology documents stdout (username vs. no output) as the authentication
     # contract.  Its reference CGI intentionally does not use the child exit
     # status, which is not stable across DSM releases.

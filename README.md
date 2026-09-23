@@ -28,10 +28,10 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.5 ZIP is compatible with the NASDrop Server 0.9.26-4 DSM launcher test build.**
+- **Chrome extension 0.5.5 ZIP is compatible with the NASDrop Server 0.9.26-5 DSM launcher test build.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
-- **Compatible NASDrop Server 0.9.26-4 includes the protected GigaFile handoff and the security hardening described below.**
+- **Compatible NASDrop Server 0.9.26-5 includes the protected GigaFile handoff and the security hardening described below.**
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -47,7 +47,7 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 
 ## What's new in 0.9.26 (security test build)
 
-- DSM launcher test revision `0.9.26-4` tries both DSM 7 authenticator locations before rejecting a session. It removes the `0.9.26-3` fallback to a separate NASDrop login: a DSM icon launch must use a verified DSM administrator session. This behavior still requires a real-NAS test.
+- DSM launcher test revision `0.9.26-5` tries the two DSM authenticator locations, then a loopback DSM HTTP request when direct execution returns no output. Loopback requests disable proxies and redirects so DSM cookies cannot be forwarded elsewhere. A DSM icon launch still requires a verified DSM administrator session; this behavior still requires a real-NAS test.
 - Replaced the static DSM launcher bearer token with a DSM-authenticated administrator CGI and an HMAC-signed, 30-second, one-use handoff. Static launcher files no longer contain credentials, and an existing NASDrop account can no longer be replaced from a DSM launcher session without its current NASDrop password.
 - Hardened GoFile's remote helper: injected values are created inside the VM context, string/Wasm code generation stays disabled, the helper process runs with Node's permission model and read access only to its own entry file, and navigator-constructor escape coverage is included.
 - Send.now inspection pins each connection to the public IP set that was validated, and the final curl transfer uses a validated `resolve` entry so DNS cannot be re-resolved to a private address between validation and use.
@@ -374,7 +374,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.26-4-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.26-5-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 

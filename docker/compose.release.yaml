@@ -1,6 +1,6 @@
 services:
   nasdrop:
-    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-4
+    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-5
     container_name: nasdrop
     restart: unless-stopped
     init: true

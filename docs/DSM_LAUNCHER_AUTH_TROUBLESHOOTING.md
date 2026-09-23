@@ -20,11 +20,13 @@ The `0.9.26-1` and `0.9.26-2` changes focused on the child process exit status. 
 4. Retry `authenticate.cgi` with `SynoToken=<token>` in `QUERY_STRING` and `HTTP_X_SYNO_TOKEN`. The token is transient in memory only. Accept only a valid username, then independently verify membership in the DSM `administrators` group.
 5. Only after these checks create the 30-second, one-use HMAC handoff. If any check fails, stop with a non-cacheable error and a secret-free category. Do not redirect the DSM icon to a separate NASDrop login and do not infer authentication from a visible DSM page.
 
+If both direct authenticator paths return empty output, 0.9.26-5 also tries a bounded request to the DSM HTTP listener on `127.0.0.1` with the same cookie, first without and then with a SynoToken obtained from `login.cgi`. This is a testable fallback, **not proof** that DSM 7.2+ cannot run the authenticator directly. Disable proxy use and redirects before forwarding the DSM cookie, accept a token only from a successful login response, and retain the administrator-group check. Unit tests cannot establish that this fallback works on a real DSM installation.
+
 Synology's [DSM Developer Guide](https://global.download.synology.com/download/Document/Software/DeveloperGuide/Firmware/DSM/6.0/enu/DSM_Developer_Guide_6_0.pdf) documents supplying SynoToken when CSRF protection is enabled and obtaining it from `login.cgi`. Its [DSM Login Web API Guide](https://kb.synology.com/en-us/DG/DSM_Login_Web_API_Guide/2) also describes SynoToken as a request parameter when that protection is enabled. The exact behavior still needs a real DSM test for each supported DSM line.
 
 ## Regression and release gate
 
-- Unit-test cookie-only success, JSON 119, missing/invalid token, token-assisted success, malformed stdout, missing authenticator path, non-admin user, and absence of secrets in diagnostics.
+- Unit-test cookie-only success, JSON 119, missing/invalid token, token-assisted success, malformed stdout, missing authenticator path, non-admin user, and absence of secrets in diagnostics. Cover loopback port bounds, nested login tokens, successful-login requirement, proxy and redirect blocking, and bounded responses.
 - Inspect the generated SPK's `package.tgz` for the authenticated CGI and a tokenless static launcher; source-file inspection alone is insufficient.
 - On a real DSM 7.1 and 7.2 installation, test signed-in administrator icon auto-launch, signed-out rejection, non-admin rejection, refresh/new session, and direct NASDrop login separately. Also check a remote-domain DSM session if the issue was reported there.
 - Do not mark an auto-launch fix confirmed, promote Docker, or describe the release as verified until the real DSM icon flow passes. If it fails, capture only the safe diagnostic category and investigate the next boundary (cookie/token delivery, authenticator output, administrator lookup, secret-file permission, or handoff exchange) in that order.

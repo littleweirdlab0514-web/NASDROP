@@ -61,7 +61,7 @@ class DsmLauncherAuthenticationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "rejected"):
                 self.launcher.authenticated_admin()
         self.assertEqual(fail.call_args.args[0], "401 Unauthorized")
-        self.assertIn("cookie-missing,empty/empty/token-unavailable", fail.call_args.args[1])
+        self.assertIn("cookie-missing,empty/empty/http-empty/token-unavailable", fail.call_args.args[1])
 
     def test_rejects_control_characters_before_group_lookup(self):
         auth = SimpleNamespace(stdout="admin\x00name\n", returncode=0)
@@ -89,7 +89,7 @@ class DsmLauncherAuthenticationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "rejected"):
                 self.launcher.authenticated_admin()
         self.assertEqual(fail.call_args.args[0], "401 Unauthorized")
-        self.assertIn("cookie-missing,empty/empty/token-unavailable", fail.call_args.args[1])
+        self.assertIn("cookie-missing,empty/empty/http-empty/token-unavailable", fail.call_args.args[1])
 
     def test_diagnostic_reports_cookie_presence_without_disclosing_its_value(self):
         auth = SimpleNamespace(stdout="", returncode=1)
@@ -99,8 +99,52 @@ class DsmLauncherAuthenticationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "rejected"):
                 self.launcher.authenticated_admin()
         message = fail.call_args.args[1]
-        self.assertIn("cookie-present,empty/empty/token-unavailable", message)
+        self.assertIn("cookie-present,empty/empty/http-empty/token-unavailable", message)
         self.assertNotIn("secret-session", message)
+
+    def test_empty_subprocess_uses_http_token_and_still_checks_admin_group(self):
+        empty = SimpleNamespace(stdout="", returncode=0)
+        groups = SimpleNamespace(stdout="users administrators\n", returncode=0)
+        with mock.patch.dict(self.launcher.os.environ, {"HTTP_COOKIE": "id=session-secret"}), mock.patch.object(
+            self.launcher.subprocess, "run", side_effect=[empty, empty, groups]
+        ), mock.patch.object(self.launcher, "authenticate_via_http", side_effect=["", "admin-user"]) as auth, mock.patch.object(
+            self.launcher, "syno_token_via_http", return_value="safe-token"
+        ):
+            self.assertEqual(self.launcher.authenticated_admin(), "admin-user")
+        self.assertEqual(auth.call_args_list[0].args, ("id=session-secret",))
+        self.assertEqual(auth.call_args_list[1].args, ("id=session-secret", "safe-token"))
+
+    def test_http_login_requires_success_and_supports_nested_synotoken(self):
+        self.assertEqual(self.launcher.token_from_login_output('{"success":false,"data":{"SynoToken":"x"}}'), "")
+        self.assertEqual(self.launcher.token_from_login_output('{"success":true,"data":{"SynoToken":"token-123"}}'), "token-123")
+        self.assertEqual(self.launcher.token_from_login_output('{"success":true,"data":{"synotoken":"token-456"}}'), "token-456")
+
+    def test_http_request_disables_proxy_and_redirect_before_forwarding_cookie(self):
+        result = mock.MagicMock()
+        result.__enter__.return_value.read.return_value = b"admin-user\n"
+        opener = mock.Mock()
+        opener.open.return_value = result
+        with mock.patch.object(self.launcher, "build_opener", return_value=opener) as build, mock.patch.object(
+            self.launcher, "dsm_http_port", return_value=5000
+        ):
+            self.assertEqual(self.launcher.authenticate_via_http("id=secret-session"), "admin-user")
+        self.assertEqual(build.call_args.args[0].proxies, {})
+        self.assertIsInstance(build.call_args.args[2], self.launcher.NoRedirect)
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.full_url, "http://127.0.0.1:5000/webman/modules/authenticate.cgi")
+        self.assertEqual(request.get_header("Cookie"), "id=secret-session")
+        self.assertIsNone(build.call_args.args[2].redirect_request(request, None, 302, "Moved", {}, "https://example.com/"))
+
+    def test_http_request_rejects_header_injection_and_overlong_response(self):
+        with mock.patch.object(self.launcher, "build_opener") as build:
+            self.assertEqual(self.launcher.dsm_http_get("/webman/login.cgi", "id=bad\r\nX:evil"), "")
+            build.assert_not_called()
+        result = mock.MagicMock()
+        result.__enter__.return_value.read.return_value = b"x" * 513
+        opener = mock.Mock()
+        opener.open.return_value = result
+        with mock.patch.object(self.launcher, "build_opener", return_value=opener):
+            self.assertEqual(self.launcher.authenticate_via_http("id=session"), "")
 
 
 if __name__ == "__main__":
