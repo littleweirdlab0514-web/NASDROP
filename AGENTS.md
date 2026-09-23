@@ -58,6 +58,8 @@ See `docs/PROVIDER_FILENAME_GUIDE.md` for the rationale and release checklist.
 
 See `docs/DSM_LAUNCHER_GUIDE.md` for the packaging rule and regression checklist.
 
+For DSM icon auto-login failures, follow `docs/DSM_LAUNCHER_AUTH_TROUBLESHOOTING.md`: classify `authenticate.cgi` stdout before accepting a username, investigate DSM cookie/SynoToken delivery for error 119, and never replace failed DSM authentication with a static token or separate NASDrop-login fallback. A visible DSM desktop alone is not proof of an authenticated launcher request.
+
 ## Transfer lifecycle invariants
 
 - Release 0.9.22 supersedes the older diagnostic-label rule below: public handoff errors must use fixed, secret-free human-readable explanations without diagnostic tags. Numeric transfer markers remain internal only. Viking redirects may additionally use a single subdomain of `vikingfile.com` with validated `expires`/`md5` fields; HTTPS, expiry checks, redirect bounds and range validation remain mandatory.

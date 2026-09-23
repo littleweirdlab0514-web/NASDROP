@@ -1,11 +1,9 @@
 import importlib.machinery
 import importlib.util
-import io
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest import mock
-from contextlib import redirect_stdout
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,22 +28,44 @@ class DsmLauncherAuthenticationTests(unittest.TestCase):
         with mock.patch.object(self.launcher.subprocess, "run", side_effect=[auth, groups]):
             self.assertEqual(self.launcher.authenticated_admin(), "admin-user")
 
+    def test_tries_legacy_authenticator_when_primary_has_no_session(self):
+        no_session = SimpleNamespace(stdout="", returncode=1)
+        auth = SimpleNamespace(stdout="admin-user\n", returncode=0)
+        groups = SimpleNamespace(stdout="users administrators\n", returncode=0)
+        with mock.patch.object(self.launcher.subprocess, "run", side_effect=[no_session, auth, groups]) as run:
+            self.assertEqual(self.launcher.authenticated_admin(), "admin-user")
+        self.assertEqual(run.call_args_list[0].args[0], [self.launcher.AUTHENTICATE_CGIS[0]])
+        self.assertEqual(run.call_args_list[1].args[0], [self.launcher.AUTHENTICATE_CGIS[1]])
+
+    def test_retries_json_119_with_dsm_synotoken(self):
+        rejected = SimpleNamespace(stdout='{"error":{"code":119},"success":false}', returncode=0)
+        login = SimpleNamespace(stdout='Content-Type: application/json\r\n\r\n{"SynoToken":"token-123","result":"success","success":true}', returncode=0)
+        auth = SimpleNamespace(stdout="admin-user\n", returncode=0)
+        groups = SimpleNamespace(stdout="users administrators\n", returncode=0)
+        with mock.patch.object(self.launcher.subprocess, "run", side_effect=[rejected, rejected, login, auth, groups]) as run:
+            self.assertEqual(self.launcher.authenticated_admin(), "admin-user")
+        self.assertEqual(run.call_args_list[2].args[0], [self.launcher.LOGIN_CGI])
+        self.assertEqual(run.call_args_list[3].kwargs["env"]["QUERY_STRING"], "SynoToken=token-123")
+        self.assertEqual(run.call_args_list[3].kwargs["env"]["HTTP_X_SYNO_TOKEN"], "token-123")
+
+    def test_login_cgi_error_cannot_be_used_as_token(self):
+        error = SimpleNamespace(stdout='{"error":{"code":119},"success":false}', returncode=0)
+        with mock.patch.object(self.launcher.subprocess, "run", return_value=error):
+            self.assertEqual(self.launcher.dsm_syno_token({"HTTP_COOKIE": "id=secret"}), "")
+
     def test_rejects_empty_authentication_output(self):
         auth = SimpleNamespace(stdout="", returncode=0)
         with mock.patch.object(self.launcher.subprocess, "run", return_value=auth), mock.patch.object(
-            self.launcher, "manual_login_if_configured"
-        ), mock.patch.object(
             self.launcher, "fail", side_effect=RuntimeError("rejected")
         ) as fail:
             with self.assertRaisesRegex(RuntimeError, "rejected"):
                 self.launcher.authenticated_admin()
-        fail.assert_called_once_with("401 Unauthorized", "DSM에 로그인한 뒤 NASDrop을 다시 열어 주세요.")
+        self.assertEqual(fail.call_args.args[0], "401 Unauthorized")
+        self.assertIn("cookie-missing,empty/empty/token-unavailable", fail.call_args.args[1])
 
     def test_rejects_control_characters_before_group_lookup(self):
         auth = SimpleNamespace(stdout="admin\x00name\n", returncode=0)
         with mock.patch.object(self.launcher.subprocess, "run", return_value=auth), mock.patch.object(
-            self.launcher, "manual_login_if_configured"
-        ), mock.patch.object(
             self.launcher, "fail", side_effect=RuntimeError("rejected")
         ):
             with self.assertRaisesRegex(RuntimeError, "rejected"):
@@ -61,28 +81,26 @@ class DsmLauncherAuthenticationTests(unittest.TestCase):
                 self.launcher.authenticated_admin()
         fail.assert_called_once_with("403 Forbidden", "DSM 관리자만 NASDrop을 열 수 있습니다.")
 
-    def test_configured_package_falls_back_to_tokenless_manual_login(self):
+    def test_missing_dsm_session_never_falls_back_to_nasdrop_login(self):
         auth = SimpleNamespace(stdout="", returncode=0)
-        reply = io.BytesIO(b'{"configured":true,"password_change_required":false}')
-        output = io.StringIO()
         with mock.patch.object(self.launcher.subprocess, "run", return_value=auth), mock.patch.object(
-            self.launcher, "urlopen", return_value=reply
-        ), redirect_stdout(output):
-            with self.assertRaises(SystemExit):
+            self.launcher, "fail", side_effect=RuntimeError("rejected")
+        ) as fail:
+            with self.assertRaisesRegex(RuntimeError, "rejected"):
                 self.launcher.authenticated_admin()
-        self.assertIn("Status: 302 Found", output.getvalue())
-        self.assertIn("Location: /webman/3rdparty/nasdownloadportal/launcher.html", output.getvalue())
-        self.assertNotIn("token", output.getvalue().lower())
+        self.assertEqual(fail.call_args.args[0], "401 Unauthorized")
+        self.assertIn("cookie-missing,empty/empty/token-unavailable", fail.call_args.args[1])
 
-    def test_unconfigured_package_keeps_dsm_authentication_required(self):
-        auth = SimpleNamespace(stdout="", returncode=0)
-        reply = io.BytesIO(b'{"configured":false}')
-        with mock.patch.object(self.launcher.subprocess, "run", return_value=auth), mock.patch.object(
-            self.launcher, "urlopen", return_value=reply
+    def test_diagnostic_reports_cookie_presence_without_disclosing_its_value(self):
+        auth = SimpleNamespace(stdout="", returncode=1)
+        with mock.patch.dict(self.launcher.os.environ, {"HTTP_COOKIE": "id=secret-session; other=1"}), mock.patch.object(
+            self.launcher.subprocess, "run", return_value=auth
         ), mock.patch.object(self.launcher, "fail", side_effect=RuntimeError("rejected")) as fail:
             with self.assertRaisesRegex(RuntimeError, "rejected"):
                 self.launcher.authenticated_admin()
-        fail.assert_called_once_with("401 Unauthorized", "DSM에 로그인한 뒤 NASDrop을 다시 열어 주세요.")
+        message = fail.call_args.args[1]
+        self.assertIn("cookie-present,empty/empty/token-unavailable", message)
+        self.assertNotIn("secret-session", message)
 
 
 if __name__ == "__main__":

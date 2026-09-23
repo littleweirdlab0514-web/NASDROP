@@ -11,7 +11,7 @@
 - [x] Send.now inspection and transfer pin the validated public destination address.
 - [x] Docker bootstrap remains `nasdrop` / `nasdrop`, is PBKDF2-hashed at rest, and is confined to minimal account/status operations until mandatory replacement.
 - [x] `docs/PROVIDER_AND_SECURITY_POLICY.md` records every supported provider's input, transfer limits, failure response, browser responsibilities, and current security boundaries.
-- [ ] Install 0.9.26-3 on DSM and verify admin auto launch, configured-account login fallback when DSM cookie authentication fails, signed-out rejection before initial setup, non-admin rejection, initial setup, and existing-account password protection.
+- [ ] Install 0.9.26-4 on DSM and verify admin auto launch without a NASDrop login, signed-out rejection, non-admin rejection, initial setup, and existing-account password protection. If auto launch still fails, capture only the safe launcher diagnostic category; never share cookies, session IDs, or tokens.
 - [ ] Complete one real GoFile and one real Send.now download on DSM.
 - [ ] After DSM confirmation, synchronize and smoke-test Docker, then promote the exact candidate digest.
 
