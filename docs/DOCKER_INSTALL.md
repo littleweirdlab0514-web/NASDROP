@@ -12,7 +12,7 @@ NASDrop publishes one multi-platform image for `linux/amd64` and `linux/arm64`. 
 The official image is:
 
 ```text
-ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
+ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
 ```
 
 Use the numbered tag for reproducible installations. Use `latest` only when you intentionally want the newest release during updates.
@@ -71,7 +71,7 @@ The Docker image works on both Intel/AMD and ARM Synology models that support Co
 ```yaml
 services:
   nasdrop:
-    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
+    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
     container_name: nasdrop
     restart: unless-stopped
     init: true
@@ -116,7 +116,7 @@ Create persistent folders first, then create the account and start the service:
 
 ```sh
 mkdir -p nasdrop-config downloads
-docker pull ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
+docker pull ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
 docker run -d --name nasdrop --restart unless-stopped --init \
   --read-only --security-opt no-new-privileges:true \
   --tmpfs /tmp:size=1g,mode=1777 \
@@ -126,7 +126,7 @@ docker run -d --name nasdrop --restart unless-stopped --init \
   -e NAS_PORTAL_STORAGE_ROOTS=/downloads \
   -v "$PWD/nasdrop-config:/config" \
   -v "$PWD/downloads:/downloads" \
-  ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
+  ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
 ```
 
 ## Additional download folders
@@ -184,14 +184,14 @@ In Synology Container Manager, open the running `nasdrop` container's **Terminal
 NASDrop does not attach Docker TAR files to GitHub releases. On a connected computer, pull the required architecture and create the transfer file yourself:
 
 ```sh
-docker pull --platform linux/amd64 ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
-docker save -o nasdrop-0.9.26-2-amd64.tar ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
+docker pull --platform linux/amd64 ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
+docker save -o nasdrop-0.9.26-3-amd64.tar ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
 ```
 
 For an ARM64 host, replace `linux/amd64` and `amd64.tar` with `linux/arm64` and `arm64.tar`. Copy the TAR and the installation files to the offline host, then load and start them:
 
 ```sh
-docker load -i nasdrop-0.9.26-2-amd64.tar
+docker load -i nasdrop-0.9.26-3-amd64.tar
 docker compose up -d
 ```
 
@@ -209,7 +209,7 @@ docker compose exec nasdrop sh -c 'gosu "$PUID:$PGID" sh -c "id; test -w /downlo
 
 **The container restarts repeatedly:** inspect the logs and confirm that `/config` is writable by `PUID:PGID`. Do not remove the read-only or no-new-privileges settings merely to hide a mount-permission error.
 
-**The wrong architecture is reported:** `docker image inspect ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2 --format '{{.Architecture}}'` shows the local image architecture. Remove a manually imported image for the wrong CPU and pull the multi-platform GHCR tag again.
+**The wrong architecture is reported:** `docker image inspect ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3 --format '{{.Architecture}}'` shows the local image architecture. Remove a manually imported image for the wrong CPU and pull the multi-platform GHCR tag again.
 
 **Port 8791 is occupied:** set `NASDROP_PORT=8792` in `.env`, or change the mapping to `8792:8791`.
 

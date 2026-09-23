@@ -19,6 +19,8 @@ from urllib.request import Request, urlopen
 AUTHENTICATE_CGI = "/usr/syno/synoman/webman/modules/authenticate.cgi"
 BACKEND_CONFIG_URL = "http://127.0.0.1:8791/api/dsm/launcher-config"
 LAUNCHER_SECRET_FILE = "/var/packages/nasdownloadportal/var/dsm_launcher_secret"
+AUTH_STATUS_URL = "http://127.0.0.1:8791/api/auth/status"
+MANUAL_LAUNCHER_URL = "/webman/3rdparty/nasdownloadportal/launcher.html"
 
 
 def response(status: str, body: str, *, nonce: str = "") -> None:
@@ -42,6 +44,23 @@ def fail(status: str, message: str) -> None:
     raise SystemExit(0)
 
 
+def manual_login_if_configured() -> None:
+    """Use the ordinary NASDrop login when DSM's cookie CGI cannot see this session."""
+    try:
+        with urlopen(AUTH_STATUS_URL, timeout=3) as result:
+            configured = json.loads(result.read(4096)).get("configured") is True
+    except (HTTPError, URLError, OSError, ValueError, json.JSONDecodeError):
+        configured = False
+    if configured:
+        print("Status: 302 Found")
+        print(f"Location: {MANUAL_LAUNCHER_URL}")
+        print("Cache-Control: no-store, max-age=0")
+        print("Referrer-Policy: no-referrer")
+        print("Content-Type: text/html; charset=utf-8")
+        print()
+        raise SystemExit(0)
+
+
 def authenticated_admin() -> str:
     try:
         result = subprocess.run(
@@ -54,6 +73,7 @@ def authenticated_admin() -> str:
     # contract.  Its reference CGI intentionally does not use the child exit
     # status, which is not stable across DSM releases.
     if not username or len(username) > 128 or any(ord(c) < 32 or ord(c) == 127 for c in username):
+        manual_login_if_configured()
         fail("401 Unauthorized", "DSM에 로그인한 뒤 NASDrop을 다시 열어 주세요.")
     try:
         groups = subprocess.run(

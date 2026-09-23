@@ -12,7 +12,7 @@ NASDrop Docker 이미지는 `linux/amd64`와 `linux/arm64`를 함께 제공합�
 공식 이미지 주소는 다음과 같습니다.
 
 ```text
-ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
+ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
 ```
 
 버전을 고정하려면 위 태그를 사용합니다. 업데이트할 때마다 최신 버전을 자동으로 받으려는 경우에만 `latest`를 사용하세요.
@@ -71,7 +71,7 @@ Docker판은 Container Manager를 지원하는 인텔/AMD 및 ARM 시놀로지�
 ```yaml
 services:
   nasdrop:
-    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
+    image: ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
     container_name: nasdrop
     restart: unless-stopped
     init: true
@@ -159,14 +159,14 @@ docker compose restart nasdrop
 GitHub 릴리스에는 Docker TAR 파일이 첨부되지 않습니다. 인터넷이 연결된 PC에서 필요한 아키텍처의 이미지를 받은 뒤 전송용 TAR를 직접 만듭니다.
 
 ```sh
-docker pull --platform linux/amd64 ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
-docker save -o nasdrop-0.9.26-2-amd64.tar ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2
+docker pull --platform linux/amd64 ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
+docker save -o nasdrop-0.9.26-3-amd64.tar ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3
 ```
 
 ARM64 호스트에서는 `linux/amd64`와 `amd64.tar`를 각각 `linux/arm64`와 `arm64.tar`로 바꿉니다. 만든 TAR와 설치 파일을 오프라인 호스트로 복사한 다음 이미지를 불러와 실행합니다.
 
 ```sh
-docker load -i nasdrop-0.9.26-2-amd64.tar
+docker load -i nasdrop-0.9.26-3-amd64.tar
 docker compose up -d
 ```
 

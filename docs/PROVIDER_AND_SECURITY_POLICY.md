@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
 Last updated: 2026-09-23
-Applies to: NASDrop Server 0.9.26-2 security test build
+Applies to: NASDrop Server 0.9.26-3 security test build
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -155,6 +155,7 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 - Handoffs are one-use, bounded in memory, expiry-checked, constant-time signature-checked, and required to use canonical URL-safe Base64 so alternate encodings cannot bypass replay detection.
 - The dynamic CGI response is `no-store`, carries a nonce-based Content Security Policy, and puts the short-lived handoff in the URL fragment only. Static launcher output remains credential-free.
 - A DSM launcher session may initialize an unconfigured NASDrop account. It cannot replace an existing NASDrop account without the current NASDrop password.
+- DSM deployments may expose a valid desktop session while cookie-based `authenticate.cgi` returns no username (for example, the DSM API reports error 119). For an already configured NASDrop account only, the icon may redirect to the tokenless static launcher and require the ordinary NASDrop ID and password. This fallback must never issue a handoff or initialize an unconfigured account.
 
 ### GoFile remote-script containment
 

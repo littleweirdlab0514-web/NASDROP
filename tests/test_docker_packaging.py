@@ -88,14 +88,14 @@ class DockerPackagingTests(unittest.TestCase):
         korean = (ROOT / "docs" / "DOCKER_INSTALL.ko.md").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
-        self.assertIn("ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-2", release_compose)
+        self.assertIn("ghcr.io/littleweirdlab0514-web/nasdrop:0.9.26-3", release_compose)
         self.assertNotIn("build:", release_compose)
         self.assertNotIn(":latest", release_compose)
         self.assertIn("NASDROP_TRUST_FORWARDED_FOR=false", env_example)
         self.assertIn("docker/compose.release.yaml", readme)
         for guide in (english, korean):
             self.assertIn("compose.release.yaml", guide)
-            self.assertIn("docker save -o nasdrop-0.9.26-2-amd64.tar", guide)
+            self.assertIn("docker save -o nasdrop-0.9.26-3-amd64.tar", guide)
             self.assertIn('gosu "$PUID:$PGID"', guide)
             self.assertNotIn("NASDrop-0.9.23-amd64.tar", guide)
             self.assertNotIn("test -w /downloads && echo writable'", guide)
