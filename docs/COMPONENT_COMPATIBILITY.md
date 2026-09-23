@@ -6,8 +6,8 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.26-5 DSM launcher test build | Canonical server; empty subprocess output may retry via loopback DSM HTTP without proxy or redirects; no unauthenticated or separate-login fallback |
-| Docker image | 0.9.26-5 pending | Source version synchronized; build and smoke-test only after the Synology security flow passes |
+| Synology package | 0.9.26-6 credential-bootstrap test build | Canonical server; DSM icon opens the ordinary NASDrop login; fresh installs require replacement of both temporary credentials |
+| Docker image | 0.9.26-6 pending | Same credential API and web UI; build and smoke-test after the Synology flow passes |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.5 | Adds protected GigaFile key handoff and user-assisted Send.now handoff; keeps strict deletion behavior |
 

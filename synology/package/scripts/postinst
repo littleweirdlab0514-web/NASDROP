@@ -13,20 +13,7 @@ EOF
 fi
 chmod 600 "${SYNOPKG_PKGVAR}/config.json"
 rm -f "${SYNOPKG_PKGVAR}/access_token"
-launcher_secret="${SYNOPKG_PKGVAR}/dsm_launcher_secret"
-if ! [ -s "$launcher_secret" ] || ! /usr/bin/python3 - "$launcher_secret" <<'PY'
-from pathlib import Path
-import sys
-try:
-    value = bytes.fromhex(Path(sys.argv[1]).read_text(encoding="ascii").strip())
-except (OSError, UnicodeError, ValueError):
-    raise SystemExit(1)
-raise SystemExit(0 if len(value) == 32 else 1)
-PY
-then
-  /usr/bin/python3 -c 'import secrets; print(secrets.token_hex(32))' > "$launcher_secret"
-fi
-chmod 600 "$launcher_secret"
+rm -f "${SYNOPKG_PKGVAR}/dsm_launcher_secret"
 cat > "${SYNOPKG_PKGDEST}/ui/launcher.html" <<EOF
 <!doctype html>
 <html><head><meta charset="utf-8"><title>NASDrop</title></head>

@@ -12,11 +12,11 @@
 - Record the supported component matrix and release gate in `docs/COMPONENT_COMPATIBILITY.md` whenever a server or client contract changes.
 - For provider work that changes both the canonical server and the Chrome companion, finish and test those two components first. Only after both relevant regression suites and a real provider flow succeed may the Docker maintainer synchronize and verify the same canonical implementation. Never publish or maintain a Docker-only provider fork.
 
-## Docker bootstrap identity invariant
+## Shared Synology and Docker bootstrap identity invariant
 
-- A new Docker `/config` must use the documented temporary credentials `nasdrop` / `nasdrop`. Store the password only as a salted PBKDF2 hash; never write plaintext credentials to the configuration file.
+- A new Docker `/config` or Synology package state must use the documented temporary credentials `nasdrop` / `nasdrop`. Store the password only as a salted PBKDF2 hash; never write plaintext credentials to the configuration file. Preserve any existing custom account on update.
 - The bootstrap account must always carry `must_change_password: true`. After it signs in, allow only the minimal account/status reads, credential replacement, and logout. Block downloads, folders, settings, inspection, and job operations until both the ID and password are replaced.
-- Accept the short `nasdrop` password only for bootstrap authentication and the current-password confirmation. Never allow it as the replacement password; normal passwords remain subject to the 10–128 character policy.
+- Accept the short `nasdrop` password only for bootstrap authentication and the current-password confirmation. Never allow it as the replacement password; normal passwords remain subject to the 10–128 character policy. A bootstrap user must replace the ID as well as the password.
 - Preserve custom credentials across container restarts. If an existing account still verifies as exactly `nasdrop` / `nasdrop`, restore the mandatory-change flag and revoke existing sessions without rotating or randomizing the credentials.
 - Do not replace this fixed bootstrap flow with a random password, environment-generated password, or log-only secret unless the user explicitly changes this product requirement. Security comes from immediate API confinement and forced credential replacement.
 - Keep regression coverage for initial creation, legacy-flag restoration, API confinement, replacement, old-session revocation, logout, and preservation of custom credentials.
@@ -58,7 +58,7 @@ See `docs/PROVIDER_FILENAME_GUIDE.md` for the rationale and release checklist.
 
 See `docs/DSM_LAUNCHER_GUIDE.md` for the packaging rule and regression checklist.
 
-For DSM icon auto-login failures, follow `docs/DSM_LAUNCHER_AUTH_TROUBLESHOOTING.md`: classify `authenticate.cgi` stdout before accepting a username, investigate DSM cookie/SynoToken delivery for error 119, and never replace failed DSM authentication with a static token or separate NASDrop-login fallback. A visible DSM desktop alone is not proof of an authenticated launcher request.
+The DSM icon is a navigation shortcut only. It opens the ordinary NASDrop login page and never creates a DSM-authenticated NASDrop session. Do not restore `launcher.cgi`, SynoToken exchange, static bearer tokens, HMAC launcher handoffs, or their API endpoints without a new explicit product decision. Package validation must reject the obsolete CGI and handoff path.
 
 ## Transfer lifecycle invariants
 

@@ -3,15 +3,15 @@
 ## 0.9.26 security hardening
 
 - [x] Static DSM launcher files contain no bearer token or reusable credential.
-- [x] DSM launcher uses `authenticate.cgi`, requires the administrators group, and returns no cacheable response.
-- [x] Launcher handoffs are HMAC-signed, expire after 30 seconds, and are accepted once.
-- [x] Existing NASDrop credentials still require the current password when opened through DSM.
+- [x] DSM icon points to the ordinary login page; the package contains no auto-login CGI or handoff endpoints.
+- [x] New Synology installs use hashed `nasdrop` / `nasdrop` credentials and require changing both ID and password.
+- [x] Existing NASDrop credentials survive an update unchanged; account changes still require the current password.
 - [x] GoFile navigator-constructor and Date-constructor escape regressions are blocked.
 - [x] GoFile helper runs with Node permission restrictions.
 - [x] Send.now inspection and transfer pin the validated public destination address.
 - [x] Docker bootstrap remains `nasdrop` / `nasdrop`, is PBKDF2-hashed at rest, and is confined to minimal account/status operations until mandatory replacement.
 - [x] `docs/PROVIDER_AND_SECURITY_POLICY.md` records every supported provider's input, transfer limits, failure response, browser responsibilities, and current security boundaries.
-- [ ] Install 0.9.26-5 on DSM and verify admin auto launch without a NASDrop login, signed-out rejection, non-admin rejection, initial setup, and existing-account password protection. If auto launch still fails, capture only the safe launcher diagnostic category; never share cookies, session IDs, or tokens.
+- [ ] Install 0.9.26-6 on DSM and verify the icon opens the NASDrop login screen, a fresh install accepts `nasdrop` / `nasdrop` only for changing both credentials, ordinary operations stay blocked until then, and an update preserves existing credentials.
 - [ ] Complete one real GoFile and one real Send.now download on DSM.
 - [ ] After DSM confirmation, synchronize and smoke-test Docker, then promote the exact candidate digest.
 
@@ -60,9 +60,9 @@
 - [ ] 암호 입력 중 목록 조회가 도착해도 입력값·포커스·펼친 검증 정보가 유지된다.
 - [ ] 실제 DSM에서 다운로드·검증·압축 해제 도중 패키지 중지 후 자식 프로세스가 남지 않는다.
 - [ ] 실제 DSM 업데이트 후 이어받기와 암호 대기 작업 재개를 확인한다.
-- [ ] 미인증 DSM 정적 URL 및 일반 NAS 계정에서 launcher.html/handoff를 읽을 수 있는지 별도 권한 검증을 수행한다.
+- [ ] DSM 정적 런처에 토큰이 없고 구형 `launcher.cgi` 및 handoff API로 세션을 얻을 수 없는지 확인한다.
 
-자동 테스트 통과와 DSM 실기기 테스트는 구분해서 기록한다. 이번 변경은 런처 handoff 권한 경계를 재설계하지 않는다.
+자동 테스트 통과와 DSM 실기기 테스트는 구분해서 기록한다. DSM 아이콘은 일반 로그인 화면으로만 이동한다.
 
 ## 공급자 파일명 회귀 방지
 
@@ -104,7 +104,7 @@
 
 ## 보안·안정성 회귀 방지
 
-- [ ] DSM 런처 handoff는 한 번 교환한 뒤 즉시 거부되고, 계정 재설정 권한은 launcher 세션 발급 후 5분까지만 유효하다.
+- [ ] DSM 런처 handoff 엔드포인트가 제거되고 이전 handoff 토큰으로 세션을 얻을 수 없다.
 - [ ] 음수·16 KiB 초과 Content-Length 요청은 다운로드 큐에 도달하지 않고 400으로 거부된다.
 - [ ] API 경로에 query string이 붙어도 JSON API로 라우팅된다.
 - [ ] `X-Forwarded-For`는 기본적으로 무시되며, 명시적으로 신뢰한 로컬 프록시에서만 rightmost 주소를 사용한다.

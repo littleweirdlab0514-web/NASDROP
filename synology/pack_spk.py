@@ -46,7 +46,7 @@ def add_tree(archive: tarfile.TarFile, root: Path, outer: bool) -> None:
             archive.addfile(info)
             continue
         executable = (outer and relative.startswith("scripts/")) or (
-            not outer and relative in {"bin/node", "bin/7zz", "ui/launcher.cgi"}
+            not outer and relative in {"bin/node", "bin/7zz"}
         )
         info.mode = 0o755 if executable else 0o644
         data = normalized_bytes(path, relative, outer)
@@ -106,13 +106,12 @@ def validate(spk_path: Path, expected_version: str) -> None:
             "gofile_wt.mjs",
             "licenses/nodejs-LICENSE.txt",
             "ui/config",
-            "ui/launcher.cgi",
             "ui/launcher.html",
             "web/index.html",
         ):
             if name not in members:
                 raise RuntimeError(f"package.tgz is missing: {name}")
-        for name in ("bin/node", "bin/7zz", "ui/launcher.cgi"):
+        for name in ("bin/node", "bin/7zz"):
             if members[name].mode & 0o111 == 0:
                 raise RuntimeError(f"Bundled runtime is not executable: {name}")
         for name in (
@@ -121,7 +120,6 @@ def validate(spk_path: Path, expected_version: str) -> None:
             "backend.py",
             "gofile_wt.mjs",
             "licenses/nodejs-LICENSE.txt",
-            "ui/launcher.cgi",
             "web/index.html",
         ):
             if b"\r" in inner.extractfile(members[name]).read():
@@ -132,8 +130,10 @@ def validate(spk_path: Path, expected_version: str) -> None:
             raise RuntimeError("DSM launcher title must be the literal NASDrop brand")
         if launcher.get("texts") != "texts" or "nasdrop:desc" not in launcher.get("preloadTexts", []):
             raise RuntimeError("DSM launcher i18n description must be preloaded")
-        if launcher.get("url") != "/webman/3rdparty/nasdownloadportal/launcher.cgi":
-            raise RuntimeError("DSM launcher must use the authenticated CGI")
+        if launcher.get("url") != "/webman/3rdparty/nasdownloadportal/launcher.html":
+            raise RuntimeError("DSM launcher must open the NASDrop login page")
+        if "ui/launcher.cgi" in members:
+            raise RuntimeError("DSM auto-login CGI must not be packaged")
         static_launcher = inner.extractfile(members["ui/launcher.html"]).read()
         if b"#token=" in static_launcher or b"Bearer" in static_launcher:
             raise RuntimeError("Static DSM launcher must not contain authentication material")

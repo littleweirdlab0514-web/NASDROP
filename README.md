@@ -28,10 +28,10 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.5 ZIP is compatible with the NASDrop Server 0.9.26-5 DSM launcher test build.**
+- **Chrome extension 0.5.5 ZIP is compatible with the NASDrop Server 0.9.26-6 credential-bootstrap test build.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
-- **Compatible NASDrop Server 0.9.26-5 includes the protected GigaFile handoff and the security hardening described below.**
+- **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -45,13 +45,13 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on external download websites and APIs. Providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
-## What's new in 0.9.26 (security test build)
+## What's new in 0.9.26-6 (credential-bootstrap test build)
 
-- DSM launcher test revision `0.9.26-5` tries the two DSM authenticator locations, then a loopback DSM HTTP request when direct execution returns no output. Loopback requests disable proxies and redirects so DSM cookies cannot be forwarded elsewhere. A DSM icon launch still requires a verified DSM administrator session; this behavior still requires a real-NAS test.
-- Replaced the static DSM launcher bearer token with a DSM-authenticated administrator CGI and an HMAC-signed, 30-second, one-use handoff. Static launcher files no longer contain credentials, and an existing NASDrop account can no longer be replaced from a DSM launcher session without its current NASDrop password.
+- The DSM icon now opens the normal NASDrop login page. DSM auto-login, its CGI, handoff endpoints, and shared secret are removed.
+- A fresh Synology installation starts with temporary `nasdrop` / `nasdrop` credentials, like Docker. Both ID and password must be replaced before downloads or settings are available. Updates preserve existing custom credentials.
 - Hardened GoFile's remote helper: injected values are created inside the VM context, string/Wasm code generation stays disabled, the helper process runs with Node's permission model and read access only to its own entry file, and navigator-constructor escape coverage is included.
 - Send.now inspection pins each connection to the public IP set that was validated, and the final curl transfer uses a validated `resolve` entry so DNS cannot be re-resolved to a private address between validation and use.
-- Docker keeps the documented one-time `nasdrop` / `nasdrop` bootstrap login. It exposes only minimal account/status operations until both credentials are replaced, and restores the mandatory-change flag if a legacy untouched default account is found.
+- Docker keeps the same one-time `nasdrop` / `nasdrop` bootstrap login. Both distributions expose only minimal account/status operations until both credentials are replaced, and restore the mandatory-change flag if a legacy untouched default account is found.
 
 ## What's new in 0.9.25 (test build)
 
@@ -172,7 +172,7 @@ See the [GoFile request policy](docs/GOFILE_REQUEST_POLICY.md) before changing p
 ## What's new in 0.9.9
 
 - NASDrop API and saved job failures now carry stable error categories, so English, Japanese, and Chinese users see localized errors instead of Korean-only backend text.
-- DSM launcher account-reset authority is limited to the first five minutes of its one-hour automatic-login session, and the in-memory session registry is capped at 256 entries.
+- Historical DSM auto-login account-reset authority was limited to five minutes; this mechanism is removed in 0.9.26-6. The in-memory session registry remains capped at 256 entries.
 - Provider downloads now refuse redirects from HTTPS to plain HTTP. 7-Zip archive passwords are supplied through standard input instead of appearing in the process command line.
 
 ## What's new in 0.9.8
@@ -181,7 +181,7 @@ See the [GoFile request policy](docs/GOFILE_REQUEST_POLICY.md) before changing p
 
 ## What's new in 0.9.7
 
-- DSM icon handoff values are now single-use: the browser exchanges one for a short-lived launcher session and the server rotates the handoff immediately.
+- Historical DSM icon handoff values were single-use; the handoff mechanism is removed in 0.9.26-6.
 - Login handling now rejects malformed request lengths, safely handles non-ASCII login input, bounds stale failure records, and ignores forwarded client addresses unless a local reverse proxy is explicitly trusted.
 - API routes now behave consistently when a query string is present, job state files use restricted permissions, extraction has a six-hour safety timeout, and concurrent settings writes are serialized.
 
@@ -249,6 +249,7 @@ The optional **Single connection** mode writes one resumable temporary file with
 2. In DSM, open **Package Center > Manual Install**.
 3. Select the downloaded SPK and review the manual-install warning and license.
 4. Complete the installation, then grant the NASDrop package account access to a destination folder as described below.
+5. Open NASDrop from its DSM icon or service address. On a **new** installation, sign in with temporary ID `nasdrop` and password `nasdrop`, then change **both** immediately. An update keeps existing custom credentials.
 
 The package supports DSM 7.1 or later on Intel/AMD 64-bit (`x86_64`) Synology NAS models. DSM 7.1 and DSM 7.2 have both been verified on real hardware. ARM models are not supported yet. Because this is not an official Package Center listing, GitHub releases are the only supported distribution channel and updates are installed manually.
 
@@ -319,52 +320,18 @@ After an update, open **Settings** and select the default download folder again.
 
 ## Opening NASDrop and setting up client login
 
-- Sign in to DSM with an administrator account, then launch NASDrop from the DSM desktop or Package Center icon. The icon creates a 30-second, one-use authenticated handoff without placing credentials in a static launcher file.
-- After installing or updating, use that DSM icon launch to create the first NASDrop ID and password under **Settings > Client connection**. If an account already exists, changing it still requires the current NASDrop password; DSM launch does not bypass that check.
-- Opening the service address directly, using another browser, or connecting a client app requires that ID and password.
-- If the ID or password is forgotten, it cannot be displayed or reset through the DSM launcher in this security build. Recovery requires a separate administrator-controlled procedure; do not weaken the current-password requirement as a shortcut.
+- The DSM desktop or Package Center icon is a shortcut to the ordinary NASDrop login page. It does not use your DSM session to sign in.
+- On a new installation, enter the temporary ID `nasdrop` and password `nasdrop`. Only the account form and sign-out are available until you enter the current password `nasdrop` and save a different ID and a new password of 10–128 characters. The temporary password cannot be reused.
+- Existing custom credentials are preserved on update. Use those credentials after updating; changing them still requires the current NASDrop password.
+- The service address, other browsers, Android app, and Chrome extension use the same NASDrop ID and password. If forgotten, recovery requires a separate administrator-controlled procedure; DSM sign-in does not reset the NASDrop account.
 - Passwords are stored only as salted PBKDF2-SHA256 hashes. Successful logins receive a time-limited session token; changing the account credentials revokes existing sessions.
 - Five consecutive failed login attempts from the same client IP trigger a 15-minute login block.
-
-The DSM launcher CGI validates the current DSM administrator session and creates an HMAC-signed handoff that expires after 30 seconds and is accepted only once. The web UI removes it from the address immediately after exchange. Static launcher files contain no reusable API credential.
 
 ## Chrome extension
 
 The optional Manifest V3 extension in `chrome-extension/` automatically connects recognized download controls on supported provider pages to NASDrop. Sign in once, then click the site's download button. Buzzheavier's **Download File** and **Copy download link** controls both resolve the signed link and send it to NASDrop. On Send.now, finish verification and Continue normally, then click the actual **Download [size]** button on the next page; only that later button arms the same-tab Chrome-download handoff. Reload provider pages after installing or updating the extension. The popup and context menu remain available as secondary entry points.
 
 For local installation, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the `chrome-extension` directory. Chrome requests access to supported provider sites for button detection and to the configured NASDrop host for API calls. The extension saves the session token but never the password. See [`chrome-extension/README.md`](chrome-extension/README.md) for behavior and verification limits.
-
-### Client login creation and reset examples
-
-The following guides show how an authorized DSM user creates the first NASDrop ID and password and how the DSM icon launch can reset existing credentials.
-
-<details open>
-<summary><strong>English</strong></summary>
-
-![English NASDrop ID creation and reset guide](assets/client-login-guide-en.png)
-
-</details>
-
-<details>
-<summary><strong>Korean</strong></summary>
-
-![NASDrop account setup and reset guide in Korean](assets/client-login-guide-ko.png)
-
-</details>
-
-<details>
-<summary><strong>日本語 (Japanese)</strong></summary>
-
-![日本語 NASDrop ID作成・再設定ガイド](assets/client-login-guide-ja.png)
-
-</details>
-
-<details>
-<summary><strong>简体中文 (Simplified Chinese)</strong></summary>
-
-![简体中文 NASDrop ID创建和重置指南](assets/client-login-guide-zh-cn.png)
-
-</details>
 
 ## Build from source
 
@@ -374,7 +341,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.26-5-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.26-6-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 
@@ -536,7 +503,7 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 
 - JSON API request bodies are limited to 16 KiB and idle request handling times out after 30 seconds.
 - Login failure tracking retains inactive entries for 15 minutes and is capped at 4,096 client addresses.
-- Browser sessions, including a session obtained through the DSM launcher, last seven days. The DSM CGI handoff used to obtain that session expires after 30 seconds and is single-use.
+- NASDrop browser sessions last seven days and require signing in with the NASDrop account. The DSM icon does not issue a session.
 - Archive extraction is stopped after six hours. Archive safety checks also cap entries at 100,000 and extracted data at 1 TiB.
 - Individual source files are limited to 300 GiB, and the global download scheduler runs at most three jobs concurrently.
 

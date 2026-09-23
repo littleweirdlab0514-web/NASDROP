@@ -7,7 +7,7 @@
       "texts": "texts",
       "preloadTexts": ["nasdrop:desc"],
       "icon": "images/icon_{0}.png",
-      "url": "/webman/3rdparty/nasdownloadportal/launcher.cgi",
+      "url": "/webman/3rdparty/nasdownloadportal/launcher.html",
       "allUsers": false
     }
   }

@@ -103,11 +103,12 @@ class SpkPackagingTests(unittest.TestCase):
 
         config = json.loads((ROOT / "synology" / "package-inner" / "ui" / "config").read_text(encoding="utf-8"))
         launcher = config[".url"]["com.littleweirdlab.NasDownloadPortal"]
-        self.assertEqual(launcher["url"], "/webman/3rdparty/nasdownloadportal/launcher.cgi")
-        cgi = (ROOT / "synology" / "package-inner" / "ui" / "launcher.cgi").read_text(encoding="utf-8")
-        self.assertIn("authenticate.cgi", cgi)
-        self.assertIn('"administrators" not in groups.stdout.split()', cgi)
-        self.assertIn("Cache-Control: no-store", cgi)
+        self.assertEqual(launcher["url"], "/webman/3rdparty/nasdownloadportal/launcher.html")
+        self.assertFalse((ROOT / "synology" / "package-inner" / "ui" / "launcher.cgi").exists())
+        backend = (ROOT / "backend.py").read_text(encoding="utf-8")
+        self.assertNotIn('if path == "/api/launcher/session"', backend)
+        self.assertNotIn('if path == "/api/dsm/launcher-config"', backend)
+        self.assertIn('NAS_PORTAL_BOOTSTRAP_ACCOUNT="true"', (PACKAGE_ROOT / "scripts" / "start-stop-status").read_text(encoding="utf-8"))
 
     def test_launcher_port_setting_updates_installed_dsm_launcher(self):
         start_script = (PACKAGE_ROOT / "scripts" / "start-stop-status").read_text(encoding="utf-8")

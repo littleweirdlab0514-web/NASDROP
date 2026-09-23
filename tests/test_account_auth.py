@@ -66,74 +66,22 @@ class AccountAuthTests(unittest.TestCase):
         except HTTPError as exc:
             return exc.code, json.loads(exc.read())
 
-    def test_dsm_handoff_creates_account_and_is_one_use(self):
-        status, payload = self.request("/api/auth/status")
-        self.assertEqual((status, payload), (200, {"configured": False, "password_change_required": False}))
-
-        launcher_token = backend.create_dsm_launcher_handoff("DSM Admin")
-        status, config = self.request(
-            "/api/dsm/launcher-config", method="POST", token=launcher_token, payload={},
-        )
-        self.assertEqual(status, 200)
-        self.assertEqual(config["launcher_port"], backend.LAUNCHER_PORT)
-        status, handoff = self.request(
-            "/api/launcher/session", method="POST", token=launcher_token, payload={},
-        )
-        self.assertEqual(status, 200)
-        self.assertTrue(handoff["token"])
-        self.assertEqual(
-            self.request("/api/launcher/session", method="POST", token=launcher_token, payload={})[0],
-            401,
-        )
-        self.assertEqual(
-            self.request("/api/dsm/launcher-config", method="POST", token=launcher_token, payload={})[0],
-            401,
-        )
-
-        status, account = self.request(
-            "/api/account", method="POST", token=handoff["token"],
-            payload={"username": "nas-owner", "password": "a strong password", "current_password": ""},
-        )
-        self.assertEqual(status, 200)
-        self.assertEqual(account["username"], "nas-owner")
-        stored = backend.AUTH_FILE.read_text(encoding="utf-8")
-        self.assertNotIn("a strong password", stored)
-        self.assertIn('"algorithm": "pbkdf2_sha256"', stored)
-
-        status, logged_in = self.request(
-            "/api/login", method="POST", payload={"username": "NAS-OWNER", "password": "a strong password"},
-        )
-        self.assertEqual(status, 200)
-        self.assertTrue(logged_in["token"])
-
-        status, account_status = self.request("/api/account", token=logged_in["token"])
-        self.assertEqual(status, 200)
-        self.assertEqual(account_status["username"], "nas-owner")
-        self.assertFalse(account_status["launcher_session"])
-        self.assertFalse(account_status["launcher_reset_available"])
-
-    def test_dsm_session_cannot_reset_existing_account_without_current_password(self):
-        backend.replace_credentials("owner", "original password")
-        handoff = backend.create_dsm_launcher_handoff("DSM Admin")
-        _, exchanged = self.request("/api/launcher/session", method="POST", token=handoff, payload={})
-        launcher_token = exchanged["token"]
-        status, account = self.request("/api/account", token=launcher_token)
-        self.assertEqual(status, 200)
-        self.assertFalse(account["launcher_reset_available"])
-        status, _ = self.request(
-            "/api/account", method="POST", token=launcher_token,
-            payload={"username": "owner", "password": "replacement password", "current_password": ""},
-        )
-        self.assertEqual(status, 400)
-
-    def test_dsm_handoff_rejects_tampering_and_expiry(self):
-        token = backend.create_dsm_launcher_handoff("DSM Admin")
-        replacement = "A" if token[-1] != "A" else "B"
-        self.assertEqual(backend.consume_dsm_launcher_handoff(token[:-1] + replacement), "")
-        expired = backend.create_dsm_launcher_handoff(
-            "DSM Admin", current=int(time.time()) - backend.DSM_LAUNCHER_HANDOFF_TTL_SECONDS - 1,
-        )
-        self.assertEqual(backend.consume_dsm_launcher_handoff(expired), "")
+    def test_dsm_auto_login_endpoints_are_removed(self):
+        backend.create_docker_bootstrap_credentials()
+        for path in ("/api/dsm/launcher-config", "/api/launcher/session"):
+            with self.subTest(path=path):
+                self.assertEqual(self.request(path, method="POST", token="old-handoff", payload={})[0], 401)
+        token = backend.create_session("nasdrop")
+        for path in ("/api/dsm/launcher-config", "/api/launcher/session"):
+            with self.subTest(path=path):
+                status, payload = self.request(path, method="POST", token=token, payload={})
+                self.assertEqual(status, 403)
+                self.assertEqual(payload["code"], "password_change_required")
+        backend.replace_credentials("owner", "replacement password")
+        token = backend.create_session("owner")
+        for path in ("/api/dsm/launcher-config", "/api/launcher/session"):
+            with self.subTest(path=path):
+                self.assertEqual(self.request(path, method="POST", token=token, payload={})[0], 404)
 
     def test_session_registry_is_bounded_and_oldest_session_is_evicted(self):
         with mock.patch.object(backend.time, "time", side_effect=range(1, backend.MAX_SESSION_ENTRIES + 3)):
@@ -230,6 +178,14 @@ class AccountAuthTests(unittest.TestCase):
                 blocked_status, blocked = self.request(path, method=method, payload=payload, token=old_token)
                 self.assertEqual(blocked_status, 403)
                 self.assertEqual(blocked["code"], "password_change_required")
+
+        status, rejected = self.request(
+            "/api/account", method="POST", token=old_token,
+            payload={"username": "nasdrop", "password": "replacement password", "current_password": "nasdrop"},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("ID", rejected["error"])
+        self.assertTrue(backend.password_change_required())
 
         status, changed = self.request(
             "/api/account", method="POST", token=old_token,

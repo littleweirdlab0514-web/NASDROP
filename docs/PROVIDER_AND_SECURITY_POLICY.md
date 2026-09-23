@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
 Last updated: 2026-09-23
-Applies to: NASDrop Server 0.9.26-5 DSM launcher test build
+Applies to: NASDrop Server 0.9.26-6 credential-bootstrap test build
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -147,16 +147,13 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 
 ## Security policy introduced in 0.9.26
 
-### DSM launcher authentication
+### DSM launcher and first-run account
 
-- Static `launcher.html` must contain no bearer token, credential, or reusable secret.
-- DSM launches an administrator-only CGI. The CGI asks Synology’s `authenticate.cgi` to confirm the current DSM session and verifies membership in `administrators`.
-- The CGI and backend share a 256-bit secret outside the web root with mode `0600`. It creates an HMAC-SHA-256 handoff valid for 30 seconds.
-- Handoffs are one-use, bounded in memory, expiry-checked, constant-time signature-checked, and required to use canonical URL-safe Base64 so alternate encodings cannot bypass replay detection.
-- The dynamic CGI response is `no-store`, carries a nonce-based Content Security Policy, and puts the short-lived handoff in the URL fragment only. Static launcher output remains credential-free.
-- A DSM launcher session may initialize an unconfigured NASDrop account. It cannot replace an existing NASDrop account without the current NASDrop password.
-- A DSM authentication response such as JSON error 119 is never a username. A rejected subprocess response may obtain a SynoToken from DSM's `login.cgi` and retry. When both subprocess authenticators are empty or unavailable, a separate test-build fallback calls only DSM's bounded loopback HTTP listener, with proxies and redirects disabled before forwarding the session cookie; it may obtain a token only from a successful `login.cgi` response. Verify the resulting username and administrators group before issuing a handoff. Do not fall back to a separate NASDrop login from the DSM icon or treat a visible DSM desktop alone as proof of authentication.
-- Follow `docs/DSM_LAUNCHER_AUTH_TROUBLESHOOTING.md` for the error-119 root-cause sequence, secret-free diagnostics, regression tests, and real-DSM release gate. Do not equate error 119 with one cause without checking cookie and token delivery.
+- The DSM icon is only a shortcut to the ordinary NASDrop login page. It does not accept DSM cookies or SynoToken and does not create a NASDrop session.
+- A new Synology package state creates the same temporary `nasdrop` / `nasdrop` login as Docker, stored as a salted PBKDF2 hash. Both ID and password must be replaced before downloads, folders, settings, or jobs can be used.
+- Existing custom credentials remain unchanged through package updates. An untouched legacy default account regains the mandatory-change flag and has its prior sessions revoked.
+- The old `launcher.cgi`, handoff endpoints, web token-fragment exchange, and `dsm_launcher_secret` are removed. The upgrade script deletes the obsolete secret and any stale CGI at the exact package path. Package validation rejects their return.
+- The login form uses semantic controls, browser password autofill, and a visible HTTP warning. Internet-facing installations should use HTTPS through a trusted reverse proxy.
 
 ### GoFile remote-script containment
 
@@ -176,7 +173,7 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 - Passwords use PBKDF2-HMAC-SHA-256 with a per-account random salt and 600,000 iterations. Comparisons are constant-time.
 - Sessions are random, time-limited, bounded in memory, and revoked when credentials change.
 - Five failed logins from one client produce a 15-minute client block. A short global cooldown limits distributed bursts without becoming the primary authentication control.
-- Docker intentionally starts a new configuration with `nasdrop` / `nasdrop`, stored only as a salted hash and marked `must_change_password`. Until both credentials are replaced, only minimal account/status reads, credential replacement, and logout are allowed. Normal download, folder, settings, inspection, and job APIs return `password_change_required`.
+- Both Synology and Docker intentionally start new configurations with `nasdrop` / `nasdrop`, stored only as a salted hash and marked `must_change_password`. Until both credentials are replaced, only minimal account/status reads, credential replacement, and logout are allowed. Normal download, folder, settings, inspection, and job APIs return `password_change_required`.
 - The short Docker bootstrap password is accepted only for initial authentication/current-password confirmation and cannot be saved as the replacement password. Custom credentials are preserved; an untouched legacy default regains the mandatory-change flag without password randomization.
 
 ### Filesystem, archive, and secret boundaries

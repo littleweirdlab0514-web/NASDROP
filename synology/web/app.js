@@ -2,9 +2,7 @@
   const $ = (selector) => document.querySelector(selector);
   const t = (key, vars) => window.NASDropI18n.t(key, vars);
   const serverError = (code, fallback, vars) => window.NASDropI18n.error(code, fallback, vars);
-  const launchedToken = new URLSearchParams(location.hash.slice(1)).get("token") || "";
-  if (launchedToken) history.replaceState(null, "", location.pathname + location.search);
-  const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, accountResetMode: false, passwordChangeRequired: false, selected: new Set(), extractionInitialized: false };
+  const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, passwordChangeRequired: false, selected: new Set(), extractionInitialized: false };
   const statusKeys = { inspecting:"statusInspecting", queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", download_key_required:"statusDownloadKeyRequired", stopping:"statusStopping", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
 
   function isPrivateHost(rawHost) {
@@ -124,25 +122,9 @@
   }
   function renderAccount() {
     if (!state.account) return;
-    const launcherResetAvailable = Boolean(state.account.configured && state.account.launcher_reset_available);
-    const locked = launcherResetAvailable && !state.accountResetMode;
-    const username = $("#account-username");
-    const password = $("#new-password");
-    const confirmation = $("#confirm-password");
-    username.value = state.account.username || "";
-    $("#account-current-id").textContent = state.account.username || "—";
-    $("#account-locked-summary").classList.toggle("hidden", !locked);
-    $("#account-username-row").classList.toggle("hidden", locked);
-    $("#new-password-row").classList.toggle("hidden", locked);
-    $("#confirm-password-row").classList.toggle("hidden", locked);
-    password.required = !locked;
-    confirmation.required = !locked;
-    password.placeholder = "";
-    confirmation.placeholder = "";
-    $("#save-account").disabled = locked;
-    $("#reset-account").classList.toggle("hidden", !launcherResetAvailable);
-    $("#current-password-row").classList.toggle("hidden", !state.account.configured || launcherResetAvailable);
-    $("#current-password").required = Boolean(state.account.configured && !launcherResetAvailable);
+    $("#account-username").value = state.account.username || "";
+    $("#current-password-row").classList.toggle("hidden", !state.account.configured);
+    $("#current-password").required = Boolean(state.account.configured);
     renderPasswordChangeGate();
   }
   async function loadAccount() {
@@ -331,19 +313,10 @@
       const result = await api("/api/account", {method:"POST",body:JSON.stringify({username:$("#account-username").value.trim(),current_password:$("#current-password").value,password})});
       if (result.token) { state.token = result.token; localStorage.setItem("nasdrop-session-token", state.token); }
       $("#current-password").value = ""; $("#new-password").value = ""; $("#confirm-password").value = "";
-      state.accountResetMode = false;
       state.passwordChangeRequired = Boolean(result.password_change_required);
       await refresh(); $("#account-message").textContent = t("accountSaved");
     } catch (error) { $("#account-message").textContent = error.message; }
     finally { button.disabled = false; }
-  });
-  $("#reset-account").addEventListener("click", () => {
-    state.accountResetMode = true;
-    $("#new-password").value = "";
-    $("#confirm-password").value = "";
-    renderAccount();
-    $("#account-message").textContent = t("resetAccountHint");
-    $("#account-username").focus();
   });
   window.addEventListener("nasdrop-language-change", () => {
     if (state.status) renderStatus();
@@ -352,19 +325,6 @@
     if (state.folder) loadFolder(state.folder.path);
   });
   async function bootstrap() {
-    if (launchedToken) {
-      try {
-        const result = await publicApi("/api/launcher/session", {method:"POST",headers:{authorization:`Bearer ${launchedToken}`},body:"{}"});
-        state.token = result.token;
-        showApp();
-        return;
-      } catch (error) {
-        state.token = "";
-        localStorage.removeItem("nasdrop-session-token");
-        showLogin(error.message);
-        return;
-      }
-    }
     if (state.token) { showApp(); return; }
     try { const auth = await publicApi("/api/auth/status"); $("#login-setup-hint").classList.toggle("hidden", auth.configured); }
     catch (_) {}

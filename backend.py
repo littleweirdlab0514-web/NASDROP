@@ -6,7 +6,6 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
 from datetime import datetime
-import base64
 from email.message import Message
 from email.utils import parsedate_to_datetime
 from http import HTTPStatus
@@ -15,7 +14,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from http.cookies import SimpleCookie
 from http.cookiejar import CookieJar
 import hashlib
-import hmac
 import html
 import ipaddress
 import json
@@ -51,9 +49,6 @@ AUTH_FILE = STATE_DIR / "credentials.json"
 CONFIG_FILE = STATE_DIR / "config.json"
 GOFILE_COOLDOWN_FILE = STATE_DIR / "gofile_cooldown.json"
 SECRET_DIR = STATE_DIR / "job-secrets"
-DSM_LAUNCHER_SECRET_FILE = Path(
-    os.environ.get("NAS_PORTAL_DSM_LAUNCHER_SECRET_FILE", str(STATE_DIR / "dsm_launcher_secret")),
-).resolve()
 
 
 def load_config() -> dict[str, object]:
@@ -115,8 +110,6 @@ GLOBAL_LOGIN_FAILURE_LIMIT = 30
 GLOBAL_LOGIN_COOLDOWN_SECONDS = 5
 REQUEST_BODY_LIMIT = 16_384
 REQUEST_TIMEOUT_SECONDS = 30
-DSM_LAUNCHER_HANDOFF_TTL_SECONDS = 30
-MAX_DSM_LAUNCHER_HANDOFFS = 32
 ARCHIVE_EXTRACT_TIMEOUT_SECONDS = 6 * 60 * 60
 CURL_HTTPS_ONLY = "--proto '=https' --proto-redir '=https'"
 CURL_NO_REDIRECTS = "--location --max-redirs 0"
@@ -129,8 +122,6 @@ LOGGER = logging.getLogger("nasdrop")
 LOGGER.addHandler(logging.NullHandler())
 JOB_SECRET_LOCK = threading.RLock()
 CONFIG_LOCK = threading.RLock()
-DSM_LAUNCHER_HANDOFFS: dict[str, float] = {}
-DSM_LAUNCHER_HANDOFFS_LOCK = threading.Lock()
 FORWARDED_HEADER_LOCK = threading.Lock()
 SHUTDOWN_EVENT = threading.Event()
 UNTRUSTED_FORWARDED_HEADER_SEEN = False
@@ -322,7 +313,7 @@ def password_hash(password: str, salt: bytes, iterations: int = PASSWORD_HASH_IT
 
 
 def create_docker_bootstrap_credentials() -> bool:
-    """Create the documented one-time Docker login without weakening normal password validation."""
+    """Create the one-time NASDrop bootstrap login without weakening password validation."""
     global CREDENTIALS
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     salt = secrets.token_bytes(16)
@@ -355,7 +346,7 @@ def create_docker_bootstrap_credentials() -> bool:
 
 
 def enforce_docker_default_password_change() -> bool:
-    """Keep the documented Docker bootstrap login confined until it is replaced."""
+    """Keep the default bootstrap login confined until it is replaced."""
     global CREDENTIALS
     if (
         not CREDENTIALS
@@ -434,95 +425,6 @@ def session_kind(token: str) -> str:
         return kind
 
 
-def load_dsm_launcher_secret() -> bytes:
-    try:
-        encoded = DSM_LAUNCHER_SECRET_FILE.read_text(encoding="ascii").strip()
-        secret = bytes.fromhex(encoded)
-        if len(secret) == 32:
-            return secret
-    except (OSError, UnicodeError, ValueError):
-        pass
-    # The signed DSM handoff exists only for the installed Synology package.
-    # Development and Docker runs do not configure a launcher path, so avoid an
-    # import-time filesystem mutation and use a process-local secret instead.
-    if LAUNCHER_FILE is None:
-        return secrets.token_bytes(32)
-    DSM_LAUNCHER_SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
-    secret = secrets.token_bytes(32)
-    temporary = DSM_LAUNCHER_SECRET_FILE.with_suffix(".tmp")
-    temporary.write_text(secret.hex() + "\n", encoding="ascii")
-    temporary.chmod(0o600)
-    temporary.replace(DSM_LAUNCHER_SECRET_FILE)
-    return secret
-
-
-DSM_LAUNCHER_SECRET = load_dsm_launcher_secret()
-
-
-def create_dsm_launcher_handoff(username: str, current: int | None = None) -> str:
-    """Create a signed short-lived handoff after DSM authenticated the CGI."""
-    if not username or len(username) > 128 or any(ord(character) < 32 or ord(character) == 127 for character in username):
-        raise ValueError("DSM 사용자 정보가 올바르지 않습니다.")
-    issued = int(time.time()) if current is None else int(current)
-    payload = json.dumps(
-        {"u": username, "e": issued + DSM_LAUNCHER_HANDOFF_TTL_SECONDS, "n": secrets.token_hex(8)},
-        ensure_ascii=False, separators=(",", ":"),
-    ).encode("utf-8")
-    encoded = base64.urlsafe_b64encode(payload).rstrip(b"=")
-    signature = hmac.new(DSM_LAUNCHER_SECRET, encoded, hashlib.sha256).digest()
-    return encoded.decode("ascii") + "." + base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
-
-
-def validate_dsm_launcher_handoff(token: str, *, consume: bool) -> str:
-    if not token or len(token) > 1024 or token.count(".") != 1:
-        return ""
-    encoded, supplied_signature = token.split(".", 1)
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", encoded) or not re.fullmatch(r"[A-Za-z0-9_-]+", supplied_signature):
-        return ""
-    try:
-        signature = base64.urlsafe_b64decode(supplied_signature + "=" * (-len(supplied_signature) % 4))
-        payload_bytes = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
-        # Reject non-canonical encodings. Otherwise unused trailing Base64 bits
-        # can create multiple token strings for one signature and bypass the
-        # one-use fingerprint registry.
-        canonical_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode("ascii")
-        canonical_payload = base64.urlsafe_b64encode(payload_bytes).rstrip(b"=").decode("ascii")
-        if canonical_signature != supplied_signature or canonical_payload != encoded:
-            return ""
-        expected = hmac.new(DSM_LAUNCHER_SECRET, encoded.encode("ascii"), hashlib.sha256).digest()
-        if not hmac.compare_digest(signature, expected):
-            return ""
-        payload = json.loads(payload_bytes)
-        username = str(payload.get("u", ""))
-        expiry = int(payload.get("e", 0))
-        nonce = str(payload.get("n", ""))
-    except (UnicodeError, ValueError, TypeError, json.JSONDecodeError):
-        return ""
-    current = time.time()
-    if expiry <= current or expiry > current + DSM_LAUNCHER_HANDOFF_TTL_SECONDS + 5:
-        return ""
-    if not username or len(username) > 128 or not re.fullmatch(r"[0-9a-f]{16}", nonce):
-        return ""
-    fingerprint = hashlib.sha256(token.encode("ascii")).hexdigest()
-    with DSM_LAUNCHER_HANDOFFS_LOCK:
-        expired = [value for value, saved_expiry in DSM_LAUNCHER_HANDOFFS.items() if saved_expiry <= current]
-        for value in expired:
-            DSM_LAUNCHER_HANDOFFS.pop(value, None)
-        if fingerprint in DSM_LAUNCHER_HANDOFFS:
-            return ""
-        if consume:
-            overflow = len(DSM_LAUNCHER_HANDOFFS) - MAX_DSM_LAUNCHER_HANDOFFS + 1
-            if overflow > 0:
-                for value in list(DSM_LAUNCHER_HANDOFFS)[:overflow]:
-                    DSM_LAUNCHER_HANDOFFS.pop(value, None)
-            DSM_LAUNCHER_HANDOFFS[fingerprint] = float(expiry)
-    return username
-
-
-def consume_dsm_launcher_handoff(token: str) -> str:
-    return validate_dsm_launcher_handoff(token, consume=True)
-
-
 def revoke_session(token: str) -> None:
     with SESSIONS_LOCK:
         SESSIONS.pop(token, None)
@@ -532,6 +434,8 @@ def replace_credentials(username: object, password: object) -> str:
     global CREDENTIALS
     normalized_username = normalize_username(username)
     normalized_password = validate_password(password)
+    if password_change_required() and normalized_username.casefold() == "nasdrop":
+        raise ValueError("초기 ID nasdrop도 새 ID로 변경해야 합니다.")
     salt = secrets.token_bytes(16)
     updated = {
         "algorithm": "pbkdf2_sha256",
@@ -3896,8 +3800,6 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(HTTPStatus.OK, {
                 "configured": credentials_configured(),
                 "username": str(CREDENTIALS.get("username", "")),
-                "launcher_session": False,
-                "launcher_reset_available": False,
                 "password_change_required": password_change_required(),
             })
         if path.startswith("/api/"):
@@ -3912,7 +3814,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 payload = self.body()
                 if not credentials_configured():
-                    raise ValueError("계정이 아직 설정되지 않았습니다. DSM 아이콘 또는 Docker 계정 설정 명령으로 ID와 비밀번호를 먼저 설정하세요.")
+                    raise ValueError("계정이 아직 설정되지 않았습니다. 서비스를 다시 시작하거나 관리자에게 문의하세요.")
                 client_ip = self.login_client_ip()
                 global_retry = global_login_retry_after()
                 if global_retry:
@@ -3944,16 +3846,6 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except (ValueError, json.JSONDecodeError) as exc:
                 return self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
-        if path == "/api/dsm/launcher-config":
-            if not validate_dsm_launcher_handoff(self.authorization_token(), consume=False):
-                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "DSM 아이콘 연결이 올바르지 않습니다."})
-            return self.send_json(HTTPStatus.OK, {"launcher_port": LAUNCHER_PORT})
-        if path == "/api/launcher/session":
-            username = consume_dsm_launcher_handoff(self.authorization_token())
-            if not username:
-                return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "DSM 아이콘 연결이 만료되었습니다. 아이콘을 다시 열어 주세요."})
-            token = create_session(username)
-            return self.send_json(HTTPStatus.OK, {"token": token})
         if not self.authorized():
             return self.send_json(HTTPStatus.UNAUTHORIZED, {"error": "로그인이 필요합니다."})
         if path not in {"/api/logout", "/api/account"} and not self.require_completed_password_change():
@@ -3970,7 +3862,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("현재 비밀번호가 올바르지 않습니다.")
                 username = replace_credentials(payload.get("username"), payload.get("password"))
                 result = {"ok": True, "username": username, "password_change_required": False}
-                if auth_kind in {"session", "launcher"}:
+                if auth_kind == "session":
                     result["token"] = create_session(username)
                 return self.send_json(HTTPStatus.OK, result)
             if path == "/api/inspect":
@@ -4087,6 +3979,9 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     configure_logging()
+    if bool_setting("NAS_PORTAL_BOOTSTRAP_ACCOUNT", False):
+        create_docker_bootstrap_credentials()
+        enforce_docker_default_password_change()
     refresh_launcher_safely()
     LOGGER.info("NAS Download Portal listening on http://%s:%s", LISTEN_HOST, LISTEN_PORT)
     server = ThreadingHTTPServer((LISTEN_HOST, LISTEN_PORT), Handler)
