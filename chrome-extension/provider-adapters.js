@@ -18,6 +18,7 @@ globalThis.NASDropProviders = (() => {
     if (['akirabox.to', 'akirabox.com'].includes(u.hostname)) return 'akirabox';
     if (['vik1ngfile.site', 'vikingfile.com'].includes(u.hostname)) return 'vikingfile';
     if (['send.now', 'www.send.now'].includes(u.hostname)) return 'sendnow';
+    if (u.hostname === 'x-share.net') return 'xshare';
     return '';
   }
   function share(value) {
@@ -27,6 +28,7 @@ globalThis.NASDropProviders = (() => {
     if (type === 'akirabox') return new RegExp(`^/${id}/file/?$`).test(u.pathname) ? u.origin + u.pathname.replace(/\/$/, '') : '';
     if (type === 'vikingfile') return new RegExp(`^/f/${id}/?$`).test(u.pathname) ? u.origin + u.pathname.replace(/\/$/, '') : '';
     if (type === 'sendnow') return new RegExp(`^/(?:d/)?${id}/?$`).test(u.pathname) && !u.search && !u.hash ? u.origin + u.pathname.replace(/\/$/, '') : '';
+    if (type === 'xshare') return new RegExp(`^/s/${id}/?$`).test(u.pathname) && !u.search && !u.hash ? u.origin + u.pathname.replace(/\/$/, '') : '';
     const prefix = type === 'gofile' ? '/d/' : type === 'pixeldrain' ? '/u/' : '/';
     return new RegExp(`^${prefix}${id}/?$`).test(u.pathname) ? u.origin + u.pathname.replace(/\/$/, '') : '';
   }
@@ -54,6 +56,9 @@ globalThis.NASDropProviders = (() => {
         && current.pathname === '/' && !current.search && !current.hash) {
         return {handoff:'sendnow', captureDownload:true, source};
       }
+    }
+    if (type === 'xshare' && element.matches('button#dl-btn.btn.btn-primary')) {
+      return {handoff:'xshare', captureXShare:true, source};
     }
     if (type === 'akirabox' || type === 'vikingfile' || type === 'sendnow') {
       const result = classifyHandoff(element, page, source);
@@ -107,7 +112,7 @@ globalThis.NASDropProviders = (() => {
   function allowedSubmission(page, value) {
     const type = provider(page);
     if (!share(page)) return false;
-    if (type === 'akirabox' || type === 'vikingfile' || type === 'sendnow') return validHandoffURL(value, type, page);
+    if (type === 'akirabox' || type === 'vikingfile' || type === 'sendnow' || type === 'xshare') return validHandoffURL(value, type, page);
     if (type === 'buzzheavier') return signedBuzz(value, page);
     return Boolean(share(value) && provider(value) === type && (type !== 'gigafile' || new URL(value).origin === new URL(page).origin));
   }
@@ -124,6 +129,17 @@ globalThis.NASDropProviders = (() => {
         || u.hostname.endsWith('.local') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(u.hostname)
         || u.hostname.includes(':')) return null;
       if (['send.now','www.send.now'].includes(u.hostname) && !u.search && new RegExp(`^/(?:d/)?${id}/?$`).test(u.pathname)) return null;
+      return u;
+    }
+    if (type === 'xshare') {
+      const source = parse(share(page));
+      if (!source || u.origin !== source.origin || u.hash) return null;
+      const shareId = source.pathname.split('/').filter(Boolean)[1] || '';
+      if (!shareId || u.pathname !== `/api/download/${shareId}`) return null;
+      const keys = [...u.searchParams.keys()];
+      const key = u.searchParams.get('key') || '';
+      if (keys.length !== 1 || keys[0] !== 'key' || u.searchParams.getAll('key').length !== 1
+        || key.length > 2048 || !/^[A-Za-z0-9._~-]+$/.test(key)) return null;
       return u;
     }
     const parts = u.pathname.split('/');

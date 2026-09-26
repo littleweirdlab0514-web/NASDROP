@@ -176,7 +176,7 @@ async function submitUrl(rawUrl, notify = false, handoffPage = '', options = {})
     return {file,...started};
   }
   const handoffProvider = handoffPage ? NASDropProviders.provider(handoffPage) : '';
-  const inspectBody = ['akirabox','vikingfile','sendnow'].includes(handoffProvider)
+  const inspectBody = ['akirabox','vikingfile','sendnow','xshare'].includes(handoffProvider)
     ? {url:NASDropProviders.share(handoffPage), resolved_url:source.href, provider:handoffProvider}
     : {url:source.href};
   const inspected = await api('/api/inspect', {
@@ -285,6 +285,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         await chrome.storage.session.set({sendNowArm:{tabId:sender.tab.id,source,expiresAt:Date.now()+SENDNOW_ARM_MS}});
         return {armed:true,language:readiness.language};
       });
+    } else if (message?.type === 'pageArmXShare') {
+      const source=NASDropProviders.share(message.source);
+      if (!source || source !== NASDropProviders.share(page) || NASDropProviders.provider(source) !== 'xshare') return false;
+      operation = pageReadiness(source).then(readiness => {
+        if (!readiness.ready) throw Object.assign(new Error('Sign in to NASDrop first.'), {code:'login'});
+        if (readiness.handoffSupported === false) throw Object.assign(new Error('This NASDrop server does not support browser handoff for this site yet.'), {code:'serverUnsupported'});
+        return {armed:true,language:readiness.language};
+      });
     } else if (!NASDropProviders.share(page)) return false;
     else if (message?.type === 'pageReady') {
       operation = pageReadiness(page);
@@ -371,7 +379,7 @@ async function pageReadiness(page) {
   const ready = Boolean(saved.baseUrl && saved.token);
   const language=NASDropI18n.resolve(saved.language,chrome.i18n.getUILanguage());
   const provider = NASDropProviders.provider(page);
-  if (!ready || !['akirabox','vikingfile','sendnow','gigafile'].includes(provider)) return {ready,language};
+  if (!ready || !['akirabox','vikingfile','sendnow','xshare','gigafile'].includes(provider)) return {ready,language};
   const status = await api('/api/status');
   if (provider === 'gigafile') return {ready:true,language,gigafileDownloadKeySupported:status.gigafile_download_key === true};
   return {ready:true, language,handoffSupported:Array.isArray(status.browser_handoff_providers) && status.browser_handoff_providers.includes(provider)};

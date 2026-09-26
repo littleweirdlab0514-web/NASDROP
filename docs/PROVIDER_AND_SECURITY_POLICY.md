@@ -1,6 +1,6 @@
 # NASDrop provider behavior and security policy
 
-Last updated: 2026-09-23
+Last updated: 2026-09-26
 Applies to: NASDrop Server 0.9.26-6 credential-bootstrap test build
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
@@ -29,6 +29,7 @@ Provider websites are external systems and may change without notice. “Support
 | AkiraBox | Official share plus the prepared signed file URL | Chrome browser handoff only | Forced single connection; bounded transient resume retries | Complete any site interaction yourself, prepare a fresh official button, then submit again |
 | VikingFile | Official share plus its prepared file URL | Chrome browser handoff only | Forced single connection; strict redirect/account allowlist and Range validation | Use a fresh official button/link; do not broaden the host allowlist to make one sample pass |
 | Send.now | Official share plus the final browser-created download URL | Chrome user-assisted handoff only | Forced single connection; DNS validation and IP pinning | Complete verification and Continue yourself, then click the final `Download [size]` button again |
+| X-Share | Official `https://x-share.net/s/<id>` share plus its one-time same-ID URL | Chrome user-assisted handoff only; matching `xshare` capability required | Candidate: one full GET without preflight or automatic retry | Complete Turnstile and the provider wait yourself, then click the enabled official Download button again |
 
 ## GigaFile
 
@@ -138,9 +139,26 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 - Connect inspection directly to a validated address while retaining the original hostname for TLS SNI. Disable ambient proxies for this check. Revalidate immediately before transfer and pin curl with `resolve` so the hostname cannot be rebound to an internal address.
 - Use one connection. On interruption, keep verified partial data and ask the user to generate a fresh final link if the issued URL has expired.
 
+## X-Share
+
+### Characteristics
+
+- The user completes Turnstile and the provider's five-second wait. Only then does the page enable `button#dl-btn.btn.btn-primary`.
+- The official click posts to `/api/download-token` and then programmatically clicks a hidden same-origin `/api/download/<id>?key=<opaque>` anchor. Starting and cancelling a Chrome download may consume the one-time key, so the Chrome companion suppresses only that exact armed anchor before its network request begins.
+- The public `/api/file/<id>` endpoint supplies `id`, `name`, `size` and expiry metadata without using the issued key. The inspected page uses `Referrer-Policy: no-referrer`; its initial page and public metadata responses did not set cookies in the observed session.
+
+### Required response
+
+- Never read, solve or forward Turnstile tokens, copy browser cookies, click advertisements, or automate the five-second wait or official button.
+- Require an authenticated NASDrop session and explicit `xshare` capability. A missing or malformed capability leaves the provider's native browser download untouched.
+- Accept only HTTPS/default-port `x-share.net`, exact `/s/<id>` and same-ID `/api/download/<id>?key=<opaque>` forms, one non-empty bounded key, no credentials, fragment or extra query fields.
+- Keep the issued key out of logs, public jobs, API responses and extension storage. Obtain inspection metadata from the public file endpoint so HEAD, Range or other probes cannot consume the key.
+- Until live evidence establishes otherwise, use one full GET with no automatic retry or resume. Validate the real response filename and final size before publication. Reject unobserved redirects rather than broadening the allowlist. After failure, pause or interruption, require a new official click and key.
+- IP binding, redirect behavior, Range support and a complete NAS transfer remain live-test gates. Automated DOM/API tests alone are not provider verification.
+
 ## Unsupported and deferred services
 
-- X-Share, UsersDrive, Nitroflare, Viking lookalikes, arbitrary direct URLs, and other hosts not listed above are not accepted by the current server.
+- UsersDrive, Nitroflare, Viking lookalikes, arbitrary direct URLs, and other hosts not listed above are not accepted by the current server.
 - A service that requires browser execution, CAPTCHA, account cookies, advertisement navigation, or a short-lived issued URL is not made “generic” by relaxing validation. It needs a provider-specific, user-initiated adapter and server-side validation contract.
 - CAPTCHA automation, challenge bypass, copied browser cookies, and unrestricted remote-browser control are outside the supported design.
 - A new provider must define its canonical share form, official user action, final host/redirect rules, expiration evidence, size/name/range validation, concurrency policy, safe error behavior, and live test gate before capability advertisement.

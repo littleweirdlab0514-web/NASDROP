@@ -11,6 +11,10 @@ test('Chrome extension is a least-privilege Manifest V3 package', async () => {
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   assert.ok(!manifest.permissions.includes('<all_urls>'));
   assert.ok(!manifest.permissions.includes('tabs'));
+  const mainWorld=manifest.content_scripts.find(script=>script.world==='MAIN');
+  assert.deepEqual(mainWorld.matches,['https://x-share.net/s/*']);
+  assert.deepEqual(mainWorld.js,['xshare-main.js']);
+  assert.equal(mainWorld.run_at,'document_start');
 });
 
 test('Chrome extension does not persist passwords', async () => {

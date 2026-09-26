@@ -9,7 +9,7 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 | Synology package | 0.9.26-6 credential-bootstrap test build | Canonical server; DSM icon opens the ordinary NASDrop login; fresh installs require replacement of both temporary credentials |
 | Docker image | 0.9.26-6 pending | Same credential API and web UI; build and smoke-test after the Synology flow passes |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
-| Chrome extension | 0.5.5 | Adds protected GigaFile key handoff and user-assisted Send.now handoff; keeps strict deletion behavior |
+| Chrome extension | 0.5.7 candidate | Adds capability-gated X-Share official-button handoff; missing `xshare` capability leaves native download behavior unchanged |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
@@ -36,6 +36,7 @@ Current coordinated capabilities include:
 - `job_safe_delete`: permits `POST /api/jobs/delete` with `stop_active: true`; legacy deletion remains strict.
 - `job_processing_options`: permits per-job extraction and password updates.
 - `browser_handoff_providers`: lists the exact browser-assisted providers accepted by the server.
+- `browser_handoff_providers: ["xshare", ...]`: permits Chrome 0.5.7 to send a canonical X-Share share URL plus its exact same-ID one-time download URL. This candidate contract must not be advertised in a public release until the real Synology transfer succeeds.
 - `gigafile_download_key`: permits a client to submit a GigaFile download key when creating a job and to resume a paused `download_key_required` job through the dedicated key endpoint.
 
 Provider changes shared by the server and Chrome must pass both regression suites and a real provider flow before Docker is synchronized and smoke-tested from the same canonical source. Docker must not add a provider-specific implementation of its own.

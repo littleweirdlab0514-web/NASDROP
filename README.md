@@ -28,7 +28,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.5 ZIP is compatible with the NASDrop Server 0.9.26-6 credential-bootstrap test build.**
+- **Chrome extension 0.5.7 is an X-Share-capable candidate and requires a NASDrop Server that advertises the matching `xshare` browser-handoff capability.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
@@ -329,7 +329,7 @@ After an update, open **Settings** and select the default download folder again.
 
 ## Chrome extension
 
-The optional Manifest V3 extension in `chrome-extension/` automatically connects recognized download controls on supported provider pages to NASDrop. Sign in once, then click the site's download button. Buzzheavier's **Download File** and **Copy download link** controls both resolve the signed link and send it to NASDrop. On Send.now, finish verification and Continue normally, then click the actual **Download [size]** button on the next page; only that later button arms the same-tab Chrome-download handoff. Reload provider pages after installing or updating the extension. The popup and context menu remain available as secondary entry points.
+The optional Manifest V3 extension in `chrome-extension/` automatically connects recognized download controls on supported provider pages to NASDrop. Sign in once, then click the site's download button. Buzzheavier's **Download File** and **Copy download link** controls both resolve the signed link and send it to NASDrop. On Send.now, finish verification and Continue normally, then click the actual **Download [size]** button on the next page. On X-Share, complete Turnstile and the provider wait normally; the extension handles only the later enabled official Download click and captures its exact one-time same-file address before a local transfer starts. Reload provider pages after installing or updating the extension. The popup and context menu remain available as secondary entry points.
 
 For local installation, open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select the `chrome-extension` directory. Chrome requests access to supported provider sites for button detection and to the configured NASDrop host for API calls. The extension saves the session token but never the password. See [`chrome-extension/README.md`](chrome-extension/README.md) for behavior and verification limits.
 
@@ -509,7 +509,7 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 
 ## Supported links and rate-limit protection
 
-NASDrop currently supports standard GigaFile links, GoFile share links, Pixeldrain file-share links, and Buzzheavier signed direct links copied from the provider page. The Chrome companion additionally supports user-assisted AkiraBox, VikingFile, and Send.now handoff when the server advertises the matching capability. For Pixeldrain, NASDrop compares the SHA-256 value reported by the public API with the final downloaded file hash. Provider-specific input, concurrency, expiry, retry, and security rules are maintained in the [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md).
+NASDrop currently supports standard GigaFile links, GoFile share links, Pixeldrain file-share links, and Buzzheavier signed direct links copied from the provider page. The Chrome companion additionally supports user-assisted AkiraBox, VikingFile, Send.now and X-Share handoff when the server advertises the matching capability. For Pixeldrain, NASDrop compares the SHA-256 value reported by the public API with the final downloaded file hash. Provider-specific input, concurrency, expiry, retry, and security rules are maintained in the [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md).
 
 ### Send.now browser-assisted downloads
 
