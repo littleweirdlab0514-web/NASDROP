@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
-Last updated: 2026-09-23
-Applies to: NASDrop Server 0.9.26-6 credential-bootstrap test build
+Last updated: 2026-09-26
+Applies to: NASDrop Server 0.9.27-6 candidate; Docker stable remains 0.9.26-6
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -12,7 +12,7 @@ Provider websites are external systems and may change without notice. “Support
 - NASDrop accepts only the provider URL shapes listed below. It is not a generic arbitrary-URL downloader.
 - Every job is written under the hidden `.nasdrop-tmp/<job-id>` workspace. Only a verified completed file or successfully extracted result is published to the selected destination.
 - The final response filename is preferred in this order: RFC 5987 `Content-Disposition: filename*`, ordinary `filename`, then inspected API/page metadata. Names are sanitized for traversal, control characters, separators, reserved names, excessive UTF-8 byte length, and destination collisions.
-- The normal segmented mode uses up to eight byte ranges, except where a provider-specific limit below overrides it. Single-connection mode remains resumable and still receives final size, integrity, and archive checks.
+- The normal segmented mode uses up to eight byte ranges, except where a provider-specific limit below overrides it. Single-connection mode normally remains resumable; 1fichier free transfers and the initial X-Share keyed transfer are explicit no-resume exceptions. Final size, integrity, and archive checks still apply.
 - At most three jobs run globally. Same-provider work defaults to one job at a time. The optional same-provider setting permits the configured limit, normally two; provider-specific connection and cooldown rules still take precedence.
 - Files discovered from one folder or multi-file share become separate jobs. Their start times are staggered by 20 seconds so bulk registration does not immediately burst every request.
 - ZIP, AES ZIP, 7z, RAR, and TAR-family archives may be extracted in the private workspace. EGG is downloaded unchanged and is not extracted. Passwords are stored separately from public job state and supplied to 7-Zip through standard input, not the command line.
@@ -26,9 +26,27 @@ Provider websites are external systems and may change without notice. “Support
 | GoFile | Official `https://gofile.io/d/<id>` share | Server API/page inspection | Maximum two connections per file; persistent provider-wide cooldown on 429/network bursts | Do not force retries; wait for the displayed cooldown and reduce same-provider concurrency |
 | Pixeldrain | Official `/u/<id>` share on recognized Pixeldrain domains | Server metadata API | User-selected single/segmented mode; provider SHA-256 is verified | Retry only after checking availability; a hash mismatch is an integrity failure |
 | Buzzheavier | Signed `https://<delivery>.buzzheavier.com/d/<id>?v=<token>` from **Copy download link** | Direct paste or Chrome’s official Download/Copy control | User-selected single/segmented mode; Range support is mandatory | Generate a fresh signed link when it expires or returns 401/403/404 |
+| 1fichier | Official `https://1fichier.com/?<id>` share | Server metadata check; optional file password entered when adding the job | Respect the site's wait, guest-slot, and daily free-use limits; one job and one connection; free downloads restart from zero | Provider limits are deferred automatically; if a challenge appears, complete it on the provider site |
 | AkiraBox | Official share plus the prepared signed file URL | Chrome browser handoff only | Forced single connection; bounded transient resume retries | Complete any site interaction yourself, prepare a fresh official button, then submit again |
 | VikingFile | Official share plus its prepared file URL | Chrome browser handoff only | Forced single connection; strict redirect/account allowlist and Range validation | Use a fresh official button/link; do not broaden the host allowlist to make one sample pass |
 | Send.now | Official share plus the final browser-created download URL | Chrome user-assisted handoff only | Forced single connection; DNS validation and IP pinning | Complete verification and Continue yourself, then click the final `Download [size]` button again |
+| X-Share (candidate) | Official `https://x-share.net/s/<id>` plus its same-file `/api/download/<id>?key=...` URL | Chrome user-assisted handoff only | One full GET; no keyed preflight, ranges, replay, or automatic retries; DNS/IP pinning | Complete verification yourself and use a fresh official Download click; real NAS transfer is pending |
+
+## 1fichier
+
+- Revision 0.9.27-3 corrects a live false positive: the pricing-table label `Ads / Captcha` is not a challenge. Detect concrete challenge controls rather than any occurrence of the word; real challenge widgets remain user-assisted and are never bypassed.
+- Revision 0.9.27-4 renders the persisted `not_before` deadline as a local second-by-second countdown. The browser does not poll 1fichier to update the display; provider requests still occur only when the saved deadline expires.
+- Revision 0.9.27-5 makes the job shown at the bottom of the web list the exclusive 1fichier retry owner. Other 1fichier jobs remain queued until that job completes, fails, or is paused.
+- Revision 0.9.27-6 recognizes 1fichier's daily free-download-limit page as a persisted 24-hour provider wait. The page supplies no reset time, so NASDrop avoids repeated probes and keeps the remaining jobs in the sequential queue.
+- The Docker account bootstrap imports credential helpers with the download dispatcher disabled. This prevents the pre-server account check from claiming a due queue head and leaving it paused when the real server starts.
+- The controller is constructed only after provider classification is defined, so an already-due persisted retry cannot outrun module initialization and terminate the dispatcher thread during service startup.
+- Provider wait messages schedule a persisted `not_before` deadline instead of failing or occupying a transfer slot. Respect stated English/French minute limits with a five-second margin; guest-slot exhaustion schedules a five-minute recheck; the daily free-use page schedules one 24-hour recheck because it gives no reset time. 1fichier owns one queue head at a time: the job shown at the bottom of the web list keeps retry ownership until it completes, fails, or is paused, and only then may the next job start. Following jobs show a sequential-queue message instead of copying the active job's countdown. A renewed limit reschedules only the queue head; no proxy rotation, login-cookie copying, or CAPTCHA bypass is used.
+
+- The web form accepts a 1fichier share URL and an optional **file password**. This password is separate from an archive extraction password, remains in a restricted per-job secret file, and is never sent in a URL or public job response.
+- Inspection uses one provider metadata request. Transfer resolution follows the displayed wait timer and provider response. Do not use rotating proxies, CAPTCHA solvers, or repeated rapid retries to work around provider restrictions.
+- Free guest slots can be unavailable. In that case the job reports the provider restriction and does not hammer the site. The user can resume later or use the provider site normally.
+- Free transfers use one connection and do not assume byte-range resume. If a transfer is interrupted or the provider returns the job to a timed wait, its incomplete temporary data and displayed progress are discarded immediately; the next attempt starts from zero. Final file size and SHA-256 are checked before publishing.
+- Two real free transfers completed on the NAS on 2026-09-26 (28.9 MB and 86.8 MB, including archive extraction). The next two jobs then reached 1fichier's daily free-download limit and were used to verify the 0.9.27-6 deferred-retry classification. User-supplied passwords are intentionally not recorded in this public document.
 
 ## GigaFile
 
@@ -140,10 +158,20 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 
 ## Unsupported and deferred services
 
-- X-Share, UsersDrive, Nitroflare, Viking lookalikes, arbitrary direct URLs, and other hosts not listed above are not accepted by the current server.
+- UsersDrive, Nitroflare, Viking lookalikes, arbitrary direct URLs, and other hosts not listed above are not accepted by the current server.
 - A service that requires browser execution, CAPTCHA, account cookies, advertisement navigation, or a short-lived issued URL is not made “generic” by relaxing validation. It needs a provider-specific, user-initiated adapter and server-side validation contract.
 - CAPTCHA automation, challenge bypass, copied browser cookies, and unrestricted remote-browser control are outside the supported design.
 - A new provider must define its canonical share form, official user action, final host/redirect rules, expiration evidence, size/name/range validation, concurrency policy, safe error behavior, and live test gate before capability advertisement.
+
+## X-Share candidate
+
+- The official page enables `button#dl-btn` only after Turnstile and the site's wait have completed. A real user click asks `/api/download-token` for an opaque key and triggers a hidden download anchor at `/api/download/<same-id>?key=<key>`.
+- The Chrome companion must capture only that same-file anchor after an armed official user click, before the local GET starts. It must leave unsupported, signed-out, unarmed, advertisement, and unrelated downloads untouched. CAPTCHA, advertisements, browser cookies, and challenge tokens are not handed to the NAS.
+- The authenticated server contract is the existing inspect/start flow with `provider: "xshare"`, a canonical share `url`, and a private `resolved_url`. Clients require `xshare` in `/api/status.browser_handoff_providers`; older clients/servers keep their normal fallback.
+- Inspection requests only the fixed public `/api/file/<id>` metadata endpoint. It does not HEAD or Range-probe the keyed URL, because a one-use key could be consumed before the actual transfer. Only the matching ID, filename, positive bounded size, and expiry are retained; unrelated metadata such as `archivePassword` is ignored.
+- The first candidate sends one full GET to the exact HTTPS/default-port `x-share.net/api/download/<same-id>` endpoint, without browser cookies, Referer, Range, or automatic retries. Ambient proxies are disabled and a freshly validated public IP is pinned. Redirects are disabled; unrelated CDN hosts are not guessed or made generic.
+- Final HTTP status, non-error file response, byte size, response filename, SHA-256 calculation, and normal archive checks are required before publication. The issued key stays in restricted secret state and is removed after an attempted transfer. A pause/interruption needs a fresh official browser click and a new registration, not replay of the old key.
+- The public sample metadata and official page code were observed on 2026-09-26. The key's reuse/IP-binding behavior and the real browser-to-NAS GET have **not** been verified. This is an installation-test candidate, not confirmed production support. Any observed official redirect or resume behavior needs separate evidence and tests before changing these rules.
 
 ## Security policy introduced in 0.9.26
 
@@ -197,5 +225,5 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 2. Do not loosen a provider rule merely because one sample fails. Capture the official flow, add a narrow rule, and retain hostile/lookalike tests.
 3. Update this document whenever a provider contract or security boundary changes.
 4. Run provider unit tests, transfer reliability tests, authentication tests, JavaScript/Chrome contract tests, and SPK packaging inspection.
-5. Build a versioned SPK and have the user complete the real Synology flow. Only after success should Docker be synchronized and smoke-tested from the same canonical source.
+5. Following the user's 2026-09-26 decision, implement shared changes and verify the real flow in the private Docker test deployment first. Then build a versioned SPK from the same canonical source and have the user verify DSM-specific behavior. Preserve accounts, jobs, and storage; keep public release/promotion gates separate from private test deployment.
 6. Never claim a provider flow is verified solely from mocked DOM/API tests; record the exact real-NAS test separately.

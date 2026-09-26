@@ -1,5 +1,7 @@
 # NASDrop
 
+Maintained by [LittleWeirdLab](https://github.com/littleweirdlab0514-web).
+
 ## Android closed-test volunteers wanted
 
 Already using NASDrop? LittleWeirdLab is recruiting existing NASDrop users to help test the **NASDrop Android companion app** before its public Google Play release.
@@ -20,7 +22,11 @@ Already using NASDrop? LittleWeirdLab is recruiting existing NASDrop users to he
 > [!TIP]
 > **DSM 7.1 support is now available.** NASDrop has been verified on real DSM 7.1 and DSM 7.2 hardware. The current SPK supports Intel/AMD 64-bit (`x86_64`) Synology NAS models running DSM 7.1 or later.
 
-NASDrop is a self-hosted personal download portal for Synology DSM and Docker hosts. Paste a supported GigaFile, GoFile, Pixeldrain, or Buzzheavier signed direct link, or use the Chrome companion for browser-assisted providers, and the storage server downloads the file directly.
+NASDrop is a self-hosted personal download portal for Synology DSM and Docker hosts. Paste a supported GigaFile, GoFile, Pixeldrain, 1fichier, or Buzzheavier signed direct link, or use the Chrome companion for browser-assisted providers, and the storage server downloads the file directly.
+
+1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot limits, run one connection at a time, and restart from zero after interruption. Guest slots were full during development, so an end-to-end NAS transfer still needs a user test. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
+
+**0.9.27-2 Synology candidate:** 1fichier inspection/file-password entry and coordinated X-Share Chrome handoff are available for installation testing. X-Share requires the compatible Chrome candidate and a real user-completed verification/Download click; pasting its share URL alone is not supported. The issued key is used only for one full file request, not preflight probes or automatic retries. Real NAS transfer validation is pending. The current stable Docker image remains 0.9.26-6 until the real Synology flow and Docker parity are verified.
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
 
@@ -342,7 +348,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.26-6-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.27-6-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 
@@ -511,6 +517,12 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 ## Supported links and rate-limit protection
 
 NASDrop currently supports standard GigaFile links, GoFile share links, Pixeldrain file-share links, and Buzzheavier signed direct links copied from the provider page. The Chrome companion additionally supports user-assisted AkiraBox, VikingFile, and Send.now handoff when the server advertises the matching capability. For Pixeldrain, NASDrop compares the SHA-256 value reported by the public API with the final downloaded file hash. Provider-specific input, concurrency, expiry, retry, and security rules are maintained in the [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md).
+
+### X-Share browser-assisted downloads (candidate)
+
+Install the coordinated X-Share Chrome candidate and NASDrop 0.9.27-2 SPK, sign in to your NASDrop server, then open the official `https://x-share.net/s/<id>` share. Complete security verification yourself and click the official **Download** button. The extension passes the resulting same-file keyed address to your NAS before a local copy starts. Unsupported or signed-out companion installations keep the website's ordinary download behavior.
+
+The first candidate does not assume that an issued key can be reused: it uses one full GET without segmentation, keyed HEAD/Range probes, resume, or automatic retries. A pause or failure requires a fresh official Download click and a new registration. The key never appears in public job data or errors. Public metadata has been checked, but the actual browser-to-NAS transfer and any key/IP restrictions still need a real installation test; do not treat this candidate as confirmed production support.
 
 ### Send.now browser-assisted downloads
 

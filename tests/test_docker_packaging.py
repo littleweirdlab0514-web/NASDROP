@@ -21,10 +21,8 @@ class DockerPackagingTests(unittest.TestCase):
         backend = (ROOT / "backend.py").read_text(encoding="utf-8")
         self.assertIn(f"ARG NASDROP_VERSION={server_version}", dockerfile)
         self.assertIn(f'NASDROP_VERSION: "{server_version}"', compose)
-        self.assertIn(
-            f"image: ghcr.io/littleweirdlab0514-web/nasdrop:{package_version}",
-            release_compose,
-        )
+        # Synology candidates may advance before a user-verified Docker promotion.
+        self.assertRegex(release_compose, r"image: ghcr\.io/littleweirdlab0514-web/nasdrop:\d+\.\d+\.\d+-\d+")
         self.assertIn(
             f'PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "{server_version}")',
             backend,
@@ -83,17 +81,15 @@ class DockerPackagingTests(unittest.TestCase):
 
     def test_release_compose_and_install_guides_are_runnable(self):
         info = (ROOT / "synology" / "package" / "INFO").read_text(encoding="utf-8")
-        package_version = re.search(
-            r'^version="(\d+\.\d+\.\d+-\d+)"$', info, re.MULTILINE
-        ).group(1)
         release_compose = (ROOT / "docker" / "compose.release.yaml").read_text(encoding="utf-8")
+        stable_version = re.search(r"ghcr\.io/littleweirdlab0514-web/nasdrop:(\d+\.\d+\.\d+-\d+)", release_compose).group(1)
         env_example = (ROOT / "docker" / "compose.env.example").read_text(encoding="utf-8")
         english = (ROOT / "docs" / "DOCKER_INSTALL.md").read_text(encoding="utf-8")
         korean = (ROOT / "docs" / "DOCKER_INSTALL.ko.md").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
         self.assertIn(
-            f"ghcr.io/littleweirdlab0514-web/nasdrop:{package_version}",
+            f"ghcr.io/littleweirdlab0514-web/nasdrop:{stable_version}",
             release_compose,
         )
         self.assertNotIn("build:", release_compose)
@@ -103,7 +99,7 @@ class DockerPackagingTests(unittest.TestCase):
         for guide in (english, korean):
             self.assertIn("compose.release.yaml", guide)
             self.assertIn(
-                f"docker save -o nasdrop-{package_version}-amd64.tar", guide
+                f"docker save -o nasdrop-{stable_version}-amd64.tar", guide
             )
             self.assertIn('gosu "$PUID:$PGID"', guide)
             self.assertNotIn("NASDrop-0.9.23-amd64.tar", guide)

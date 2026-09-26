@@ -1,4 +1,38 @@
-# NASDrop 0.9.26 릴리스 체크리스트
+# NASDrop 0.9.27 릴리스 체크리스트
+
+## 0.9.27-6 1fichier daily-limit retry candidate
+
+- [x] Classify the real form-less daily free-download-limit page as a provider wait.
+- [x] Persist one 24-hour retry deadline without polling the provider.
+- [x] Keep later 1fichier jobs behind the same bottom-first queue owner.
+- [x] Prevent Docker account bootstrap from starting a temporary download dispatcher.
+- [x] Confirm two real NAS transfers completed before the provider applied its daily limit.
+- [ ] Recheck the deferred owner after the daily limit resets.
+
+## 0.9.27-5 1fichier sequential retry candidate
+
+- [x] Keep the bottom visible 1fichier job as the sole retry owner.
+- [x] Show following jobs as sequentially queued instead of copying the active countdown.
+- [x] Add scheduler and public-job regression coverage.
+- [x] Verify the preserved four-job queue on PC Docker and the 192.168.1.203 test NAS.
+- [x] Verify an already-due persisted queue starts without racing provider initialization.
+
+## 0.9.27-2 X-Share Synology/Chrome candidate
+
+- [x] Observe the official user-click/token/hidden-anchor flow and public metadata response.
+- [x] Add authenticated same-file keyed handoff, public metadata-only inspection, private key state, pinned one-GET transfer, secret-free errors, and final response validation.
+- [ ] Full server/transfer and Chrome regression suites pass; package a versioned SPK and Chrome ZIP.
+- [ ] User installs both candidates and completes a real X-Share browser-to-NAS download; confirm redirect, IP/key restrictions, response filename, final size, and extraction.
+- [ ] Only after real success, hand canonical changes to Docker and verify amd64/arm64 parity before promotion.
+
+## 0.9.27-1 1fichier Synology candidate
+
+- [x] Both supplied share links return a name and size through the provider metadata check.
+- [x] A separate optional file-password field is stored outside public job state.
+- [x] Wait and guest-slot restrictions are respected; free transfers use one job/connection and restart from zero after interruption.
+- [x] Python and JavaScript regression suites and SPK packaging checks pass.
+- [ ] Install the SPK on DSM and complete one ordinary and one password-protected 1fichier transfer when guest slots are available. Confirm the final filename and SHA-256 publication.
+- [ ] After real Synology success, have the Docker maintainer verify canonical-source parity and run amd64/arm64 smoke tests before image promotion.
 
 ## 0.9.26 security hardening
 

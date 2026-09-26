@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#17201e">
   <title>NASDrop</title>
-  <link rel="icon" type="image/png" href="/nasdrop-icon.png?v=0.9.26">
-  <link rel="stylesheet" href="/style.css?v=0.9.26">
-  <link rel="stylesheet" href="/folder.css?v=0.9.26">
+  <link rel="icon" type="image/png" href="/nasdrop-icon.png?v=0.9.27">
+  <link rel="stylesheet" href="/style.css?v=0.9.27">
+  <link rel="stylesheet" href="/folder.css?v=0.9.27">
 </head>
 <body>
   <main id="login" class="login-shell">
@@ -31,7 +31,7 @@
 
   <main id="app" class="shell hidden">
     <header class="topbar">
-      <div class="brand"><span class="mark small"><img src="/nasdrop-icon.png?v=0.9.26" alt=""></span><div><strong>NASDrop</strong></div></div>
+      <div class="brand"><span class="mark small"><img src="/nasdrop-icon.png?v=0.9.27" alt=""></span><div><strong>NASDrop</strong></div></div>
       <nav><button data-view="dashboard" class="nav active" data-i18n="dashboard">Dashboard</button><button data-view="settings" class="nav" data-i18n="settings">Settings</button></nav>
       <label class="language-setting compact"><span data-i18n="language">Language</span><select data-language-select><option value="en">English</option><option value="ko">한국어</option><option value="ja">日本語</option><option value="zh">简体中文</option></select></label>
       <button id="logout-button" class="ghost" type="button" data-i18n="logout">Sign out</button>
@@ -43,9 +43,9 @@
       <section class="page-heading"><h1 data-i18n="downloads">Downloads</h1></section>
       <section class="card">
         <form id="download-form" class="url-form">
-          <label for="download-url" data-i18n="linkLabel">Supported services: GigaFile · GoFile · Pixeldrain · Buzzheavier</label>
+          <label for="download-url" data-i18n="linkLabel">Supported services: GigaFile · GoFile · Pixeldrain · Buzzheavier · 1fichier</label>
           <div class="input-row"><input id="download-url" type="url" required placeholder="https://pixeldrain.com/u/..."><button id="start-button" data-i18n="downloadNow">Download to NAS</button></div>
-          <div class="download-options"><label class="password-setting source-key-setting"><span data-i18n="gigafileDownloadKeyOptional">GigaFile download key (optional)</span><input id="gigafile-download-key" type="password" autocomplete="off" maxlength="4" inputmode="text"></label><label class="toggle-setting"><input id="extract-download" type="checkbox"><span data-i18n="extractThisJob">Extract after download</span></label><label id="archive-password-wrap" class="password-setting hidden"><span data-i18n="archivePasswordOptional">Archive password (optional)</span><input id="archive-password" type="password" autocomplete="new-password" maxlength="256"></label></div>
+          <div class="download-options"><label class="password-setting source-key-setting"><span data-i18n="gigafileDownloadKeyOptional">GigaFile download key (optional)</span><input id="gigafile-download-key" type="password" autocomplete="off" maxlength="4" inputmode="text"></label><label id="onefichier-password-wrap" class="password-setting hidden"><span data-i18n="oneFichierPasswordOptional">1fichier file password (optional)</span><input id="onefichier-password" type="password" autocomplete="off" maxlength="256"></label><label class="toggle-setting"><input id="extract-download" type="checkbox"><span data-i18n="extractThisJob">Extract after download</span></label><label id="archive-password-wrap" class="password-setting hidden"><span data-i18n="archivePasswordOptional">Archive password (optional)</span><input id="archive-password" type="password" autocomplete="new-password" maxlength="256"></label></div>
         </form>
         <div class="destination"><span data-i18n="destination">Destination</span><strong id="destination" data-i18n="checking">Checking…</strong><em id="write-state" data-i18n="checkingShort">Checking</em><button id="choose-folder" type="button" class="folder-button" data-i18n="chooseFolder">Choose folder</button></div>
         <p id="gofile-cooldown" class="notice hidden"></p>
@@ -108,7 +108,7 @@
       <div class="modal-actions"><button id="folder-cancel" class="ghost" data-i18n="cancel">Cancel</button><button id="folder-select" class="primary" data-i18n="chooseThisFolder">Choose this folder</button></div>
     </section>
   </div>
-  <script src="/i18n.js?v=0.9.26"></script>
-  <script src="/app.js?v=0.9.26"></script>
+  <script src="/i18n.js?v=0.9.27"></script>
+  <script src="/app.js?v=0.9.27"></script>
 </body>
 </html>
