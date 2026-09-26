@@ -37,7 +37,7 @@ import time
 import unicodedata
 import zipfile
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, unquote, urlencode, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, ProxyHandler, Request, build_opener
 from transfer_parts import commit_fragment, segment_count, segment_chunk, initial_transfer_mode
 
@@ -79,7 +79,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.26")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.27")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -93,6 +93,8 @@ GOFILE_MAX_COOLDOWN_SECONDS = 6 * 60 * 60
 GIGAFILE_HOST = re.compile(r"^[a-z0-9-]+\.gigafile\.nu$", re.I)
 BUZZHEAVIER_DOWNLOAD_HOST = re.compile(r"^[a-z0-9-]+\.buzzheavier\.com$", re.I)
 BUZZHEAVIER_TOKEN = re.compile(r"^[A-Za-z0-9_-]{16,4096}$")
+ONEFICHIER_FILE_ID = re.compile(r"^[a-z0-9]{5,32}$", re.I)
+ONEFICHIER_DIRECT_HOST = re.compile(r"^[a-z0-9-]+\.(?:1fichier|desfichiers)\.com$", re.I)
 SAFE_SERVICE_ID = re.compile(r"^[A-Za-z0-9._~-]{1,256}$")
 GOFILE_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/140 Safari/537.36"
 LOG_MAX_BYTES = 1024 * 1024
@@ -703,6 +705,13 @@ def _validate_gigafile_download_key(value: object) -> str:
     return key
 
 
+def _validate_1fichier_password(value: object) -> str:
+    password = str(value or "")
+    if len(password) > 256 or any(ord(character) < 0x20 or ord(character) == 0x7f for character in password):
+        raise ValueError("1fichier 파일 암호는 제어 문자 없이 256자 이내로 입력해 주세요.")
+    return password
+
+
 def _job_secret_path(job_id: str) -> Path:
     if not re.fullmatch(r"[a-f0-9]{12}", job_id):
         raise ValueError("작업 ID가 올바르지 않습니다.")
@@ -779,6 +788,25 @@ def load_job_download_key(job_id: str) -> str:
 
 def delete_job_download_key(job_id: str) -> None:
     save_job_download_key(job_id, "")
+
+
+def save_job_source_password(job_id: str, password: object) -> None:
+    normalized = _validate_1fichier_password(password)
+    with JOB_SECRET_LOCK:
+        data = _load_job_secrets(job_id)
+        if normalized:
+            data["source_password"] = normalized
+        else:
+            data.pop("source_password", None)
+        _write_job_secrets(job_id, data)
+
+
+def load_job_source_password(job_id: str) -> str:
+    with JOB_SECRET_LOCK:
+        try:
+            return _validate_1fichier_password(_load_job_secrets(job_id).get("source_password", ""))
+        except ValueError:
+            return ""
 
 
 def save_job_download_url(job_id: str, download_url: str) -> None:
@@ -1274,9 +1302,14 @@ class Controller:
     def public_jobs(self) -> list[dict]:
         with self.lock:
             jobs = []
+            onefichier_head = self._onefichier_queue_head()
             for job in reversed(list(self.jobs.values())):
                 item = asdict(job)
-                item["error_code"] = public_error_code(job.error) if job.error else ""
+                if (self._provider_for_job(job) == "1fichier" and job.status == "queued"
+                        and onefichier_head and job.id != onefichier_head):
+                    item["not_before"] = 0
+                    item["error"] = "1fichier는 목록 아래 작업이 끝난 뒤 순차적으로 시작합니다."
+                item["error_code"] = public_error_code(item["error"]) if item["error"] else ""
                 jobs.append(item)
             return jobs
 
@@ -1341,7 +1374,7 @@ class Controller:
                 raise
 
 
-    def start_many(self, files: list[dict], target: str = "", extract: bool | None = None, password: str = "", *, download_key: str = "", replace_id: str | None = None) -> list[Job]:
+    def start_many(self, files: list[dict], target: str = "", extract: bool | None = None, password: str = "", *, download_key: str = "", source_password: str = "", replace_id: str | None = None) -> list[Job]:
         if not files:
             raise ValueError("다운로드할 파일이 없습니다.")
         if extract is not None and not isinstance(extract, bool):
@@ -1349,6 +1382,7 @@ class Controller:
         should_extract = AUTO_EXTRACT_ARCHIVES if extract is None else extract
         normalized_password = _validate_job_password(password)
         normalized_download_key = _validate_gigafile_download_key(download_key)
+        normalized_source_password = _validate_1fichier_password(source_password)
         base_destination = normalize_target(target or NAS_TARGET)
         destinations = [prepare_batch_target(base_destination, str(file.get("relative_path", ""))) for file in files]
         jobs = []
@@ -1374,12 +1408,14 @@ class Controller:
                     "expected_sha256": str(file.get("expected_sha256", "")),
                     "target": destination,
                 }
-                if provider in {"buzzheavier", "akirabox", "vikingfile", "sendnow"}:
+                if provider in {"buzzheavier", "akirabox", "vikingfile", "sendnow", "xshare"}:
                     save_job_download_url(job.id, str(file.get("download_url", "")))
                 if should_extract and normalized_password:
                     save_job_password(job.id, normalized_password)
                 if provider == "gigafile" and normalized_download_key:
                     save_job_download_key(job.id, normalized_download_key)
+                if provider == "1fichier" and normalized_source_password:
+                    save_job_source_password(job.id, normalized_source_password)
                 jobs.append(job)
             replaced = self.jobs.pop(replace_id, None) if replace_id else None
             try:
@@ -1406,6 +1442,17 @@ class Controller:
     def _provider_limit(self) -> int:
         return SAME_PROVIDER_LIMIT if ALLOW_SAME_PROVIDER_PARALLEL else 1
 
+    def _onefichier_queue_head(self) -> str:
+        # public_jobs() renders newest first, so the first persisted job appears
+        # at the bottom of the visible list. Keep that bottom job as the sole
+        # 1fichier owner until it reaches a terminal or user-paused state.
+        active = {"inspecting", "queued", "ready", "downloading", "waiting_processing",
+                  "verifying", "extracting", "publishing", "stopping"}
+        for candidate in self.jobs.values():
+            if candidate.status in active and self._provider_for_job(candidate) == "1fichier":
+                return candidate.id
+        return ""
+
     def _can_start(self, job: Job) -> bool:
         if getattr(self, "stopping", False) or any(job.id in ids for ids in self.running_providers.values()):
             return False
@@ -1419,6 +1466,11 @@ class Controller:
             return False
         if provider == "gofile" and _gofile_cooldown_status()["active"]:
             return False
+        if provider == "1fichier":
+            if self.running_providers.get(provider):
+                return False
+            if self._onefichier_queue_head() != job.id:
+                return False
         running_total = sum(len(job_ids) for job_ids in self.running_providers.values())
         return running_total < MAX_PARALLEL_DOWNLOADS and len(self.running_providers.get(provider, set())) < self._provider_limit()
 
@@ -1475,6 +1527,17 @@ class Controller:
                     if isinstance(exc, GofileCooldownError):
                         job.status = "queued"
                         job.not_before = _gofile_cooldown_status()["until"]
+                    elif isinstance(exc, OneFichierWaitError):
+                        job.status = "queued"
+                        job.not_before = time.time() + exc.seconds
+                        job.downloaded = 0
+                        try:
+                            workspace = job_workspace(job.target or NAS_TARGET, job.id)
+                            for suffix in ("segment.0", "segment.0.more", "segment.0.headers"):
+                                (workspace / f".{job.id}.{suffix}").unlink(missing_ok=True)
+                            (workspace / ".response-headers").unlink(missing_ok=True)
+                        except (OSError, ValueError):
+                            LOGGER.warning("Could not remove stale 1fichier partial data")
                     elif isinstance(exc, GigaFileDownloadKeyRequiredError):
                         if isinstance(exc, GigaFileDownloadKeyInvalidError):
                             delete_job_download_key(job_id)
@@ -1592,7 +1655,7 @@ class Controller:
     def _apply_response_filename(self, job: Job, workspace: Path, artifact: Path, private: dict[str, str]) -> Path:
         headers_path = workspace / ".response-headers"
         try:
-            if private.get("provider") not in {"gigafile", "buzzheavier", "akirabox", "vikingfile", "sendnow"}:
+            if private.get("provider") not in {"gigafile", "buzzheavier", "akirabox", "vikingfile", "sendnow", "xshare", "1fichier"}:
                 return artifact
             actual_name = response_download_name(headers_path)
             if not actual_name or actual_name == job.name:
@@ -1797,22 +1860,24 @@ class Controller:
                 "target": target_dir,
             }
             self.private_downloads[job_id] = private
-        if provider in {"akirabox", "vikingfile", "sendnow"}:
+        if provider in {"akirabox", "vikingfile", "sendnow", "xshare"}:
             signed = private.get("download_url") or load_job_download_url(job.id)
-            validator = {"akirabox": _validate_akira_url, "vikingfile": _validate_viking_url, "sendnow": _validate_sendnow_url}[provider]
+            validator = {"akirabox": _validate_akira_url, "vikingfile": _validate_viking_url, "sendnow": _validate_sendnow_url, "xshare": _validate_xshare_url}[provider]
             validator(job.source, direct=False)
             _validate_handoff_transfer_url(signed, provider)
+            if provider == "xshare" and urlparse(job.source).path.rsplit("/", 1)[-1] != urlparse(signed).path.rsplit("/", 1)[-1]:
+                raise HandoffError("X-Share 공유 파일과 다운로드 주소가 일치하지 않습니다.")
             private.update(provider=provider, download_url=signed, target=target_dir)
-            if provider == "sendnow":
+            if provider in {"sendnow", "xshare"}:
                 resolve_host = (urlparse(signed).hostname or "").lower()
                 resolved = _resolve_public_addresses(resolve_host)
                 if not resolved:
-                    raise ValueError("Send.now가 전달한 다운로드 서버를 안전하게 확인하지 못했습니다.")
+                    raise ValueError("브라우저가 전달한 다운로드 서버를 안전하게 확인하지 못했습니다.")
                 private.update(resolve_host=resolve_host, resolve_address=resolved[0])
         # Persist layout so a later settings change cannot reinterpret fragments.
         if not job.transfer_mode:
             has_legacy_parts = any(workspace.glob(f".{job.id}.segment.*"))
-            job.transfer_mode = "single" if provider in {"akirabox", "vikingfile", "sendnow"} else ("segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE))
+            job.transfer_mode = "single" if provider in {"akirabox", "vikingfile", "sendnow", "xshare", "1fichier"} else ("segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE))
             self.save()
         download_mode = job.transfer_mode
         private["transfer_mode"] = download_mode
@@ -1833,6 +1898,18 @@ class Controller:
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 expected_sha256=private.get("expected_sha256", ""), mode=download_mode,
             )
+        elif provider == "1fichier":
+            direct_url = resolve_1fichier_direct_url(job.source, load_job_source_password(job.id),
+                                                      cancelled=lambda: SHUTDOWN_EVENT.is_set() or job.status in {"paused", "cancelled", "stopping"})
+            direct_host = (urlparse(direct_url).hostname or "").lower()
+            addresses = _resolve_public_addresses(direct_host)
+            if not addresses:
+                raise ValueError("1fichier 다운로드 서버의 공개 주소를 안전하게 확인하지 못했습니다.")
+            script = self._download_script_1fichier(direct_url, job.source, job.id, job.size, workspace_dir,
+                                                     direct_host, addresses[0])
+        elif provider == "xshare":
+            script = self._download_script_xshare(private.get("download_url", ""), job.id, job.size,
+                                                   workspace_dir, private["resolve_host"], private["resolve_address"])
         elif provider in {"buzzheavier", "akirabox", "vikingfile", "sendnow"}:
             script = self._download_script_direct(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
@@ -1881,7 +1958,11 @@ class Controller:
         stdout = process.stdout.read() if process.stdout else ""
         stderr = process.stderr.read() if process.stderr else ""
         process.wait()
-        self._recover_fragments(job, workspace, download_mode)
+        if provider == "xshare":
+            # A provider-issued key may be one-use. Never replay it after an
+            # attempted transfer, including a user pause or service shutdown.
+            save_job_download_url(job_id, "")
+        self._recover_fragments(job, workspace, download_mode, file_response=provider == "xshare")
         with self.lock:
             current_job = self.jobs[job_id]
             if current_job.status in {"paused", "cancelled", "stopping"}:
@@ -1893,6 +1974,10 @@ class Controller:
                 current_job.status = "failed"
                 if provider == "gofile" and ((workspace / ".rate-limit").exists() or private.get("rate_limited")):
                     self._defer_gofile(job, workspace)
+                elif provider == "1fichier":
+                    current_job.error = "1fichier 다운로드가 중단됐습니다. 무료 연결은 이어받기를 지원하지 않아 재개 시 처음부터 다시 받습니다."
+                elif provider == "xshare":
+                    current_job.error = "X-Share 다운로드가 중단됐습니다. 브라우저에서 보안 검증을 마친 뒤 새 다운로드 버튼으로 다시 등록해 주세요."
                 elif provider in {"akirabox", "vikingfile", "sendnow"}:
                     current_job.error = handoff_transfer_error(stderr)
                 elif provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
@@ -1915,12 +2000,12 @@ class Controller:
 
         self._postprocess(job_id, workspace, artifact, target_dir)
 
-    def _recover_fragments(self, job: Job, workspace: Path, mode: str) -> None:
+    def _recover_fragments(self, job: Job, workspace: Path, mode: str, *, file_response: bool = False) -> None:
         chunk = segment_chunk(job.size, mode)
         for i in range(segment_count(job.size, mode)):
             part = workspace / f".{job.id}.segment.{i}"
             if part.with_name(part.name + ".headers").exists():
-                commit_fragment(part, i * chunk, min(job.size - 1, (i + 1) * chunk - 1), job.size)
+                commit_fragment(part, i * chunk, min(job.size - 1, (i + 1) * chunk - 1), job.size, file_response=file_response)
         for name in (".cookies", ".page", ".curl.conf"):
             (workspace / name).unlink(missing_ok=True)
 
@@ -2106,6 +2191,77 @@ trap 'exit 143' HUP INT TERM
 '''
         curl = f'curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error'
         return setup + self._transfer_loop(f"{target_dir}/.{job_id}.segment", total, mode, curl, max_parallel=max_parallel, transient_retries=transient_retries)
+
+    def _download_script_1fichier(self, download: str, page: str, job_id: str, total: int,
+                                  target_dir: str, host: str, address: str) -> str:
+        _validate_1fichier_direct_url(download)
+        if (urlparse(download).hostname or "").lower() != host or address not in _resolve_public_addresses(host):
+            raise ValueError("1fichier 다운로드 서버 주소가 올바르지 않습니다.")
+        pinned = f"[{address}]" if ":" in address else address
+        part = f"{target_dir}/.{job_id}.segment.0"
+        config = f"{target_dir}/.curl.conf"
+        config_body = "\n".join([
+            f'url = "{_curl_config_value(download)}"',
+            f'referer = "{_curl_config_value(page)}"',
+            'proto = "=https"', 'proto-redir = "=https"',
+            f'resolve = "{_curl_config_value(host + ":443:" + pinned)}"',
+        ])
+        merger = f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'transfer_parts.py'))}"
+        return f'''#!/bin/sh
+set -eu
+umask 077
+CURL_CONFIG={shlex.quote(config)}
+PART={shlex.quote(part)}
+cat > "$CURL_CONFIG" <<'NASDROP_CURL_CONFIG'
+{config_body}
+NASDROP_CURL_CONFIG
+cleanup() {{ rm -f "$CURL_CONFIG"; }}
+trap cleanup EXIT
+trap 'exit 143' HUP INT TERM
+# Free 1fichier transfers do not support Range resume. Never reuse a partial body.
+rm -f "$PART" "$PART.more" "$PART.headers"
+curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --dump-header "$PART.headers" -o "$PART.more"
+actual=$(wc -c < "$PART.more" | tr -d ' ')
+[ "$actual" -eq {total} ] || exit 1
+{merger} "$PART" 0 {total - 1} {total}
+printf 'SEGMENTS_READY=1\n'
+'''
+
+
+    def _download_script_xshare(self, download: str, job_id: str, total: int,
+                               target_dir: str, host: str, address: str) -> str:
+        _validate_xshare_url(download, direct=True)
+        if host != "x-share.net" or address not in _resolve_public_addresses(host):
+            raise HandoffError("X-Share 다운로드 서버의 공개 주소를 안전하게 확인하지 못했습니다.")
+        pinned = f"[{address}]" if ":" in address else address
+        part = f"{target_dir}/.{job_id}.segment.0"
+        config = f"{target_dir}/.curl.conf"
+        config_body = "\n".join([
+            f'url = "{_curl_config_value(download)}"',
+            'proto = "=https"', 'proto-redir = "=https"',
+            f'resolve = "{_curl_config_value(host + ":443:" + pinned)}"',
+            'proxy = ""',
+        ])
+        merger = f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'transfer_parts.py'))}"
+        return f'''#!/bin/sh
+set -eu
+umask 077
+CURL_CONFIG={shlex.quote(config)}
+PART={shlex.quote(part)}
+cat > "$CURL_CONFIG" <<'NASDROP_CURL_CONFIG'
+{config_body}
+NASDROP_CURL_CONFIG
+cleanup() {{ rm -f "$CURL_CONFIG"; }}
+trap cleanup EXIT
+trap 'exit 143' HUP INT TERM
+# Do not preflight, range, retry or replay an opaque provider-issued key.
+rm -f "$PART" "$PART.more" "$PART.headers"
+curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --dump-header "$PART.headers" -o "$PART.more"
+actual=$(wc -c < "$PART.more" | tr -d ' ')
+[ "$actual" -eq {total} ] || exit 1
+{merger} "$PART" 0 {total - 1} {total} --file-response
+printf 'SEGMENTS_READY=1\n'
+'''
 
 
     def _download_script_gigafile_zip(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, verify: bool = True) -> str:
@@ -2398,12 +2554,148 @@ printf 'SEGMENTS_READY=1\\n'
         self.pause(job_id)
 
 
-CONTROLLER = Controller()
-
-
 def _clean_download_name(value: str) -> str:
     name = html.unescape(re.sub(r"<[^>]+>", "", value)).strip()
     return fit_download_name(re.sub(r"[\\/\x00-\x1f:]", "_", name))
+
+
+def _validate_1fichier_share_url(raw_url: str) -> tuple[str, str]:
+    parsed = urlparse(str(raw_url).strip())
+    file_id = parsed.query
+    if (parsed.scheme != "https" or (parsed.hostname or "").lower() not in {"1fichier.com", "www.1fichier.com"}
+            or parsed.port not in {None, 443} or parsed.username or parsed.password or parsed.path not in {"", "/"}
+            or parsed.fragment or not ONEFICHIER_FILE_ID.fullmatch(file_id)):
+        raise ValueError("정식 1fichier HTTPS 공유 링크가 아닙니다.")
+    return f"https://1fichier.com/?{file_id}", file_id
+
+
+def _validate_1fichier_direct_url(raw_url: str) -> str:
+    parsed = urlparse(html.unescape(raw_url).strip())
+    host = (parsed.hostname or "").lower()
+    if (parsed.scheme != "https" or not ONEFICHIER_DIRECT_HOST.fullmatch(host)
+            or host.split(".", 1)[0] in {"img", "www", "api", "status"}
+            or parsed.port not in {None, 443} or parsed.username or parsed.password or parsed.fragment
+            or not (parsed.path.strip("/") or parsed.query)):
+        raise ValueError("1fichier가 허용되지 않은 다운로드 주소를 반환했습니다.")
+    return parsed.geturl()
+
+
+class OneFichierNoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
+def _onefichier_opener():
+    addresses = _resolve_public_addresses("1fichier.com")
+    if not addresses:
+        raise ValueError("1fichier 서버의 공개 주소를 안전하게 확인하지 못했습니다.")
+    return build_opener(ProxyHandler({}), OneFichierNoRedirect(),
+                        HTTPCookieProcessor(CookieJar()), PinnedHTTPSHandler("1fichier.com", addresses[0]))
+
+
+def inspect_1fichier(raw_url: str) -> dict:
+    canonical, _file_id = _validate_1fichier_share_url(raw_url)
+    request = Request("https://1fichier.com/check_links.pl", data=urlencode({"links[]": canonical}).encode(),
+                      headers={"User-Agent": f"NASDrop/{PACKAGE_VERSION}",
+                               "Content-Type": "application/x-www-form-urlencoded", "Accept": "text/plain"})
+    with _onefichier_opener().open(request, timeout=20) as response:
+        line = response.read(16_384).decode("utf-8", "replace").strip().splitlines()
+    if len(line) != 1:
+        raise ValueError("1fichier 파일 정보를 확인하지 못했습니다. 링크를 확인해 주세요.")
+    parts = line[0].rsplit(";", 1)
+    fields = parts[0].split(";", 1) + parts[1:] if len(parts) == 2 else []
+    if len(fields) != 3 or fields[0] != canonical:
+        raise ValueError("1fichier 파일 정보 응답이 올바르지 않습니다.")
+    name = _clean_download_name(fields[1])
+    try:
+        size = int(fields[2])
+    except ValueError as exc:
+        raise ValueError("1fichier 파일 크기를 확인하지 못했습니다.") from exc
+    if not name or name in {".", ".."} or size <= 0 or size > MAX_FILE_BYTES:
+        raise ValueError("1fichier 링크가 만료됐거나 파일 정보가 올바르지 않습니다.")
+    return {"url": canonical, "name": name, "size": size, "expires": "", "provider": "1fichier"}
+
+
+def _onefichier_page_direct_url(source: str, canonical: str) -> str:
+    for raw in re.findall(r'(?:href|location(?:\.href)?)\s*=\s*["\'](https://[^"\']+)["\']', source, re.I):
+        try:
+            candidate = _validate_1fichier_direct_url(raw)
+        except ValueError:
+            continue
+        if candidate != canonical:
+            return candidate
+    return ""
+
+
+class OneFichierWaitError(ValueError):
+    def __init__(self, seconds: int):
+        self.seconds = max(5, min(24 * 3600, seconds))
+        super().__init__(f"1fichier 대기 중입니다. 약 {(self.seconds + 59) // 60}분 후 자동으로 다시 시도합니다.")
+
+
+def _onefichier_wait_seconds(page: str) -> int:
+    minutes = re.search(r'(?:You must wait\s*(?:(?:at least|up to)\s*)?|Vous devez attendre encore\s*)(\d{1,4})\s*minutes', page, re.I)
+    if minutes:
+        return min(24 * 3600, int(minutes.group(1)) * 60 + 5)
+    if re.search(r"all free guest slots are currently in use|temporarily limited due to high demand", page, re.I):
+        return 300
+    # 1fichier sometimes replaces the download form with a daily free-usage
+    # notice. Treat this as a provider wait instead of a broken/expired link.
+    # A full-day delay avoids repeatedly probing a limit whose reset time is
+    # not supplied by the page.
+    if re.search(r"already downloaded for free more than\s+\d+\s+files today", page, re.I):
+        return 24 * 3600
+    return 0
+
+
+def resolve_1fichier_direct_url(raw_url: str, password: str = "", cancelled=None) -> str:
+    canonical, _file_id = _validate_1fichier_share_url(raw_url)
+    source_password = _validate_1fichier_password(password)
+    opener = _onefichier_opener()
+    headers = {"User-Agent": "Mozilla/5.0 NASDrop", "Referer": canonical}
+    with opener.open(Request(canonical, headers=headers), timeout=20) as response:
+        page = response.read(1_000_001).decode("utf-8", "replace")
+    if len(page) > 1_000_000:
+        raise ValueError("1fichier 응답이 너무 큽니다.")
+    for _stage in range(3):
+        wait = _onefichier_wait_seconds(page)
+        if wait:
+            raise OneFichierWaitError(wait)
+        if re.search(r'<(?:input|textarea)\b[^>]*\bname\s*=\s*["\'](?:captcha|g-recaptcha-response|cf-turnstile-response)["\']|<(?:div|form)\b[^>]*\bclass\s*=\s*["\'][^"\']*\b(?:g-recaptcha|h-captcha|cf-turnstile)\b', page, re.I):
+            raise ValueError("1fichier에서 사람 확인을 요구합니다. 사이트에서 직접 확인해 주세요.")
+        direct = _onefichier_page_direct_url(page, canonical)
+        if direct:
+            return direct
+        password_field = re.search(r'<input\b[^>]*name\s*=\s*["\']?(?:pass|password|passwd)\b', page, re.I)
+        if password_field and not source_password:
+            raise ValueError("1fichier 파일 암호가 필요합니다. 링크를 다시 등록하며 파일 암호를 입력해 주세요.")
+        form = re.search(r'<form\b[^>]*id\s*=\s*["\']f1["\'][^>]*>', page, re.I)
+        if not form and not password_field:
+            raise ValueError("1fichier 다운로드 버튼을 확인하지 못했습니다. 브라우저에서 링크 상태를 확인해 주세요.")
+        match = re.search(r'\b(?:var\s+)?(?:ct|count)\s*=\s*(\d{1,5})\s*;', page)
+        wait_seconds = min(600, int(match.group(1))) if match else 0
+        for _ in range(wait_seconds + (1 if wait_seconds else 0)):
+            if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+                raise InterruptedError("1fichier 대기 중 작업이 중지됐습니다.")
+            time.sleep(1)
+        body = urlencode({"pass": source_password} if password_field else {}).encode()
+        request = Request(canonical, data=body, headers={**headers, "Content-Type": "application/x-www-form-urlencoded"})
+        try:
+            with opener.open(request, timeout=30) as response:
+                page = response.read(1_000_001).decode("utf-8", "replace")
+        except HTTPError as exc:
+            location = exc.headers.get("Location", "")
+            if exc.code in {301, 302, 303, 307, 308} and location:
+                return _validate_1fichier_direct_url(urljoin(canonical, location))
+            raise
+        if len(page) > 1_000_000:
+            raise ValueError("1fichier 응답이 너무 큽니다.")
+        if password_field and re.search(r"invalid password|wrong password|incorrect password", page, re.I):
+            raise ValueError("1fichier 파일 암호가 올바르지 않습니다.")
+    wait = _onefichier_wait_seconds(page)
+    if wait:
+        raise OneFichierWaitError(wait)
+    raise ValueError("1fichier 다운로드 주소를 받지 못했습니다. 사이트 제한 또는 파일 암호를 확인해 주세요.")
 
 
 def response_download_name(headers_path: Path) -> str:
@@ -2520,6 +2812,29 @@ def _validate_sendnow_url(value: str, *, direct: bool) -> str:
     return value.rstrip("/")
 
 
+def _validate_xshare_url(value: str, *, direct: bool) -> str:
+    error = "X-Share 주소가 올바르지 않습니다. 브라우저에서 보안 검증을 마친 뒤 다운로드 버튼을 다시 눌러 주세요."
+    if not isinstance(value, str) or not value or len(value) > 16384 or any(ord(c) < 33 or ord(c) == 127 for c in value) or "\\" in value:
+        raise HandoffError(error)
+    try:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.hostname != "x-share.net" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
+            raise ValueError(error)
+        prefix = "/api/download/" if direct else "/s/"
+        if not re.fullmatch(re.escape(prefix) + r"[a-zA-Z0-9_-]{6,64}", parsed.path):
+            raise ValueError(error)
+        if direct:
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            keys = query.get("key", [])
+            if set(query) != {"key"} or len(keys) != 1 or not 1 <= len(keys[0]) <= 4096 or any(ord(c) < 33 or ord(c) > 126 for c in keys[0]):
+                raise ValueError(error)
+        elif parsed.query:
+            raise ValueError(error)
+    except (ValueError, KeyError):
+        raise HandoffError(error) from None
+    return value
+
+
 def _resolve_public_addresses(host: str) -> tuple[str, ...]:
     """Resolve once and return only an all-public address set suitable for pinning."""
     candidate = host.rstrip(".").lower()
@@ -2589,6 +2904,10 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
             return _validate_akira_url(value, direct=True)
         if provider == "vikingfile" and parsed.hostname == "vikingfile.com":
             return _validate_viking_url(value, direct=True)
+        if provider == "xshare":
+            # The official page creates this first-party keyed endpoint. Do not
+            # infer unrelated delivery hosts from a public-DNS check alone.
+            return _validate_xshare_url(value, direct=True)
         if provider == "sendnow":
             host = (parsed.hostname or "").lower()
             if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
@@ -2672,11 +2991,11 @@ class PinnedHTTPSHandler(HTTPSHandler):
         )
 
 
-def _open_sendnow_pinned(url: str, method: str, headers: dict):
+def _open_public_handoff_pinned(url: str, method: str, headers: dict):
     host = (urlparse(url).hostname or "").lower()
     addresses = _resolve_public_addresses(host)
     if not addresses:
-        raise HandoffError("Send.now가 전달한 다운로드 서버를 안전하게 확인하지 못했습니다.")
+        raise HandoffError("브라우저가 전달한 다운로드 서버를 안전하게 확인하지 못했습니다.")
     last_error: OSError | None = None
     for address in addresses:
         # Ignore ambient proxy variables: going through a proxy would make the
@@ -2690,7 +3009,7 @@ def _open_sendnow_pinned(url: str, method: str, headers: dict):
             last_error = exc
     if last_error:
         raise last_error
-    raise HandoffError("Send.now 다운로드 서버에 연결하지 못했습니다.")
+    raise HandoffError("다운로드 서버에 연결하지 못했습니다.")
 
 
 def _open_handoff_response(opener, url: str, method: str, headers: dict, provider: str):
@@ -2703,8 +3022,8 @@ def _open_handoff_response(opener, url: str, method: str, headers: dict, provide
         visited.add(url)
         try:
             response = (
-                _open_sendnow_pinned(url, method, headers)
-                if provider == "sendnow"
+                _open_public_handoff_pinned(url, method, headers)
+                if provider in {"sendnow", "xshare"}
                 else opener.open(Request(url, method=method, headers=headers), timeout=20)
             )
             if response.geturl() != url:
@@ -2751,11 +3070,15 @@ def _handoff_metadata(response, method: str):
 
 
 def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> dict:
-    if provider not in {"akirabox", "vikingfile", "sendnow"}:
+    if provider not in {"akirabox", "vikingfile", "sendnow", "xshare"}:
         raise ValueError("지원하지 않는 브라우저 다운로드 전달입니다.")
-    validator = {"akirabox": _validate_akira_url, "vikingfile": _validate_viking_url, "sendnow": _validate_sendnow_url}[provider]
+    validator = {"akirabox": _validate_akira_url, "vikingfile": _validate_viking_url, "sendnow": _validate_sendnow_url, "xshare": _validate_xshare_url}[provider]
     canonical = validator(share_url, direct=False)
     direct = validator(signed_url, direct=True)
+    if provider == "xshare" and urlparse(canonical).path.rsplit("/", 1)[-1] != urlparse(direct).path.rsplit("/", 1)[-1]:
+        raise HandoffError("X-Share 공유 파일과 다운로드 주소가 일치하지 않습니다.")
+    if provider == "xshare":
+        return inspect_xshare_handoff(canonical, direct)
     opener = build_opener(AkiraNoRedirectHandler())
     headers = {"User-Agent": f"NASDrop/{PACKAGE_VERSION}", "Accept": "*/*", "Accept-Encoding": "identity", "Referer": canonical}
     try:
@@ -2788,6 +3111,42 @@ def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> d
         # Never include a signed URL, token, remote error page or headers in public errors.
         raise ValueError("NAS에서 브라우저 다운로드 파일 정보를 확인하지 못했습니다. 링크 만료·접속 제한·이어받기 지원 여부를 확인하고 브라우저에서 다시 등록해 주세요.") from None
     return {"url": canonical, "name": name, "size": size, "expires": "브라우저 링크", "provider": provider, "download_url": final_url}
+
+
+def inspect_xshare_handoff(canonical: str, direct: str) -> dict:
+    """Inspect public metadata without consuming the browser-issued key."""
+    file_id = urlparse(canonical).path.rsplit("/", 1)[-1]
+    metadata_url = f"https://x-share.net/api/file/{file_id}"
+    error = "X-Share 파일 정보를 확인하지 못했습니다. 브라우저에서 새 다운로드 버튼으로 다시 등록해 주세요."
+    try:
+        with _open_public_handoff_pinned(metadata_url, "GET", {
+            "User-Agent": f"NASDrop/{PACKAGE_VERSION}", "Accept": "application/json",
+            "Accept-Encoding": "identity",
+        }) as response:
+            if response.status != 200 or response.geturl() != metadata_url:
+                raise HandoffError(error)
+            raw = response.read(128 * 1024 + 1)
+            if len(raw) > 128 * 1024:
+                raise HandoffError(error)
+        metadata = json.loads(raw)
+        if not isinstance(metadata, dict) or metadata.get("id") != file_id:
+            raise HandoffError(error)
+        name = metadata.get("name")
+        size = metadata.get("size")
+        if not isinstance(name, str) or not name or type(size) is not int or not 0 < size <= MAX_FILE_BYTES:
+            raise HandoffError(error)
+        expiry = metadata.get("expiresAt", "")
+        if expiry:
+            from datetime import datetime
+            if not isinstance(expiry, str) or datetime.fromisoformat(expiry.replace("Z", "+00:00")).timestamp() <= time.time():
+                raise HandoffError("X-Share 공유 파일이 만료됐습니다.")
+        # Ignore all unrelated fields, including any archivePassword value.
+        return {"url": canonical, "name": _clean_download_name(name), "size": size,
+                "expires": expiry, "provider": "xshare", "download_url": direct}
+    except HandoffError:
+        raise
+    except (OSError, ValueError, TypeError):
+        raise HandoffError(error) from None
 
 
 def inspect_payload(payload: dict) -> dict:
@@ -3374,18 +3733,22 @@ def provider_for_url(raw_url: str) -> str:
         return "vikingfile"
     if host in SENDNOW_SHARE_HOSTS or SENDNOW_PROVIDER_HOST.fullmatch(host):
         return "sendnow"
+    if host == "x-share.net":
+        return "xshare"
     if host in {"gofile.io", "www.gofile.io"}:
         return "gofile"
     if host in {"pixeldrain.com", "www.pixeldrain.com", "pixeldrain.net", "pixeldra.in"}:
         return "pixeldrain"
     if host == "buzzheavier.com" or _is_buzzheavier_download_host(host):
         return "buzzheavier"
+    if host in {"1fichier.com", "www.1fichier.com"}:
+        return "1fichier"
     return "gigafile"
 
 
 def inspect_download(raw_url: str) -> dict:
     host = (urlparse(raw_url.strip()).hostname or "").lower()
-    if host in {"akirabox.to", "akirabox.com", "vik1ngfile.site", "vikingfile.com", *SENDNOW_SHARE_HOSTS}:
+    if host in {"akirabox.to", "akirabox.com", "vik1ngfile.site", "vikingfile.com", "x-share.net", *SENDNOW_SHARE_HOSTS}:
         raise ValueError("이 서비스는 크롬 확장에서 다운로드 버튼이 준비된 뒤 NAS로 보내 주세요.")
     try:
         if _is_buzzheavier_download_host(host):
@@ -3396,6 +3759,8 @@ def inspect_download(raw_url: str) -> dict:
             return inspect_gofile(raw_url)
         if host in {"pixeldrain.com", "www.pixeldrain.com", "pixeldrain.net", "pixeldra.in"}:
             return inspect_pixeldrain(raw_url)
+        if host in {"1fichier.com", "www.1fichier.com"}:
+            return inspect_1fichier(raw_url)
         return inspect_gigafile(raw_url)
     except HTTPError as exc:
         if _is_buzzheavier_download_host(host) and exc.code in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN, HTTPStatus.NOT_FOUND}:
@@ -3785,7 +4150,7 @@ class Handler(BaseHTTPRequestHandler):
                 "job_processing_options": True,
                 "job_safe_delete": True,
                 "gigafile_download_key": True,
-                "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow"],
+                "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow", "xshare"],
                 "disk_protection": DISK_PROTECTION,
                 "temporary_folder": ".nasdrop-tmp",
                 "archive_formats": ["zip", "7z", "rar", "tar", "tar.gz", "tgz", "tar.bz2", "tbz2", "tar.xz", "txz"],
@@ -3885,7 +4250,7 @@ class Handler(BaseHTTPRequestHandler):
                 extraction_choice = payload.get("extract") if "extract" in payload else None
                 jobs = CONTROLLER.start_many(
                     files, str(payload.get("target", "")), extraction_choice, str(payload.get("password", "")),
-                    download_key=str(payload.get("download_key", "")),
+                    download_key=str(payload.get("download_key", "")), source_password=str(payload.get("source_password", "")),
                 )
                 return self.send_json(HTTPStatus.ACCEPTED, {"job": asdict(jobs[0]), "jobs": [asdict(job) for job in jobs], "count": len(jobs)})
             if path == "/api/settings":
@@ -3975,6 +4340,13 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body)
                 return
         self.send_error(HTTPStatus.NOT_FOUND)
+
+
+# Construct the controller only after every provider classifier and resolver has
+# been defined. The entrypoint's account helper imports this module before the
+# server and explicitly suppresses the dispatcher so it cannot claim a queued
+# download during bootstrap.
+CONTROLLER = None if os.environ.get("NAS_PORTAL_ACCOUNT_COMMAND") == "1" else Controller()
 
 
 if __name__ == "__main__":

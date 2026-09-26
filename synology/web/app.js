@@ -2,7 +2,7 @@
   const $ = (selector) => document.querySelector(selector);
   const t = (key, vars) => window.NASDropI18n.t(key, vars);
   const serverError = (code, fallback, vars) => window.NASDropI18n.error(code, fallback, vars);
-  const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, passwordChangeRequired: false, selected: new Set(), extractionInitialized: false };
+  const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, countdownTimer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, passwordChangeRequired: false, selected: new Set(), extractionInitialized: false };
   const statusKeys = { inspecting:"statusInspecting", queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", download_key_required:"statusDownloadKeyRequired", stopping:"statusStopping", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
 
   function isPrivateHost(rawHost) {
@@ -27,6 +27,22 @@
     const i = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
     return `${(value / 1024 ** i).toFixed(i > 2 ? 2 : 1)} ${units[i]}`;
   }
+  function oneFichierWaitUntil(job) {
+    if (job.status !== "queued" || !Number(job.not_before)) return 0;
+    try {
+      return ["1fichier.com", "www.1fichier.com"].includes(new URL(job.source).hostname.toLowerCase()) ? Number(job.not_before) : 0;
+    } catch (_) { return 0; }
+  }
+  function oneFichierWaitText(waitUntil) {
+    const remaining = Math.max(0, Math.ceil(Number(waitUntil) - Date.now() / 1000));
+    if (!remaining) return t("oneFichierRetrying");
+    return t("oneFichierWaitCountdown", {minutes:Math.floor(remaining / 60), seconds:String(remaining % 60).padStart(2, "0")});
+  }
+  function updateWaitCountdowns() {
+    document.querySelectorAll("[data-onefichier-wait-until]").forEach(element => {
+      element.textContent = oneFichierWaitText(element.dataset.onefichierWaitUntil);
+    });
+  }
   function esc(value) { const node = document.createElement("span"); node.textContent = String(value ?? ""); return node.innerHTML.replace(/"/g, "&quot;"); }
   async function api(path, init = {}) {
     const response = await fetch(path, { ...init, headers:{ "content-type":"application/json", authorization:`Bearer ${state.token}`, ...(init.headers || {}) } });
@@ -40,8 +56,8 @@
     if (!response.ok) throw new Error(serverError(payload.code, payload.error || t("requestFailed"), payload.params));
     return payload;
   }
-  function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); refresh(); clearInterval(state.timer); state.timer = setInterval(refreshJobs, 2500); }
-  function showLogin(message = "") { clearInterval(state.timer); $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); $("#login-error").textContent = message; }
+  function showApp() { $("#login").classList.add("hidden"); $("#app").classList.remove("hidden"); refresh(); clearInterval(state.timer); clearInterval(state.countdownTimer); state.timer = setInterval(refreshJobs, 2500); state.countdownTimer = setInterval(updateWaitCountdowns, 1000); }
+  function showLogin(message = "") { clearInterval(state.timer); clearInterval(state.countdownTimer); $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); $("#login-error").textContent = message; }
   async function refresh() {
     try {
       const [status, account] = await Promise.all([api("/api/status"), api("/api/account")]);
@@ -160,10 +176,12 @@
     replaceJobList($("#jobs"), state.jobs.map(job => {
       const pct = job.size ? Math.min(100, Math.round(job.downloaded / job.size * 100)) : 0;
       const statusLabel = job.status === "queued" && job.not_before > Date.now() / 1000 ? t("scheduled") : (statusKeys[job.status] ? t(statusKeys[job.status]) : esc(job.status));
+      const waitUntil = oneFichierWaitUntil(job);
+      const errorMarkup = waitUntil ? `<p class="error" data-onefichier-wait-until="${waitUntil}">${esc(oneFichierWaitText(waitUntil))}</p>` : (job.error ? `<p class="error">${esc(serverError(job.error_code, job.error))}</p>` : "");
       const passwordForm = job.status === "password_required" ? `<form class="job-password" data-id="${job.id}"><input type="password" name="password" autocomplete="new-password" maxlength="256" required placeholder="${esc(t("archivePassword"))}"><button type="submit" class="ghost">${esc(t("retryExtraction"))}</button></form>` : "";
       const downloadKeyForm = job.status === "download_key_required" ? `<form class="job-password job-secret" data-id="${job.id}" data-secret="download-key"><input type="password" name="download_key" autocomplete="off" maxlength="4" required placeholder="${esc(t("gigafileDownloadKey"))}"><button type="submit" class="ghost">${esc(t("submitDownloadKey"))}</button></form>` : "";
       const archivePasswordForm = passwordForm ? passwordForm.replace('class="job-password"', 'class="job-password job-secret"') : "";
-      return `<article data-job-id="${job.id}" class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${job.error ? `<p class="error">${esc(serverError(job.error_code, job.error))}</p>` : ""}${archivePasswordForm}${downloadKeyForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
+      return `<article data-job-id="${job.id}" class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${errorMarkup}${archivePasswordForm}${downloadKeyForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
     }).join(""));
     renderSelectionToolbar();
   }
@@ -200,7 +218,41 @@
       state.token = result.token; state.passwordChangeRequired = Boolean(result.password_change_required); localStorage.setItem("nasdrop-session-token", state.token); $("#login-password").value = ""; showApp();
     } catch (error) { $("#login-error").textContent = error.message; }
   });
-  $("#download-form").addEventListener("submit", async (event) => { event.preventDefault(); const button = $("#start-button"); const url = $("#download-url").value.trim(); const extract = $("#extract-download").checked; const password = extract ? $("#archive-password").value : ""; const downloadKeyInput = $("#gigafile-download-key"); const download_key = downloadKeyInput?.value || ""; button.disabled = true; $("#notice").textContent = t("inspectLink"); try { const parsedUrl = new URL(url); if (parsedUrl.protocol === "https:" && /^[a-z0-9-]+\.gigafile\.nu$/i.test(parsedUrl.hostname)) { await api("/api/enqueue", {method:"POST",body:JSON.stringify({url,target:state.selectedTarget,extract,password,download_key})}); $("#download-url").value = ""; $("#archive-password").value = ""; if (downloadKeyInput) downloadKeyInput.value = ""; $("#notice").textContent = t("statusInspecting"); await refreshJobs(); return; } const checked = await api("/api/inspect", {method:"POST",body:JSON.stringify({url})}); const started = await api("/api/start", {method:"POST",body:JSON.stringify({...checked.file,target:state.selectedTarget,extract,password})}); $("#download-url").value = ""; $("#archive-password").value = ""; if (downloadKeyInput) downloadKeyInput.value = ""; $("#notice").textContent = started.count > 1 ? t("addedMany", {count:started.count,target:state.selectedTarget}) : t("addedOne", {name:checked.file.name,target:state.selectedTarget}); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; } finally { button.disabled = false; } });
+  $("#download-url").addEventListener("input", event => {
+    let isOneFichier = false;
+    try { isOneFichier = ["1fichier.com", "www.1fichier.com"].includes(new URL(event.target.value.trim()).hostname.toLowerCase()); } catch (_) { /* Incomplete URL. */ }
+    $("#onefichier-password-wrap").classList.toggle("hidden", !isOneFichier);
+    if (!isOneFichier) $("#onefichier-password").value = "";
+  });
+  $("#download-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("#start-button");
+    const url = $("#download-url").value.trim();
+    const extract = $("#extract-download").checked;
+    const password = extract ? $("#archive-password").value : "";
+    const downloadKeyInput = $("#gigafile-download-key");
+    const download_key = downloadKeyInput?.value || "";
+    const source_password = $("#onefichier-password").value;
+    button.disabled = true;
+    $("#notice").textContent = t("inspectLink");
+    try {
+      const parsedUrl = new URL(url);
+      if (parsedUrl.protocol === "https:" && /^[a-z0-9-]+\.gigafile\.nu$/i.test(parsedUrl.hostname)) {
+        await api("/api/enqueue", {method:"POST",body:JSON.stringify({url,target:state.selectedTarget,extract,password,download_key})});
+        $("#download-url").value = ""; $("#archive-password").value = "";
+        if (downloadKeyInput) downloadKeyInput.value = "";
+        $("#notice").textContent = t("statusInspecting");
+        await refreshJobs(); return;
+      }
+      const checked = await api("/api/inspect", {method:"POST",body:JSON.stringify({url})});
+      const started = await api("/api/start", {method:"POST",body:JSON.stringify({...checked.file,target:state.selectedTarget,extract,password,source_password})});
+      $("#download-url").value = ""; $("#archive-password").value = ""; $("#onefichier-password").value = "";
+      $("#onefichier-password-wrap").classList.add("hidden");
+      if (downloadKeyInput) downloadKeyInput.value = "";
+      $("#notice").textContent = started.count > 1 ? t("addedMany", {count:started.count,target:state.selectedTarget}) : t("addedOne", {name:checked.file.name,target:state.selectedTarget});
+      await refreshJobs();
+    } catch (error) { $("#notice").textContent = error.message; } finally { button.disabled = false; }
+  });
   $("#extract-download").addEventListener("change", event => { $("#archive-password-wrap").classList.toggle("hidden", !event.target.checked); if (!event.target.checked) $("#archive-password").value = ""; });
   $("#jobs").addEventListener("change", event => { const checkbox = event.target.closest("input[data-id]"); if (!checkbox) return; checkbox.checked ? state.selected.add(checkbox.dataset.id) : state.selected.delete(checkbox.dataset.id); renderJobs(); });
   $("#jobs").addEventListener("submit", async event => { const form = event.target.closest(".job-secret"); if (!form) return; event.preventDefault(); const button = form.querySelector("button"); button.disabled = true; try { if (form.dataset.secret === "download-key") { await api(`/api/jobs/${form.dataset.id}/download-key`, {method:"POST",body:JSON.stringify({download_key:form.elements.download_key.value})}); } else { await api(`/api/jobs/${form.dataset.id}/password`, {method:"POST",body:JSON.stringify({password:form.elements.password.value})}); } form.reset(); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; button.disabled = false; } });
