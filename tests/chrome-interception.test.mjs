@@ -63,7 +63,7 @@ test('GigaFile parses only the observed official literal download controls',()=>
   assert.equal(adapter.resolve(control({onclick:"remove_file('0927-d67f99a2b4ddf500579fdabae10989275')"},['button.download_panel_btn_dl.gfbtn, span#dl.download_file_caption']),gigaPage),null);
 });
 
-function contentHarness({ready = true, fail = false, pageUrl = page, referrer='', handoffSupported,gigafileKeySupported=false,gigaKey='',language,browserLanguage='ko',throwAt='',syncThrow=false,errorText='Extension context invalidated.'} = {}) {
+function contentHarness({ready = true, fail = false, armFailureCode='', pageUrl = page, referrer='', handoffSupported,gigafileKeySupported=false,gigaKey='',language,browserLanguage='ko',throwAt='',syncThrow=false,errorText='Extension context invalidated.'} = {}) {
   let handler, runtimeListener;
   const messages = [], requests = [], nodes = [];
   const documentListeners = new Map();
@@ -80,7 +80,7 @@ function contentHarness({ready = true, fail = false, pageUrl = page, referrer=''
     window:{addEventListener(name, fn, capture){assert.equal(name,'click'); assert.equal(capture,true); handler=fn;}},
     document,
     fetch:async (url, options) => { requests.push({url, options}); return {ok:true, headers:new Headers({'HX-Redirect':signed})}; },
-    chrome:{runtime:{onMessage:{addListener(fn){runtimeListener=fn;}},sendMessage:message => {messages.push(message); if(message.type===throwAt){if(syncThrow)throw new Error(errorText);return Promise.reject(new Error(errorText));} return Promise.resolve(message.type === 'pageReady' ? {ok:true, result:{ready,handoffSupported,gigafileDownloadKeySupported:gigafileKeySupported,language}} : fail ? {ok:false,error:'Server unavailable'} : {ok:true,result:{count:1,language}});}}},
+    chrome:{runtime:{onMessage:{addListener(fn){runtimeListener=fn;}},sendMessage:message => {messages.push(message); if(message.type===throwAt){if(syncThrow)throw new Error(errorText);return Promise.reject(new Error(errorText));} return Promise.resolve(message.type === 'pageReady' ? {ok:true, result:{ready,handoffSupported,gigafileDownloadKeySupported:gigafileKeySupported,language}} : armFailureCode && ['pageArmDownload','pageArmXShare'].includes(message.type) ? {ok:false,code:armFailureCode,error:'Capability changed'} : fail ? {ok:false,error:'Server unavailable'} : {ok:true,result:{count:1,language}});}}},
   });
   vm.runInContext(i18nSource,c); vm.runInContext(adapterSource, c); vm.runInContext(contentSource, c);
   function click(target = download, overrides = {}) {
@@ -406,6 +406,19 @@ test('X-Share arms after the official click and submits the intercepted one-time
   h.emit('__nasdrop_xshare_url_v1',xshareUrl);await flush();await flush();
   const submit=h.messages.find(message=>message.type==='pageSubmit');
   assert.deepEqual(JSON.parse(JSON.stringify(submit)),{type:'pageSubmit',url:xshareUrl,downloadKey:''});
+});
+
+test('X-Share restores the official native click when cached capability becomes stale', async () => {
+  for(const armFailureCode of ['login','serverUnsupported']) {
+    const button=xshareButton();
+    const h=contentHarness({pageUrl:xsharePage,handoffSupported:true,armFailureCode});await flush();
+    const event=h.click(button);
+    assert.equal(event.prevented,true);assert.equal(event.stopped,true);
+    await flush();
+    assert.equal(h.messages.filter(message=>message.type==='pageArmXShare').length,1);
+    assert.equal(button.clicks,1);
+    assert.equal(h.messages.some(message=>message.type==='pageSubmit'),false);
+  }
 });
 
 test('X-Share MAIN-world hook suppresses only one armed exact issued anchor click', () => {

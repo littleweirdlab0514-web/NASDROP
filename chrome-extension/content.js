@@ -61,7 +61,11 @@
       const response = await chrome.runtime.sendMessage({type:'pageArmDownload',source:action.source});
       language=NASDropI18n.normalize(response?.result?.language || language);
       if(panel?.closeButton)panel.closeButton.setAttribute('aria-label',text.close);
-      if (!response?.ok) { pending=false; show(text[response?.code] || response?.error || text.failed); return; }
+      if (!response?.ok) {
+        pending=false;
+        if (['login','serverUnsupported'].includes(response?.code)) element.click();
+        show(text[response?.code] || response?.error || text.failed); return;
+      }
       element.click();
       sendNowTimer=setTimeout(()=>{pending=false;show(text.uncertain);},65000);
     } catch (error) {
@@ -78,7 +82,11 @@
       const response = await chrome.runtime.sendMessage({type:'pageArmXShare',source:action.source});
       language=NASDropI18n.normalize(response?.result?.language || language);
       if(panel?.closeButton)panel.closeButton.setAttribute('aria-label',text.close);
-      if (!response?.ok) { pending=false; show(text[response?.code] || response?.error || text.failed); return; }
+      if (!response?.ok) {
+        pending=false;
+        if (['login','serverUnsupported'].includes(response?.code)) element.click();
+        show(text[response?.code] || response?.error || text.failed); return;
+      }
       const shareId=new URL(action.source).pathname.split('/').filter(Boolean)[1] || '';
       document.dispatchEvent(new CustomEvent('__nasdrop_xshare_arm_v1',{detail:{shareId,expiresAt:Date.now()+60000}}));
       element.click();
