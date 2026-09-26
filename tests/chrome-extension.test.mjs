@@ -7,6 +7,7 @@ const root = new URL('../chrome-extension/', import.meta.url);
 test('Chrome extension is a least-privilege Manifest V3 package', async () => {
   const manifest = JSON.parse(await readFile(new URL('manifest.json', root), 'utf8'));
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.minimum_chrome_version, '111');
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   assert.ok(!manifest.permissions.includes('<all_urls>'));

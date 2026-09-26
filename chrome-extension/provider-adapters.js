@@ -1,6 +1,7 @@
 /* Shared by the isolated content script and service worker. No page code is evaluated. */
 globalThis.NASDropProviders = (() => {
   const id = '[A-Za-z0-9_-]+';
+  const xShareId = '[A-Za-z0-9_-]{6,64}';
   function parse(value, base) {
     try {
       if (typeof value !== 'string' || /[\x00-\x20\x7f\\]/.test(value) || value.length > 8192) return null;
@@ -28,7 +29,7 @@ globalThis.NASDropProviders = (() => {
     if (type === 'akirabox') return new RegExp(`^/${id}/file/?$`).test(u.pathname) ? u.origin + u.pathname.replace(/\/$/, '') : '';
     if (type === 'vikingfile') return new RegExp(`^/f/${id}/?$`).test(u.pathname) ? u.origin + u.pathname.replace(/\/$/, '') : '';
     if (type === 'sendnow') return new RegExp(`^/(?:d/)?${id}/?$`).test(u.pathname) && !u.search && !u.hash ? u.origin + u.pathname.replace(/\/$/, '') : '';
-    if (type === 'xshare') return new RegExp(`^/s/${id}/?$`).test(u.pathname) && !u.search && !u.hash ? u.origin + u.pathname.replace(/\/$/, '') : '';
+    if (type === 'xshare') return new RegExp(`^/s/${xShareId}/?$`).test(u.pathname) && !u.search && !u.hash ? u.origin + u.pathname.replace(/\/$/, '') : '';
     const prefix = type === 'gofile' ? '/d/' : type === 'pixeldrain' ? '/u/' : '/';
     return new RegExp(`^${prefix}${id}/?$`).test(u.pathname) ? u.origin + u.pathname.replace(/\/$/, '') : '';
   }
@@ -139,7 +140,7 @@ globalThis.NASDropProviders = (() => {
       const keys = [...u.searchParams.keys()];
       const key = u.searchParams.get('key') || '';
       if (keys.length !== 1 || keys[0] !== 'key' || u.searchParams.getAll('key').length !== 1
-        || key.length > 2048 || !/^[A-Za-z0-9._~-]+$/.test(key)) return null;
+        || key.length < 1 || key.length > 4096 || !/^[\x21-\x7e]+$/.test(key)) return null;
       return u;
     }
     const parts = u.pathname.split('/');

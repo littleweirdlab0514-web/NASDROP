@@ -2,6 +2,8 @@
 
 This Manifest V3 extension connects supported sites' download controls to an existing NASDrop server. After signing in once, click a recognized download button on the provider page. NASDrop receives the link and the page shows the result.
 
+Version 0.5.7 requires Chrome 111 or later because its narrowly scoped X-Share integration uses a statically declared MAIN-world content script.
+
 Version 0.5.7 supports English, Korean, Simplified Chinese and Japanese across the popup, job statuses, site notices, context menus and notifications, with a persistent language selector. It retains job pause/resume/deletion, extraction/password controls and automatic progress updates. It adds capability-gated X-Share handoff while keeping GigaFile download keys separate from archive passwords. AkiraBox, VikingFile, Send.now and X-Share require a NASDrop server that advertises the matching browser-handoff capability. See [HANDOFF.md](HANDOFF.md) for the contract and outstanding live-NAS verification.
 
 Server, Synology packages and setup instructions: [NASDrop project](https://github.com/littleweirdlab0514-web/NASDROP). This extension requires a running NASDrop server; it does not download files independently. This is a developer-mode distribution, not an official Chrome Web Store release.

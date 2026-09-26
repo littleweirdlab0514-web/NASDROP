@@ -151,7 +151,7 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 
 - Never read, solve or forward Turnstile tokens, copy browser cookies, click advertisements, or automate the five-second wait or official button.
 - Require an authenticated NASDrop session and explicit `xshare` capability. A missing or malformed capability leaves the provider's native browser download untouched.
-- Accept only HTTPS/default-port `x-share.net`, exact `/s/<id>` and same-ID `/api/download/<id>?key=<opaque>` forms, one non-empty bounded key, no credentials, fragment or extra query fields.
+- Accept only HTTPS/default-port `x-share.net`, exact `/s/<id>` and same-ID `/api/download/<id>?key=<opaque>` forms, a 6–64 character share ID, one decoded 1–4096 character printable-ASCII key with no spaces/control characters, no credentials, fragment or extra query fields. URL-encoded `+`, `/` and `=` are valid key characters.
 - Keep the issued key out of logs, public jobs, API responses and extension storage. Obtain inspection metadata from the public file endpoint so HEAD, Range or other probes cannot consume the key.
 - Until live evidence establishes otherwise, use one full GET with no automatic retry or resume. Validate the real response filename and final size before publication. Reject unobserved redirects rather than broadening the allowlist. After failure, pause or interruption, require a new official click and key.
 - IP binding, redirect behavior, Range support and a complete NAS transfer remain live-test gates. Automated DOM/API tests alone are not provider verification.

@@ -42,6 +42,8 @@ Report sanitized issues at https://github.com/littleweirdlab0514-web/NASDROP/iss
 
 Version 0.5.7 — Adds capability-gated X-Share handoff. Users complete Turnstile and the provider wait themselves; only the enabled official Download click can arm capture of the same-file one-time URL before Chrome starts a local transfer. Challenge tokens and cookies are not read or copied, advertisements are not matched, and an unsupported NAS leaves the site's normal download untouched.
 
+Minimum browser: Chrome 111, required by the statically declared MAIN-world X-Share content script.
+
 **Category**
 
 Productivity

@@ -289,7 +289,7 @@ const sendNowPage = 'https://send.now/d/1pBGp';
 const sendNowLegacyPage = 'https://send.now/e0g53wnqs8ze';
 const sendNowFinalPage = 'https://send.now/';
 const xsharePage = 'https://x-share.net/s/Share123';
-const xshareUrl = 'https://x-share.net/api/download/Share123?key=synthetic_opaque-key.1';
+const xshareUrl = 'https://x-share.net/api/download/Share123?key=synthetic%2Bopaque%2Fkey%3D';
 const akiraUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${Math.floor(Date.now()/1000)+3600}&signature=${'a'.repeat(64)}`;
 const vikingUrl = 'https://vikingfile.com/d/OpaqueID123/example.zip';
 const sendNowUrl = 'https://download-eu.example-cdn.net/files/OpaqueID123/example.zip?token=synthetic';
@@ -378,6 +378,8 @@ test('X-Share recognizes only the ready official button and same-file issued URL
     'https://ads.example/file', 'http://x-share.net/api/download/Share123?key=x',
     'https://x-share.net/api/download/OtherId?key=x', 'https://x-share.net/api/download/Share123',
     'https://x-share.net/api/download/Share123?key=x&next=y',
+    `https://x-share.net/api/download/Share123?key=${'x'.repeat(4097)}`,
+    'https://x-share.net/api/download/Share123?key=bad%20space',
     'https://user:secret@x-share.net/api/download/Share123?key=x',
     'https://x-share.net:8443/api/download/Share123?key=x', `${xshareUrl}#fragment`,
   ]) assert.equal(adapter.allowedSubmission(xsharePage,invalid),false);
@@ -480,7 +482,7 @@ test('X-Share worker gates arming and forwards the agreed inspect payload',async
   assert.equal((await h.dispatch({type:'pageSubmit',url:xshareUrl},sender)).ok,true);
   const body=JSON.parse(h.calls.find(call=>call.url.endsWith('/api/inspect')).options.body);
   assert.deepEqual(body,{url:xsharePage,resolved_url:xshareUrl,provider:'xshare'});
-  assert.equal(JSON.stringify(h.saved).includes('synthetic_opaque-key'),false);
+  assert.equal(JSON.stringify(h.saved).includes('synthetic+opaque/key='),false);
 });
 
 test('protected and unprotected GigaFile jobs use enqueue; keys are capability-gated and separate',async()=>{

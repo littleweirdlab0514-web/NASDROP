@@ -10,7 +10,7 @@
       if (url.protocol !== 'https:' || url.hostname !== 'x-share.net' || url.port
         || url.username || url.password || url.hash || url.pathname !== `/api/download/${shareId}`
         || keys.length !== 1 || keys[0] !== 'key' || url.searchParams.getAll('key').length !== 1
-        || key.length > 2048 || !/^[A-Za-z0-9._~-]+$/.test(key)) return '';
+        || key.length < 1 || key.length > 4096 || !/^[\x21-\x7e]+$/.test(key)) return '';
       return url.href;
     } catch { return ''; }
   }
@@ -18,7 +18,7 @@
   document.addEventListener('__nasdrop_xshare_arm_v1',event => {
     const shareId=String(event.detail?.shareId || '');
     const expiresAt=Number(event.detail?.expiresAt || 0);
-    if (!/^[A-Za-z0-9_-]+$/.test(shareId) || expiresAt <= Date.now() || expiresAt > Date.now()+65000) return;
+    if (!/^[A-Za-z0-9_-]{6,64}$/.test(shareId) || expiresAt <= Date.now() || expiresAt > Date.now()+65000) return;
     armed={shareId,expiresAt};
   },true);
 
