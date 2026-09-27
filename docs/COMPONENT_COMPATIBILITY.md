@@ -6,14 +6,14 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.27-6 candidate; 0.9.26-6 stable | Same verified server source; DSM installation, permissions, launcher, and lifecycle checks remain before stable promotion |
-| Docker image | 0.9.27-6 private candidate; 0.9.26-6 stable (amd64 and arm64) | Both candidate architectures passed bootstrap/account and runtime smoke tests; four real sequential 1fichier transfers completed |
+| Synology package | 0.9.27-6 stable | x86_64 SPK built from the same verified server source |
+| Docker image | 0.9.27-6 stable (amd64 and arm64) | Both architectures passed bootstrap/account and runtime smoke tests; four real sequential 1fichier transfers completed |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.7 X-Share candidate; 0.5.5 stable | Adds user-clicked X-Share keyed URL handoff; actual NAS transfer remains unverified |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
-The 0.9.27 candidate adds an optional `source_password` field to the existing inspect/start flow for 1fichier. Older Android/Chrome clients remain compatible because the field is optional; they do not yet collect a 1fichier file password. Web-form use needs no new client capability. Docker real-flow and multi-architecture parity checks passed; DSM-specific package installation and lifecycle checks remain before stable promotion.
+NASDrop 0.9.27 adds an optional `source_password` field to the existing inspect/start flow for 1fichier. Older Android/Chrome clients remain compatible because the field is optional; they do not yet collect a 1fichier file password. Web-form use needs no new client capability. Docker real-flow and multi-architecture parity checks passed.
 
 Revision 0.9.27-5 gives the bottom visible 1fichier job exclusive retry ownership. Following 1fichier jobs remain queued without copying its countdown and become eligible one at a time only after the current owner completes, fails, or is paused. The API shape is unchanged, so existing clients remain compatible.
 

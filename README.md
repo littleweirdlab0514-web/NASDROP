@@ -26,7 +26,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot/daily limits, run one connection at a time, and restart from zero after interruption. On 2026-09-28, four sequential NAS transfers completed, including the deferred owner and the following job after the daily limit reset. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
 
-**0.9.27-6 candidate:** 1fichier inspection, file-password entry, sequential retry, and coordinated X-Share Chrome handoff are available for installation testing. X-Share requires the compatible Chrome candidate and a real user-completed verification/Download click; pasting its share URL alone is not supported. The current stable Docker image remains 0.9.26-6 until DSM-specific installation and lifecycle checks are complete.
+**0.9.27-6 stable:** 1fichier inspection, file-password entry, sequential retry, and X-Share server handoff are included. X-Share requires the separate Chrome 0.5.7 companion and a real user-completed verification/Download click; pasting its share URL alone is not supported. Docker images are published for amd64 and arm64.
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
 
@@ -38,6 +38,8 @@ Send supported download buttons directly to your own NASDrop server, manage the 
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
+
+NASDrop Server 0.9.27-6 remains compatible with Chrome 0.5.5 for its existing providers. X-Share requires Chrome 0.5.7.
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -51,7 +53,18 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on external download websites and APIs. Providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
-## What's new in 0.9.26-6 (stable release)
+## What's new in 0.9.27-6 (stable release)
+
+- Added direct 1fichier share registration with optional file passwords.
+- Added a live local countdown for provider waits and daily limits without repeatedly polling 1fichier.
+- Runs 1fichier jobs strictly one at a time from the bottom of the visible queue. The next job starts only after the current owner completes, fails, or is paused.
+- Prevents Docker account bootstrap from briefly starting the download dispatcher and pausing the first queued job.
+- Adds the authenticated X-Share server handoff used by Chrome 0.5.7.
+- Enables the web dashboard to safely stop and delete an active job with one Delete action.
+- Verified four real sequential 1fichier downloads, including automatic retry after the daily limit reset and transfer to the following job.
+- Publishes one Docker image for `linux/amd64` and `linux/arm64` from the same server/web source as the x86_64 Synology SPK.
+
+## What's new in 0.9.26-6
 
 - The DSM icon now opens the normal NASDrop login page. DSM auto-login, its CGI, handoff endpoints, and shared secret are removed.
 - A fresh Synology installation starts with temporary `nasdrop` / `nasdrop` credentials, like Docker. Both ID and password must be replaced before downloads or settings are available. Updates preserve existing custom credentials.
