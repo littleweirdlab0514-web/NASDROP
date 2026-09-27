@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import argparse
 from getpass import getpass
+import os
 
+# Import only the credential helpers. The container entrypoint runs this command
+# before the server, so starting a dispatcher here could claim and mutate a
+# queued download just before the real server loads it.
+os.environ["NAS_PORTAL_ACCOUNT_COMMAND"] = "1"
 import backend
 
 

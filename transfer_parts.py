@@ -22,7 +22,7 @@ def segment_count(total, mode="segmented"):
     return 1 if mode == "single" else (total + chunk - 1) // chunk
 
 
-def commit_fragment(part, start, end, total):
+def commit_fragment(part, start, end, total, *, file_response=False):
     part = Path(part)
     more = part.with_name(part.name + ".more")
     headers = part.with_name(part.name + ".headers")
@@ -37,6 +37,12 @@ def commit_fragment(part, start, end, total):
             return False
         block = blocks[-1]
         status = int(block.split(None, 2)[1])
+        if file_response:
+            content_type = re.search(rb"(?im)^content-type:\s*([^;\r\n]+)", block)
+            if status != 200 or (content_type and content_type.group(1).strip().lower() in {
+                b"text/html", b"application/json", b"application/xhtml+xml",
+            }):
+                return False
         if status == 429:
             retry = re.search(rb"(?im)^retry-after:\s*([^\r\n]+)", block)
             marker = part.parent / ".rate-limit"
@@ -87,7 +93,7 @@ def commit_fragment(part, start, end, total):
 
 if __name__ == "__main__":
     try:
-        ok = commit_fragment(sys.argv[1], *map(int, sys.argv[2:5]))
+        ok = commit_fragment(sys.argv[1], *map(int, sys.argv[2:5]), file_response=sys.argv[5:] == ["--file-response"])
         sys.exit(0 if ok else 1)
     except (OSError, ValueError):
         sys.exit(1)

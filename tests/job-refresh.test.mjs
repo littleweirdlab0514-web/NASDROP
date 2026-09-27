@@ -3,17 +3,49 @@ import {readFile} from 'node:fs/promises';
 import test from 'node:test';
 import vm from 'node:vm';
 
+test('1fichier wait message counts down locally without provider requests', async () => {
+  const source = await readFile(new URL('../synology/web/app.js', import.meta.url), 'utf8');
+  const functions = source.slice(source.indexOf('  function oneFichierWaitUntil('), source.indexOf('  function esc('));
+  let now = 1_000_000;
+  const nodes = [
+    {dataset:{onefichierWaitUntil:'1065'},textContent:''},
+  ];
+  const context = vm.createContext({
+    URL,
+    Date:{now:()=>now},
+    document:{querySelectorAll:selector=>selector==='[data-onefichier-wait-until]'?nodes:[]},
+    t:(key, vars={}) => key === 'oneFichierWaitCountdown'
+      ? `${vars.minutes}:${vars.seconds}`
+      : key,
+  });
+  vm.runInContext(functions, context);
+  const job = {status:'queued',not_before:1065,source:'https://1fichier.com/?example'};
+  assert.equal(context.oneFichierWaitUntil(job),1065);
+  assert.equal(context.oneFichierWaitUntil({...job,source:'https://1fichier.com.evil.example/?example'}),0);
+  context.updateWaitCountdowns();
+  assert.equal(nodes[0].textContent,'1:05');
+  now = 1_064_200;
+  context.updateWaitCountdowns();
+  assert.equal(nodes[0].textContent,'0:01');
+  now = 1_066_000;
+  context.updateWaitCountdowns();
+  assert.equal(nodes[0].textContent,'oneFichierRetrying');
+});
+
 test('GigaFile form queues immediately without synchronous inspection', async () => {
   const source = await readFile(new URL('../synology/web/app.js', import.meta.url), 'utf8');
-  const line = source.split('\n').find(line => line.includes('$("#download-form").addEventListener'));
+  const handler = source.slice(source.indexOf('  $("#download-form").addEventListener'),
+    source.indexOf('  $("#extract-download").addEventListener'));
   let submit;
   const nodes = {
     '#download-form': {addEventListener(_event, fn){submit=fn;}},
     '#start-button': {}, '#download-url': {value:'https://123.gigafile.nu/1231-abcdef'},
-    '#extract-download': {checked:true}, '#archive-password': {value:'synthetic'}, '#notice': {}
+    '#extract-download': {checked:true}, '#archive-password': {value:'synthetic'}, '#notice': {},
+    '#gigafile-download-key': {value:''}, '#onefichier-password': {value:''},
+    '#onefichier-password-wrap': {classList:{add(){}}}
   };
   const requests=[];
-  vm.runInNewContext(line, {$:key=>nodes[key], URL, t:key=>key,
+  vm.runInNewContext(handler, {$:key=>nodes[key], URL, t:key=>key,
     state:{selectedTarget:'/downloads'}, refreshJobs:async()=>{},
     api:async(path,options)=>{requests.push([path,JSON.parse(options.body)]);return {count:1};}});
   await submit({preventDefault(){}});

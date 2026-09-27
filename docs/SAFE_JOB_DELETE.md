@@ -4,6 +4,16 @@ Implemented in NASDrop 0.9.23-1; existing 0.9.22 packages do not advertise this 
 
 ## Client contract
 
+### Mandatory product behavior (2026-09-26)
+
+On a compatible server, clicking Delete is sufficient even while a job is active. The user must not be required to pause it first. Internally the operation is stop -> confirm worker/process shutdown -> automatically clean up the selected job. This is a permanent Synology/Docker UI and API contract, not an optional server-only feature.
+
+- Enable Delete for eligible active selections when `job_safe_delete` is advertised and send `stop_active: true`. Disable repeated deletion only while deletion is already pending.
+- Show pending shutdown until polling confirms the record is gone. Never report completed deletion merely because the API accepted the request.
+- Preserve published files and extracted output; remove only the job record, secrets, and exact temporary workspace after ownership ends.
+- Test button eligibility and request payload, plus active-transfer stop/cleanup, duplicate actions, cleanup failure, and published-file preservation. Verify the real flow in Docker first, then DSM-specific lifecycle behavior from the same source.
+- The legacy fallback below applies only when the server does not advertise the capability; it must not become the normal behavior of current NASDrop clients.
+
 - Authenticated `GET /api/status` advertises `job_safe_delete: true`.
 - Opt in with `POST /api/jobs/delete` and `{"ids":["123456abcdef"],"stop_active":true}`.
 - HTTP 200: `{"ok":true,"deleted":1,"pending":[]}` when cleanup finishes immediately.
