@@ -21,7 +21,7 @@ Revision 0.9.27-6 classifies 1fichier's form-less daily free-download-limit page
 
 Revision 0.9.27-2 adds `xshare` to `browser_handoff_providers` for the coordinated Chrome candidate. It accepts the existing `{provider, url, resolved_url}` inspect payload, validates a same-file first-party keyed endpoint, and obtains metadata without consuming the key. The first transfer uses one full GET without resume or automatic replay. Signed-out, unsupported, and older companion installations must leave the provider's normal download intact. Automated server regressions passed (218 tests, one skipped); real X-Share NAS transfer remains a release gate.
 
-The 0.9.26-6 Docker `candidate`, version, `0.9`, and `latest` tags point to the verified manifest digest `sha256:ac92592779f5c0a720c1a483cd984de803861c598af306a0bbb9aed0a130036c`. Promotion reused that digest without rebuilding it; GitHub Actions run 35816652863 passed.
+The 0.9.27-6 Docker `candidate`, version, `0.9`, and `latest` tags point to the verified multi-platform manifest digest `sha256:8b082e1dfd1f73c3a70d23c37f35c79e4dbb0cc0873067af4990cb38dd8bfd17`. Promotion reused that digest without rebuilding it; candidate run 36359283065 and promotion run 36359443069 passed.
 
 ## Ownership model
 
