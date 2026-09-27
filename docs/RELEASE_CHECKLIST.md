@@ -9,6 +9,8 @@
 - [x] Confirm two real NAS transfers completed before the provider applied its daily limit.
 - [x] Recheck the deferred owner after the daily limit resets; Bambu Studio completed at 429,020,440 bytes.
 - [x] Confirm the following sequential job started only afterward; win32diskimager completed at 12,567,188 bytes.
+- [x] Merge PR #2 and publish GitHub release `v0.9.27-6` with the x86_64 SPK and matching SHA-256.
+- [x] Publish the amd64/arm64 candidate image, then promote the exact digest to `0.9.27-6`, `0.9`, and `latest` without rebuilding.
 
 ## 0.9.27-5 1fichier sequential retry candidate
 
