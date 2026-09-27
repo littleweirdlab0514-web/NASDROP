@@ -46,7 +46,7 @@ Provider websites are external systems and may change without notice. “Support
 - Inspection uses one provider metadata request. Transfer resolution follows the displayed wait timer and provider response. Do not use rotating proxies, CAPTCHA solvers, or repeated rapid retries to work around provider restrictions.
 - Free guest slots can be unavailable. In that case the job reports the provider restriction and does not hammer the site. The user can resume later or use the provider site normally.
 - Free transfers use one connection and do not assume byte-range resume. If a transfer is interrupted or the provider returns the job to a timed wait, its incomplete temporary data and displayed progress are discarded immediately; the next attempt starts from zero. Final file size and SHA-256 are checked before publishing.
-- Two real free transfers completed on the NAS on 2026-09-26 (28.9 MB and 86.8 MB, including archive extraction). The next two jobs then reached 1fichier's daily free-download limit and were used to verify the 0.9.27-6 deferred-retry classification. User-supplied passwords are intentionally not recorded in this public document.
+- Two real free transfers completed on the NAS on 2026-09-26 (28.9 MB and 86.8 MB, including archive extraction). After the daily limit reset, the deferred 429,020,440-byte owner and then the following 12,567,188-byte job completed on 2026-09-28. This verifies the persisted retry and bottom-first sequential handoff. User-supplied passwords are intentionally not recorded in this public document.
 
 ## GigaFile
 

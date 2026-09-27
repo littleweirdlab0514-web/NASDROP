@@ -7,7 +7,8 @@
 - [x] Keep later 1fichier jobs behind the same bottom-first queue owner.
 - [x] Prevent Docker account bootstrap from starting a temporary download dispatcher.
 - [x] Confirm two real NAS transfers completed before the provider applied its daily limit.
-- [ ] Recheck the deferred owner after the daily limit resets.
+- [x] Recheck the deferred owner after the daily limit resets; Bambu Studio completed at 429,020,440 bytes.
+- [x] Confirm the following sequential job started only afterward; win32diskimager completed at 12,567,188 bytes.
 
 ## 0.9.27-5 1fichier sequential retry candidate
 

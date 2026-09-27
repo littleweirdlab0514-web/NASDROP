@@ -6,18 +6,18 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.27-6 candidate; 0.9.26-6 stable | 1fichier bottom-first sequential retry, live local countdown, and daily-limit deferral; user confirmed X-Share transfer; DSM icon and account bootstrap are unchanged |
-| Docker image | 0.9.26-6 stable (amd64 and arm64) | Same canonical server and web bytes; both architectures passed bootstrap/account and runtime smoke tests |
+| Synology package | 0.9.27-6 candidate; 0.9.26-6 stable | Same verified server source; DSM installation, permissions, launcher, and lifecycle checks remain before stable promotion |
+| Docker image | 0.9.27-6 private candidate; 0.9.26-6 stable (amd64 and arm64) | Both candidate architectures passed bootstrap/account and runtime smoke tests; four real sequential 1fichier transfers completed |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.7 X-Share candidate; 0.5.5 stable | Adds user-clicked X-Share keyed URL handoff; actual NAS transfer remains unverified |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
-The 0.9.27 candidate adds an optional `source_password` field to the existing inspect/start flow for 1fichier. Older Android/Chrome clients remain compatible because the field is optional; they do not yet collect a 1fichier file password. Web-form use needs no new client capability. The Synology package test gate is pending because free 1fichier guest slots were full during development. Do not promote the Docker image from 0.9.26-6 until the user confirms a real transfer and the Docker maintainer verifies parity.
+The 0.9.27 candidate adds an optional `source_password` field to the existing inspect/start flow for 1fichier. Older Android/Chrome clients remain compatible because the field is optional; they do not yet collect a 1fichier file password. Web-form use needs no new client capability. Docker real-flow and multi-architecture parity checks passed; DSM-specific package installation and lifecycle checks remain before stable promotion.
 
 Revision 0.9.27-5 gives the bottom visible 1fichier job exclusive retry ownership. Following 1fichier jobs remain queued without copying its countdown and become eligible one at a time only after the current owner completes, fails, or is paused. The API shape is unchanged, so existing clients remain compatible.
 
-Revision 0.9.27-6 classifies 1fichier's form-less daily free-download-limit page as a 24-hour persisted wait. The API remains unchanged. Two real NAS downloads completed before the provider imposed that daily limit.
+Revision 0.9.27-6 classifies 1fichier's form-less daily free-download-limit page as a 24-hour persisted wait. The API remains unchanged. Four real NAS downloads completed: two before the limit, then the deferred 429,020,440-byte owner and the following 12,567,188-byte job after reset. This verifies both automatic retry and sequential ownership transfer.
 
 Revision 0.9.27-2 adds `xshare` to `browser_handoff_providers` for the coordinated Chrome candidate. It accepts the existing `{provider, url, resolved_url}` inspect payload, validates a same-file first-party keyed endpoint, and obtains metadata without consuming the key. The first transfer uses one full GET without resume or automatic replay. Signed-out, unsupported, and older companion installations must leave the provider's normal download intact. Automated server regressions passed (218 tests, one skipped); real X-Share NAS transfer remains a release gate.
 

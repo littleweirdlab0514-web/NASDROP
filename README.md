@@ -24,9 +24,9 @@ Already using NASDrop? LittleWeirdLab is recruiting existing NASDrop users to he
 
 NASDrop is a self-hosted personal download portal for Synology DSM and Docker hosts. Paste a supported GigaFile, GoFile, Pixeldrain, 1fichier, or Buzzheavier signed direct link, or use the Chrome companion for browser-assisted providers, and the storage server downloads the file directly.
 
-1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot limits, run one connection at a time, and restart from zero after interruption. Guest slots were full during development, so an end-to-end NAS transfer still needs a user test. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
+1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot/daily limits, run one connection at a time, and restart from zero after interruption. On 2026-09-28, four sequential NAS transfers completed, including the deferred owner and the following job after the daily limit reset. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
 
-**0.9.27-2 Synology candidate:** 1fichier inspection/file-password entry and coordinated X-Share Chrome handoff are available for installation testing. X-Share requires the compatible Chrome candidate and a real user-completed verification/Download click; pasting its share URL alone is not supported. The issued key is used only for one full file request, not preflight probes or automatic retries. Real NAS transfer validation is pending. The current stable Docker image remains 0.9.26-6 until the real Synology flow and Docker parity are verified.
+**0.9.27-6 candidate:** 1fichier inspection, file-password entry, sequential retry, and coordinated X-Share Chrome handoff are available for installation testing. X-Share requires the compatible Chrome candidate and a real user-completed verification/Download click; pasting its share URL alone is not supported. The current stable Docker image remains 0.9.26-6 until DSM-specific installation and lifecycle checks are complete.
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
 
@@ -516,7 +516,26 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 
 ## Supported links and rate-limit protection
 
-NASDrop currently supports standard GigaFile links, GoFile share links, Pixeldrain file-share links, and Buzzheavier signed direct links copied from the provider page. The Chrome companion additionally supports user-assisted AkiraBox, VikingFile, and Send.now handoff when the server advertises the matching capability. For Pixeldrain, NASDrop compares the SHA-256 value reported by the public API with the final downloaded file hash. Provider-specific input, concurrency, expiry, retry, and security rules are maintained in the [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md).
+### Register directly in the NASDrop web portal
+
+| Service | Accepted input | Notes |
+| --- | --- | --- |
+| GigaFile | Official share link | Multi-file shares and optional four-digit download keys are supported. |
+| GoFile | Official share link | Rate limits trigger a persisted automatic cooldown. |
+| Pixeldrain | Official file-share link | NASDrop verifies the provider-reported SHA-256 after download. |
+| 1fichier | Official `https://1fichier.com/?<id>` share | Optional file password; provider waits and daily limits are deferred automatically; jobs run sequentially. |
+| Buzzheavier | The signed URL produced by **Copy download link** | The ordinary share-page URL is not enough. The Chrome companion can capture the same signed URL, but is optional. |
+
+### Chrome companion required
+
+| Service | Required user action |
+| --- | --- |
+| AkiraBox | Open the official page and click its real download control. |
+| VikingFile | Open the official page and click its real download control. |
+| Send.now | Complete provider verification yourself, continue to the final page, and click the actual **Download [size]** button. |
+| X-Share | Complete security verification yourself and click the official **Download** button; pasting the share URL directly is unsupported. |
+
+The extension never copies browser cookies or solves CAPTCHA/provider challenges. TeraBox and PikPak are not supported. Provider-specific input, concurrency, expiry, retry, and security rules are maintained in the [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md).
 
 ### X-Share browser-assisted downloads (candidate)
 
