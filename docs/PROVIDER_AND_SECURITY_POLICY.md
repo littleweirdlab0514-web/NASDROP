@@ -105,7 +105,7 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 ### Required response
 
 - Never automate advertisement clicks, counters, CAPTCHA, or Cloudflare. The user performs site interaction.
-- Validate the share and signed URL separately, including scheme, host, path, expiration, signature shape, and every redirect destination.
+- Validate the share and signed URL separately, including scheme, exact first-party host, path, expiration, signature shape, and every redirect destination. The current prepared URL has exactly one each of `expiration`, `t`, `s`, and `b`; both timestamps are ten decimal digits and both signatures are 64 hexadecimal characters. Chrome 0.5.8 also retains the separately validated legacy `expiration` plus `signature` pair. Reject mixed schemas, missing, repeated, unknown, malformed, expired or excessively long-lived fields rather than treating either form as a generic download URL.
 - Verify metadata with HEAD or a bodyless Range `0-0` fallback. Reject HTML/error bodies and non-resumable responses.
 - Use one download connection. Only selected transient transport interruptions may retry, at most three times after 10/20/30 seconds and only from already validated byte ranges. HTTP rejection, invalid ranges, redirects, and local write errors are not transient retries.
 

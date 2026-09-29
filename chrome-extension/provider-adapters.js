@@ -150,8 +150,28 @@ globalThis.NASDropProviders = (() => {
     if (!filename || filename === '.' || filename === '..' || /[\/\\\x00-\x1f\x7f]/.test(filename)) return null;
     if (type === 'akirabox') {
       if (u.hostname !== 'akirabox.com' || parts[1] !== 'download' || !/^[A-Za-z0-9_+=-]+$/.test(parts[2])) return null;
-      if ([...u.searchParams.keys()].length !== 2 || u.searchParams.getAll('expiration').length !== 1 || u.searchParams.getAll('signature').length !== 1) return null;
-      if (!/^\d{10,11}$/.test(u.searchParams.get('expiration')) || !/^[a-f0-9]{64}$/i.test(u.searchParams.get('signature'))) return null;
+      const keys = [...u.searchParams.keys()];
+      const legacy = keys.length === 2
+        && u.searchParams.getAll('expiration').length === 1
+        && u.searchParams.getAll('signature').length === 1;
+      const currentFields = ['expiration', 't', 's', 'b'];
+      const current = keys.length === currentFields.length
+        && currentFields.every(key => u.searchParams.getAll(key).length === 1);
+      if (!legacy && !current) return null;
+      if (legacy) {
+        if (!/^\d{10,11}$/.test(u.searchParams.get('expiration'))
+          || !/^[a-f0-9]{64}$/i.test(u.searchParams.get('signature'))) return null;
+      } else {
+        const expiration = u.searchParams.get('expiration');
+        const issued = u.searchParams.get('t');
+        if (!/^\d{10}$/.test(expiration) || !/^\d{10}$/.test(issued)
+          || !/^[a-f0-9]{64}$/i.test(u.searchParams.get('s'))
+          || !/^[a-f0-9]{64}$/i.test(u.searchParams.get('b'))) return null;
+        const expirationTime = Number(expiration);
+        const issuedTime = Number(issued);
+        if (issuedTime > Date.now()/1000 + 300 || issuedTime > expirationTime
+          || expirationTime - issuedTime > 3600) return null;
+      }
     } else if (type === 'vikingfile') {
       if (u.hostname !== 'vikingfile.com' || parts[1] !== 'd' || !/^[A-Za-z0-9_-]+$/.test(parts[2]) || u.search) return null;
     } else return null;

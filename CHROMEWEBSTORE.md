@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — NASDrop for Chrome
 
-> Last Updated: 2026-09-26
+> Last Updated: 2026-09-29
 
 ## Store Listing
 
@@ -40,7 +40,7 @@ Access to supported provider pages is used only to recognize their official down
 SUPPORT
 Report sanitized issues at https://github.com/littleweirdlab0514-web/NASDROP/issues or email littleweirdlab0514@gmail.com. Never include passwords, session tokens, private download links or an unredacted NAS address in a public report.
 
-Version 0.5.7 — Adds capability-gated X-Share handoff. Users complete Turnstile and the provider wait themselves; only the enabled official Download click can arm capture of the same-file one-time URL before Chrome starts a local transfer. Challenge tokens and cookies are not read or copied, advertisements are not matched, and an unsupported NAS leaves the site's normal download untouched.
+Version 0.5.8 — Retains the capability-gated X-Share handoff and recognizes AkiraBox's current prepared first-party download URL. The exact current and former signature schemas are validated independently; mixed, missing, repeated, unknown or malformed fields remain rejected, and signed URLs are not persisted or exposed in extension responses.
 
 Minimum browser: Chrome 111, required by the statically declared MAIN-world X-Share content script.
 
@@ -70,7 +70,7 @@ English
 ### Screenshot Notes
 
 - Use only synthetic filenames and a private test NAS address that has been fully redacted.
-- Show the current 0.5.5 popup, including collapsed controls by default and one expanded secret-entry form.
+- Show the current 0.5.8 popup, including collapsed controls by default and one expanded secret-entry form.
 - Capture each image at an accepted exact size; do not scale a mobile screenshot into the store frame.
 - Do not show credentials, session tokens, signed provider URLs, cookies or real private hostnames.
 
@@ -147,6 +147,7 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 0.5.8 | 2026-09-29 | Strict support for AkiraBox's current four-field prepared URL while preserving 0.5.7 X-Share behavior | Candidate |
 | 0.5.7 | 2026-09-26 | Capability-gated X-Share official-button handoff; same-ID one-time URL captured before local transfer without reading Turnstile tokens or cookies | Candidate |
 | 0.5.6 | 2026-09-23 | Login bootstrap wording uses NASDrop rather than Docker | Draft |
 | 0.5.5 | 2026-09-22 | Capability-gated GigaFile download-key entry/retry; Send.now pending state survives service-worker suspension | Draft |
@@ -159,10 +160,10 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 ### Submission Readiness
 
-- [x] Manifest V3 and extension version 0.5.7
+- [x] Manifest V3 and extension version 0.5.8
 - [x] English default with Korean, Simplified Chinese and Japanese locales
 - [x] Automated Chrome extension tests pass
-- [ ] Publish `NASDrop-Chrome-0.5.7.zip` after live NAS verification
+- [ ] Publish `NASDrop-Chrome-0.5.8.zip` after live NAS verification
 - [ ] Publish the Chrome-specific privacy policy on the public default branch
 - [ ] Create the exact 128×128 store icon
 - [ ] Capture at least one exact-size store screenshot with synthetic/redacted data

@@ -4,7 +4,7 @@ Status: extension-side classification and forwarding are implemented. Use a [NAS
 
 ## Browser observations
 
-- AkiraBox share: `https://akirabox.to/SHARE_ID/file`. Once prepared, `a#download.download-button[aria-disabled="false"]` contains `https://akirabox.com/download/OPAQUE_TOKEN/FILENAME?expiration=UNIX_TIME&signature=HEX_SIGNATURE`.
+- AkiraBox share: `https://akirabox.to/SHARE_ID/file`. The current prepared `a#download.download-button[aria-disabled="false"]` contains `https://akirabox.com/download/OPAQUE_TOKEN/FILENAME?expiration=UNIX_TIME&t=UNIX_TIME&s=HEX_SIGNATURE&b=HEX_SIGNATURE`. The extension also retains the exact former `expiration` plus `signature` pair for compatibility. Mixed schemas, unexpected/repeated fields, malformed timestamps and signatures, excessive validity windows, non-first-party hosts and nonstandard ports are rejected.
 - Viking share: `https://vik1ngfile.site/f/SHARE_ID`. After preparation, `a#download-link.button` contains `https://vikingfile.com/d/OPAQUE_ID/FILENAME`.
 - Send.now shares use `https://send.now/SHARE_ID` and the current `https://send.now/d/SHARE_ID` form. Live Chrome inspection of `/d/1pBGp` showed a **Security verification** page whose same-origin POST control is `input[type="submit"][name="download_a"]` with the visible value **CONTINUE**. The extension leaves that control and the challenge untouched. After Continue, the browser lands on `https://send.now/`, retains the `/d/SHARE_ID` page in `document.referrer`, and displays the actual file action as `button#downloadbtn` with no href. Clicking that final button starts a Chrome download from a rotating `usercdn.com` host. Only that final click arms a one-minute same-tab watch; unrelated downloads are ignored.
 - X-Share shares use `https://x-share.net/s/SHARE_ID`. The inspected page enables `button#dl-btn.btn.btn-primary` only after the user completes Turnstile and a five-second wait. Its click handler posts `{fileId,turnstileToken,referer}` to `/api/download-token`, then programmatically clicks a hidden `download` anchor for `/api/download/SHARE_ID?key=OPAQUE`. The page sends `Referrer-Policy: no-referrer`; its initial page and public `/api/file/SHARE_ID` responses did not set cookies in the inspected session.
@@ -28,7 +28,7 @@ GigaFile download keys use a separate capability and request field. When `/api/s
 ```json
 {
   "url": "https://akirabox.to/SHARE_ID/file",
-  "resolved_url": "https://akirabox.com/download/OPAQUE_TOKEN/FILENAME?expiration=...&signature=...",
+  "resolved_url": "https://akirabox.com/download/OPAQUE_TOKEN/FILENAME?expiration=...&t=...&s=...&b=...",
   "provider": "akirabox"
 }
 ```

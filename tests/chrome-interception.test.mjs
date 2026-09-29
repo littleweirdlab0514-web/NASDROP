@@ -290,7 +290,10 @@ const sendNowLegacyPage = 'https://send.now/e0g53wnqs8ze';
 const sendNowFinalPage = 'https://send.now/';
 const xsharePage = 'https://x-share.net/s/Share123';
 const xshareUrl = 'https://x-share.net/api/download/Share123?key=synthetic%2Bopaque%2Fkey%3D';
-const akiraUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${Math.floor(Date.now()/1000)+3600}&signature=${'a'.repeat(64)}`;
+const akiraIssued = Math.floor(Date.now()/1000);
+const akiraExpiry = akiraIssued + 3600;
+const akiraUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${akiraExpiry}&t=${akiraIssued}&s=${'a'.repeat(64)}&b=${'b'.repeat(64)}`;
+const akiraLegacyUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${akiraExpiry}&signature=${'a'.repeat(64)}`;
 const vikingUrl = 'https://vikingfile.com/d/OpaqueID123/example.zip';
 const sendNowUrl = 'https://download-eu.example-cdn.net/files/OpaqueID123/example.zip?token=synthetic';
 const akiraButton = href => control({href,'aria-disabled':'false'}, ['a#download.download-button']);
@@ -317,12 +320,29 @@ test('AkiraBox/Viking recognize only the official button and strict issued-link 
   }
 });
 
-test('AkiraBox rejects missing, duplicated or expired signatures and does not count clicks', () => {
+test('AkiraBox accepts exact current and legacy signatures, rejects mixed or malformed fields, and does not count clicks', () => {
   assert.equal(adapter.classifyHandoff(control({href:akiraUrl},['a#download.download-button']),akiraPage).kind,'preparing');
-  for (const invalid of [akiraUrl.split('?')[0],akiraUrl+'&signature='+ 'a'.repeat(64),akiraUrl+'&redirect=https://evil.example',akiraUrl.replace('signature=','other=')]) {
+  assert.equal(adapter.classifyHandoff(akiraButton(akiraLegacyUrl),akiraPage).kind,'file');
+  for (const invalid of [
+    akiraUrl.split('?')[0],
+    akiraUrl+'&s='+ 'c'.repeat(64),
+    akiraUrl+'&signature='+ 'c'.repeat(64),
+    akiraUrl+'&redirect=https://evil.example',
+    akiraUrl.replace('&t=', '&other='),
+    akiraUrl.replace(/&s=[a-f0-9]{64}/i, ''),
+    akiraUrl.replace(/&b=[a-f0-9]{64}/i, ''),
+    akiraUrl.replace(/t=\d{10}/, 't=123'),
+    akiraUrl.replace(/s=[a-f0-9]{64}/i, 's=not-hex'),
+    akiraUrl.replace(/b=[a-f0-9]{64}/i, 'b='+ 'c'.repeat(63)),
+    akiraUrl.replace(`t=${akiraIssued}`, `t=${akiraIssued+600}`),
+    akiraUrl.replace(`expiration=${akiraExpiry}`, `expiration=${akiraExpiry+1}`),
+  ]) {
     assert.equal(adapter.classifyHandoff(akiraButton(invalid),akiraPage).kind,'unrecognized');
+    assert.equal(adapter.allowedSubmission(akiraPage,invalid),false);
   }
-  const expired = akiraUrl.replace(/expiration=\d+/, 'expiration=1000000000');
+  const expired = akiraUrl
+    .replace(/expiration=\d+/, 'expiration=1700000000')
+    .replace(/t=\d+/, 't=1699996400');
   assert.equal(adapter.classifyHandoff(akiraButton(expired),akiraPage).kind,'expired');
   assert.equal(adapter.allowedSubmission(akiraPage,expired),false);
   // Two ads followed by a real link: only the real link qualifies. No third-click assumption.
@@ -537,7 +557,7 @@ test('download-key retry uses its dedicated endpoint and validates without persi
 });
 
 test('handoff failure reports server error and permits a fresh official link without final-host permissions',async()=>{
-  for(const [pageUrl,first,next,provider] of [[akiraPage,akiraUrl,akiraUrl.replace('signature='+ 'a'.repeat(64),'signature='+ 'b'.repeat(64)),'akirabox'],[vikingPage,vikingUrl,vikingUrl.replace('OpaqueID123','FreshID123'),'vikingfile'],[sendNowPage,sendNowUrl,sendNowUrl.replace('OpaqueID123','FreshID123'),'sendnow']]) {
+  for(const [pageUrl,first,next,provider] of [[akiraPage,akiraUrl,akiraUrl.replace('s='+ 'a'.repeat(64),'s='+ 'c'.repeat(64)),'akirabox'],[vikingPage,vikingUrl,vikingUrl.replace('OpaqueID123','FreshID123'),'vikingfile'],[sendNowPage,sendNowUrl,sendNowUrl.replace('OpaqueID123','FreshID123'),'sendnow']]) {
     const h=workerHarness({capabilities:[provider],inspectFailures:1});
     const sender={...h.sender,url:pageUrl};
     const failed=await h.dispatch({type:'pageSubmit',url:first},sender);
