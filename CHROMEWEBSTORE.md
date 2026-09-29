@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — NASDrop for Chrome
 
-> Last Updated: 2026-09-22
+> Last Updated: 2026-09-29
 
 ## Store Listing
 
@@ -17,7 +17,7 @@ Send supported file-host downloads to your own NASDrop server and manage their p
 NASDrop for Chrome sends supported file-host downloads to a NASDrop server that you operate.
 
 FEATURES
-• Recognizes official download controls on supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile and Send.now pages
+• Recognizes official download controls on supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share pages
 • Sends downloads to your NAS instead of saving them through the browser
 • Shows current progress and lets you pause, resume or delete individual jobs
 • Supports automatic archive extraction and optional archive passwords
@@ -40,7 +40,9 @@ Access to supported provider pages is used only to recognize their official down
 SUPPORT
 Report sanitized issues at https://github.com/littleweirdlab0514-web/NASDROP/issues or email littleweirdlab0514@gmail.com. Never include passwords, session tokens, private download links or an unredacted NAS address in a public report.
 
-Version 0.5.5 — Adds capability-gated GigaFile download-key entry and retry as a field separate from archive passwords. Keys are cleared immediately after submission and are never added to URLs or extension storage. Send.now's pending handoff now survives service-worker suspension in session storage. CAPTCHA and security checks remain entirely user-operated.
+Version 0.5.8 — Retains the capability-gated X-Share handoff and recognizes AkiraBox's current prepared first-party download URL. The exact current and former signature schemas are validated independently; mixed, missing, repeated, unknown or malformed fields remain rejected, and signed URLs are not persisted or exposed in extension responses.
+
+Minimum browser: Chrome 111, required by the statically declared MAIN-world X-Share content script.
 
 **Category**
 
@@ -68,7 +70,7 @@ English
 ### Screenshot Notes
 
 - Use only synthetic filenames and a private test NAS address that has been fully redacted.
-- Show the current 0.5.5 popup, including collapsed controls by default and one expanded secret-entry form.
+- Show the current 0.5.8 popup, including collapsed controls by default and one expanded secret-entry form.
 - Capture each image at an accepted exact size; do not scale a mobile screenshot into the store frame.
 - Do not show credentials, session tokens, signed provider URLs, cookies or real private hostnames.
 
@@ -81,10 +83,10 @@ English
 | `contextMenus` | permissions | Adds an explicit user-invoked command for sending a supported link to NASDrop. |
 | `downloads` | permissions | After the user clicks Send.now's final `Download [size]` button, observes that tab's resulting Chrome download, cancels it, removes its browser history entry and sends the final HTTPS address to the user's NASDrop server. The one-minute watch is limited to that exact user action and Send.now referrer; unrelated downloads and the earlier verification Continue action are ignored. |
 | `notifications` | permissions | Alerts the user when an archive is waiting for a password and reports download submissions or errors. |
-| `storage` | permissions | Stores the chosen NASDrop address, access token, username, language and extraction preference locally. It also holds only the short-lived pending Send.now handoff in session storage. Passwords, GigaFile download keys and signed handoff URLs are not stored. |
+| `storage` | permissions | Stores the chosen NASDrop address, access token, username, language and extraction preference locally. It also holds only the short-lived pending Send.now handoff in session storage. Passwords, GigaFile download keys and signed handoff URLs, including X-Share keys, are not stored. |
 | `http://*/*` | optional_host_permissions | Allows the user to grant access at sign-in to a self-hosted NASDrop server on a private HTTP address. The extension requests only the entered server origin at runtime. |
 | `https://*/*` | optional_host_permissions | Allows the user to grant access at sign-in to a self-hosted NASDrop server on an arbitrary HTTPS hostname. The extension requests only the entered server origin at runtime. |
-| Listed GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile and Send.now URL patterns | content script matches | Detects only the supported sites' official download controls and forwards a user-clicked download to the user's NASDrop server. On Send.now, it does not interact with CAPTCHA or Cloudflare/security-challenge controls. |
+| Listed GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share URL patterns | content script matches | Detects only the supported sites' official download controls and forwards a user-clicked download to the user's NASDrop server. On Send.now and X-Share, it does not interact with CAPTCHA, Turnstile or security-challenge controls. X-Share's MAIN-world script is static package code that suppresses only one armed exact same-file anchor before local transfer; it executes no remote code. |
 
 ## Privacy & Data Use
 
@@ -145,6 +147,9 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 0.5.8 | 2026-09-29 | Strict support for AkiraBox's current four-field prepared URL while preserving 0.5.7 X-Share behavior | Candidate |
+| 0.5.7 | 2026-09-26 | Capability-gated X-Share official-button handoff; same-ID one-time URL captured before local transfer without reading Turnstile tokens or cookies | Candidate |
+| 0.5.6 | 2026-09-23 | Login bootstrap wording uses NASDrop rather than Docker | Draft |
 | 0.5.5 | 2026-09-22 | Capability-gated GigaFile download-key entry/retry; Send.now pending state survives service-worker suspension | Draft |
 | 0.5.4 | 2026-09-22 | Real-Chrome Send.now fix: final-button-only interception and single pending handoff without relying on a nonexistent download `tabId` | Draft |
 | 0.5.3 | 2026-09-22 | Send.now `/d/` share recognition and final-button-to-browser-download handoff; adds the `downloads` permission without CAPTCHA automation | Draft |
@@ -155,22 +160,23 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 ### Submission Readiness
 
-- [x] Manifest V3 and extension version 0.5.5
+- [x] Manifest V3 and extension version 0.5.8
 - [x] English default with Korean, Simplified Chinese and Japanese locales
 - [x] Automated Chrome extension tests pass
-- [ ] Publish `NASDrop-Chrome-0.5.5.zip` after live NAS verification
+- [ ] Publish `NASDrop-Chrome-0.5.8.zip` after live NAS verification
 - [ ] Publish the Chrome-specific privacy policy on the public default branch
 - [ ] Create the exact 128×128 store icon
 - [ ] Capture at least one exact-size store screenshot with synthetic/redacted data
 - [ ] Complete an installed-extension run in Chrome with DevTools MCP after restarting Codex and enabling Chrome remote debugging
-- [ ] Complete live NAS end-to-end checks for Buzzheavier, AkiraBox, VikingFile and Send.now
+- [ ] Complete live NAS end-to-end checks for Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share
 - [ ] Verify the publisher name and contact email in the Chrome Web Store developer account
 - [ ] Prepare reviewer instructions and a safe reviewer-accessible NASDrop test environment if Google requests credentials
 
 ### Known Issues / Limitations
 
 - A running user-operated NASDrop server is required; the extension is not a standalone downloader.
-- AkiraBox, VikingFile and Send.now browser handoff require a NASDrop Server that advertises the matching capability and depend on third-party page behavior that may change.
+- AkiraBox, VikingFile, Send.now and X-Share browser handoff require a NASDrop Server that advertises the matching capability and depend on third-party page behavior that may change.
+- X-Share requires the user to complete Turnstile and wait for the official button. The extension does not inspect the Turnstile response. Token IP binding, redirects and completed NAS transfer remain unverified until a live user-issued key is tested.
 - Send.now may require the user to complete security verification and press Continue before the final Download button appears. The extension neither solves nor bypasses those steps and does not intercept Continue; it watches for a browser download only after the later final Download button is clicked.
 - The first connection requests host access for the entered NASDrop origin. After approval, the popup closes and the user may need to reopen it and sign in again.
 - The optional host-permission patterns are broad because a self-hosted server can use any private IP or hostname, but the extension requests only the origin entered by the user.

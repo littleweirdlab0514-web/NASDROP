@@ -30,7 +30,7 @@ Provider websites are external systems and may change without notice. “Support
 | AkiraBox | Official `https://akirabox.to/<id>/file` share plus the prepared signed file URL | Chrome browser handoff only | Forced single connection; browser identity headers; bounded transient resume retries | Complete the page wait yourself, prepare a fresh official Download button, then submit again |
 | VikingFile | Official share plus its prepared file URL | Chrome browser handoff only | Forced single connection; strict redirect/account allowlist and Range validation | Use a fresh official button/link; do not broaden the host allowlist to make one sample pass |
 | Send.now | Official share plus the final browser-created download URL | Chrome user-assisted handoff only | Forced single connection; DNS validation and IP pinning | Complete verification and Continue yourself, then click the final `Download [size]` button again |
-| X-Share (candidate) | Official `https://x-share.net/s/<id>` plus its same-file `/api/download/<id>?key=...` URL | Chrome user-assisted handoff only | One full GET; no keyed preflight, ranges, replay, or automatic retries; DNS/IP pinning | Complete verification yourself and use a fresh official Download click; real NAS transfer is pending |
+| X-Share (candidate) | Official `https://x-share.net/s/<id>` plus its same-file `/api/download/<id>?key=...` URL | Chrome 0.5.8 user-assisted handoff; matching `xshare` capability required | One full GET; no keyed preflight, ranges, replay, or automatic retries; DNS/IP pinning | Complete verification yourself and use a fresh official Download click; real NAS transfer is pending |
 
 ## 1fichier
 

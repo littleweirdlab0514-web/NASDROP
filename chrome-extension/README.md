@@ -2,7 +2,9 @@
 
 This Manifest V3 extension connects supported sites' download controls to an existing NASDrop server. After signing in once, click a recognized download button on the provider page. NASDrop receives the link and the page shows the result.
 
-Version 0.5.5 supports English, Korean, Simplified Chinese and Japanese across the popup, job statuses, site notices, context menus and notifications, with a persistent language selector. It retains job pause/resume/deletion, extraction/password controls and automatic progress updates. It adds capability-gated GigaFile download-key entry without confusing that key with an archive password. AkiraBox, VikingFile and Send.now require a NASDrop server that advertises the matching browser-handoff capability. See [HANDOFF.md](HANDOFF.md) for the contract and outstanding live-NAS verification.
+Version 0.5.8 requires Chrome 111 or later because its narrowly scoped X-Share integration uses a statically declared MAIN-world content script.
+
+Version 0.5.8 supports English, Korean, Simplified Chinese and Japanese across the popup, job statuses, site notices, context menus and notifications, with a persistent language selector. It retains job pause/resume/deletion, extraction/password controls, automatic progress updates and the capability-gated X-Share handoff from 0.5.7. It also recognizes AkiraBox's current four-field prepared URL while strictly preserving the former signature pair for compatibility. AkiraBox, VikingFile, Send.now and X-Share require a NASDrop server that advertises the matching browser-handoff capability. See [HANDOFF.md](HANDOFF.md) for the contract and outstanding live-NAS verification.
 
 Server, Synology packages and setup instructions: [NASDrop project](https://github.com/littleweirdlab0514-web/NASDROP). This extension requires a running NASDrop server; it does not download files independently. This is a developer-mode distribution, not an official Chrome Web Store release.
 
@@ -17,12 +19,13 @@ Choose **Automatic (browser)** or English, 한국어, 中文（简体）, 日本
 - GoFile: `data-action="download"` controls submit the row's file ID, or the current share when no file row is present.
 - Pixeldrain: direct `/api/file/ID?download` links and viewer download controls submit the file share. Version 0.2.1 recognizes both the current Svelte sidebar download button and the no-preview panel's download button, including clicks on their icons or labels.
 - Send.now: the extension accepts both `/FILE_ID` and current `/d/FILE_ID` share pages. The user completes security verification and presses **CONTINUE** normally; NASDrop does not intercept either action. The resulting page exposes the real `Download [size]` control as `button#downloadbtn`. Only when the user clicks that final button does the extension watch the same tab for at most one minute, cancel the resulting Chrome download with a Send.now referrer, remove its browser history entry and send the final HTTPS address to NASDrop. Rotating public delivery hosts are validated by the NAS server rather than pinned in the extension.
+- X-Share: complete Turnstile and the site's wait normally. When the enabled official **Download** button is clicked, the page requests its one-time same-file URL. The extension captures that exact URL before Chrome starts a local transfer and sends it to NASDrop. It does not read the Turnstile response, click the button automatically, copy cookies or match advertisement links. If the server does not advertise `xshare`, the site's normal download is left untouched.
 
 Controls inserted after page load are supported. Only genuine, unmodified primary clicks are redirected; Ctrl/Command/Shift/Alt clicks retain the site's behavior. Unknown controls and advertisements are left alone. Failed NASDrop requests remain visible and never automatically start a local download. Check the NASDrop queue before retrying an uncertain result.
 
 ## Install locally
 
-Version 0.5.5 keeps file controls collapsed by default. Click a file to expand Pause, Resume, Delete and the relevant secret-entry form below its progress display; click again to collapse. GigaFile download keys and archive passwords are separate. Automatic extraction is configured only in the toolbar. Long filenames wrap within the card.
+Version 0.5.8 keeps file controls collapsed by default. Click a file to expand Pause, Resume, Delete and the relevant secret-entry form below its progress display; click again to collapse. GigaFile download keys and archive passwords are separate. Automatic extraction is configured only in the toolbar. Long filenames wrap within the card.
 
 Detailed Korean instructions: [한국어 설치 및 사용 안내](INSTALL.ko.md).
 
@@ -30,11 +33,11 @@ First-login permission instructions with translated examples: [English / 한국�
 
 ### 1. Prepare the NAS
 
-Install and start NASDrop on the NAS. Open its web portal, create or confirm your account, and select a writable default download destination. The extension uses the same NASDrop account, which may differ from your DSM account. Use a server that advertises the applicable browser-handoff provider for AkiraBox, VikingFile or Send.now. This remains a preview with live-NAS end-to-end verification pending.
+Install and start NASDrop on the NAS. Open its web portal, create or confirm your account, and select a writable default download destination. The extension uses the same NASDrop account, which may differ from your DSM account. Use a server that advertises the applicable browser-handoff provider for AkiraBox, VikingFile, Send.now or X-Share. This remains a preview with live-NAS end-to-end verification pending.
 
 ### 2. Download and extract the extension
 
-Open the [Chrome extension release](https://github.com/littleweirdlab0514-web/NASDROP/releases/tag/chrome-v0.5.5) and download **NASDrop-Chrome-0.5.5.zip** under Assets after that release is published. This is different from GitHub's automatically generated **Source code (zip)** and the Synology `.spk` installer.
+Download the separately supplied **NASDrop-Chrome-0.5.8.zip** candidate. After a matching GitHub release is published, use its asset rather than GitHub's automatically generated **Source code (zip)** or the Synology `.spk` installer.
 
 Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`. Do not run files inside the ZIP or select the ZIP itself. The folder you will select must contain `manifest.json`, `background.js`, `popup.html`, `icons` and `_locales` directly. If there is an extra nested folder, select that inner folder. Keep this directory in place while the extension is installed.
 
@@ -43,7 +46,7 @@ Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`
 1. Type `chrome://extensions` in Chrome's address bar and press Enter.
 2. Turn on **Developer mode** in the upper-right corner.
 3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
-4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.5**. Chrome will disclose that the extension can manage downloads; this is used only for the user-initiated Send.now handoff described above.
+4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.8**. Chrome will disclose that the extension can manage downloads; this is used only for the user-initiated Send.now handoff described above.
 5. Open Chrome's puzzle-piece Extensions menu and pin NASDrop to the toolbar for easy access.
 
 These steps follow [Chrome's official unpacked-extension instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked). This package is not a Chrome Web Store installation. Managed work/school Chrome may prohibit developer-mode extensions; ask the administrator rather than bypassing the policy. This guide is for desktop Chrome, not mobile Chrome.
@@ -55,7 +58,7 @@ These steps follow [Chrome's official unpacked-extension instructions](https://d
 3. Enter the same username/password used in the NASDrop web portal and click **Connect**, or press Enter in the password field.
 4. On the first login, Chrome may request additional permission for the NAS address. Verify that it is your NAS and click **Allow**. Then click the NASDrop toolbar icon to reopen the extension and **sign in again** (re-enter your password if needed). Granting permission is not the same as completing login. See the [four-language illustrated guide](FIRST_LOGIN.md). Do not bypass certificate or browser security warnings; fix HTTPS configuration first.
 5. Check that the destination shown is correct. Set **Automatically extract archives** beside Refresh as desired.
-6. Reload any provider tabs that were open before installation. Open a supported share page and wait for its official download button to be ready. For AkiraBox, VikingFile and Send.now, use that page button rather than pasting a share URL into manual entry. If Send.now shows security verification, complete it yourself through the site's normal flow; NASDrop does not interact with the challenge.
+6. Reload any provider tabs that were open before installation. Open a supported share page and wait for its official download button to be ready. For AkiraBox, VikingFile, Send.now and X-Share, use that page button rather than pasting a share URL into manual entry. Complete Send.now or X-Share verification yourself through the site's normal flow; NASDrop does not interact with the challenge.
 7. Click the official download button once, wait for the NASDrop result, then open the extension to inspect the queue. Buzzheavier also supports **Copy download link**. Do not click advertisements or retry an uncertain submission until you check the queue.
 
 To update, replace the files in the same installed extension directory, click the extension's **Reload** button in `chrome://extensions`, then refresh provider tabs. Keeping the same installed directory preserves its local preferences. Do not load a second copy alongside the first.
@@ -90,4 +93,4 @@ The NASDrop server must already have a writable default destination configured. 
 
 ## Verification limits
 
-The GigaFile page inspected on 2026-09-22 uses `#dlkey[maxlength="4"]` and official controls calling `download(file, true, false)` for a protected file. The extension recognizes that literal structure without executing page code. The Buzzheavier live page inspected on 2026-09-21 uses `a.download-btn[hx-get]` and `a.copy[onclick]` targeting the same `/FILE_ID/download?t=...` endpoint. Its public script reads `HX-Redirect`; clicking Download File reached the file host in Chrome, where this test browser reported `ERR_BLOCKED_BY_CLIENT`. Full installed-extension-to-NAS transfer has not been verified. Automated tests cover the observed control shapes, GigaFile key gating and retry, signed-link validation, click cancellation, duplicate clicks, login errors, restricted worker messages, polling/backoff, Enter submission, password-input preservation, processing options, and completed-history clearing. Popup interaction tests use a mocked DOM, not an installed Chrome extension. Other providers' live DOM variants may require adapter updates.
+The GigaFile page inspected on 2026-09-22 uses `#dlkey[maxlength="4"]` and official controls calling `download(file, true, false)` for a protected file. The extension recognizes that literal structure without executing page code. The X-Share page inspected on 2026-09-26 enables `button#dl-btn.btn.btn-primary` only after Turnstile and a five-second wait, then requests `/api/download-token` and clicks a hidden same-file `/api/download/ID?key=...` anchor. Version 0.5.8 retains 0.5.7's narrowly scoped programmatic-anchor capture while adding the AkiraBox URL update. Full installed-extension-to-NAS X-Share transfer, token IP binding and response resume behavior remain unverified. Automated tests cover the observed control shapes, one-time URL suppression, same-ID validation, capability gating, GigaFile key handling, signed-link validation, click cancellation, login errors, restricted worker messages and job controls. Popup interaction tests use a mocked DOM, not an installed Chrome extension. Other provider DOM variants may require adapter updates.

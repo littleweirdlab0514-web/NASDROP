@@ -9,7 +9,7 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 | Synology package | 0.9.27-7 candidate | x86_64 SPK built from the same verified server source |
 | Docker image | 0.9.27-7 candidate (amd64 test first) | Adds the explicit X-Share transfer user agent after reproducing the provider's default-curl HTTP 403 |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
-| Chrome extension | 0.5.7 X-Share candidate; 0.5.5 stable | Adds user-clicked X-Share keyed URL handoff; actual NAS transfer remains unverified |
+| Chrome extension | 0.5.8 candidate; 0.5.5 stable | Adds capability-gated X-Share handoff and current AkiraBox signed-link capture; real NAS transfers remain release gates |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
