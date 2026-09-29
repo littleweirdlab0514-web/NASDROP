@@ -202,6 +202,31 @@ class ProcessingPipelineTests(unittest.TestCase):
             else:
                 self.assertEqual(stat.S_IMODE(state_file.stat().st_mode), 0o600)
 
+    def test_job_state_save_recovers_when_atomic_replace_temporarily_loses_its_parent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state_file = Path(temp) / "state" / "jobs.json"
+            controller = backend.Controller.__new__(backend.Controller)
+            controller.jobs = {}
+            real_replace = backend.os.replace
+            sources = []
+
+            def flaky_replace(source, destination):
+                sources.append(Path(source))
+                if len(sources) == 1:
+                    raise FileNotFoundError(2, "simulated missing state directory", str(source))
+                return real_replace(source, destination)
+
+            with mock.patch.object(backend, "STATE_FILE", state_file), \
+                    mock.patch.object(backend.os, "replace", side_effect=flaky_replace), \
+                    mock.patch.object(backend.time, "sleep") as sleep:
+                controller.save()
+
+            self.assertEqual(state_file.read_text(encoding="utf-8"), "[]")
+            self.assertEqual(len(sources), 2)
+            self.assertNotEqual(sources[0], sources[1])
+            sleep.assert_called_once_with(backend.STATE_SAVE_RETRY_DELAYS[0])
+            self.assertEqual(list(state_file.parent.glob(".*.tmp")), [])
+
     def test_workspace_is_hidden_and_scoped_to_target(self):
         with tempfile.TemporaryDirectory() as target:
             workspace = backend.job_workspace(target, "0123456789ab")

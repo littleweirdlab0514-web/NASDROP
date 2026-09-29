@@ -1260,6 +1260,34 @@ def promote_download(artifact: Path, target_dir: str, auto_extract: bool, passwo
     return output, False
 
 
+STATE_SAVE_RETRY_DELAYS = (0.05, 0.2, 1.0, 2.0, 5.0)
+
+
+def _write_state_snapshot(path: Path, payload: str) -> None:
+    """Atomically persist state and recover from a transient missing state directory."""
+    for attempt in range(len(STATE_SAVE_RETRY_DELAYS) + 1):
+        temporary = path.with_name(
+            f".{path.name}.{os.getpid()}.{threading.get_ident()}.{secrets.token_hex(4)}.tmp"
+        )
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with temporary.open("x", encoding="utf-8") as output:
+                output.write(payload)
+                output.flush()
+                os.fsync(output.fileno())
+            temporary.chmod(0o600)
+            os.replace(temporary, path)
+            return
+        except FileNotFoundError:
+            temporary.unlink(missing_ok=True)
+            if attempt >= len(STATE_SAVE_RETRY_DELAYS):
+                raise
+            time.sleep(STATE_SAVE_RETRY_DELAYS[attempt])
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+
+
 class Controller:
     def __init__(self) -> None:
         self.stopping = False
@@ -1293,11 +1321,8 @@ class Controller:
             self.jobs = {}
 
     def save(self) -> None:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
-        temp = STATE_FILE.with_suffix(".tmp")
-        temp.write_text(json.dumps([asdict(x) for x in self.jobs.values()], ensure_ascii=False, indent=2), encoding="utf-8")
-        temp.chmod(0o600)
-        temp.replace(STATE_FILE)
+        payload = json.dumps([asdict(x) for x in self.jobs.values()], ensure_ascii=False, indent=2)
+        _write_state_snapshot(STATE_FILE, payload)
 
     def public_jobs(self) -> list[dict]:
         with self.lock:
