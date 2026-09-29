@@ -1,5 +1,13 @@
 # NASDrop 0.9.27 릴리스 체크리스트
 
+## 0.9.27-7 X-Share live-transfer bugfix candidate
+
+- [x] Reproduce X-Share public API HTTP 403 with curl's default user agent from the NAS Docker network.
+- [x] Confirm the same pinned IPv4 request succeeds with the explicit `NASDrop/0.9.27-6` user agent.
+- [x] Add an explicit NASDrop user agent and identity encoding to the one-shot keyed file request without forwarding cookies, Referer, or Turnstile data.
+- [x] Build and smoke-test the amd64 Docker image on the 192.168.1.203 test NAS; health, read-only root, no-new-privileges, account bootstrap, and preserved config checks passed.
+- [ ] Complete one real browser-to-NAS X-Share transfer before promotion.
+
 ## 0.9.27-6 1fichier daily-limit retry candidate
 
 - [x] Classify the real form-less daily free-download-limit page as a provider wait.

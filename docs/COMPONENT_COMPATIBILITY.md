@@ -6,8 +6,8 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.27-6 stable | x86_64 SPK built from the same verified server source |
-| Docker image | 0.9.27-6 stable (amd64 and arm64) | Both architectures passed bootstrap/account and runtime smoke tests; four real sequential 1fichier transfers completed |
+| Synology package | 0.9.27-7 candidate | x86_64 SPK built from the same verified server source |
+| Docker image | 0.9.27-7 candidate (amd64 test first) | Adds the explicit X-Share transfer user agent after reproducing the provider's default-curl HTTP 403 |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.7 X-Share candidate; 0.5.5 stable | Adds user-clicked X-Share keyed URL handoff; actual NAS transfer remains unverified |
 
@@ -18,6 +18,8 @@ NASDrop 0.9.27 adds an optional `source_password` field to the existing inspect/
 Revision 0.9.27-5 gives the bottom visible 1fichier job exclusive retry ownership. Following 1fichier jobs remain queued without copying its countdown and become eligible one at a time only after the current owner completes, fails, or is paused. The API shape is unchanged, so existing clients remain compatible.
 
 Revision 0.9.27-6 classifies 1fichier's form-less daily free-download-limit page as a 24-hour persisted wait. The API remains unchanged. Four real NAS downloads completed: two before the limit, then the deferred 429,020,440-byte owner and the following 12,567,188-byte job after reset. This verifies both automatic retry and sequential ownership transfer.
+
+Revision 0.9.27-7 fixes X-Share's first real transfer failure. From the NAS Docker network, X-Share's public API returned HTTP 403 to curl's default user agent and HTTP 200 when the explicit NASDrop user agent was supplied. The keyed transfer now supplies that same user agent and identity encoding while preserving the one-shot, pinned-address security boundary.
 
 Revision 0.9.27-2 adds `xshare` to `browser_handoff_providers` for the coordinated Chrome candidate. It accepts the existing `{provider, url, resolved_url}` inspect payload, validates a same-file first-party keyed endpoint, and obtains metadata without consuming the key. The first transfer uses one full GET without resume or automatic replay. Signed-out, unsupported, and older companion installations must leave the provider's normal download intact. Automated server regressions passed (218 tests, one skipped); real X-Share NAS transfer remains a release gate.
 

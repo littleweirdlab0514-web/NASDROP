@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
 Last updated: 2026-09-26
-Applies to: NASDrop Server 0.9.27-6 stable
+Applies to: NASDrop Server 0.9.27-7 candidate
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -38,6 +38,7 @@ Provider websites are external systems and may change without notice. “Support
 - Revision 0.9.27-4 renders the persisted `not_before` deadline as a local second-by-second countdown. The browser does not poll 1fichier to update the display; provider requests still occur only when the saved deadline expires.
 - Revision 0.9.27-5 makes the job shown at the bottom of the web list the exclusive 1fichier retry owner. Other 1fichier jobs remain queued until that job completes, fails, or is paused.
 - Revision 0.9.27-6 recognizes 1fichier's daily free-download-limit page as a persisted 24-hour provider wait. The page supplies no reset time, so NASDrop avoids repeated probes and keeps the remaining jobs in the sequential queue.
+- Revision 0.9.27-7 sends the same explicit NASDrop user agent used for X-Share metadata when redeeming the one-time file URL. X-Share's Cloudflare edge rejects curl's default user agent with HTTP 403; the keyed request remains a single pinned HTTPS GET without cookies, Referer, preflight, replay, or automatic retry.
 - The Docker account bootstrap imports credential helpers with the download dispatcher disabled. This prevents the pre-server account check from claiming a due queue head and leaving it paused when the real server starts.
 - The controller is constructed only after provider classification is defined, so an already-due persisted retry cannot outrun module initialization and terminate the dispatcher thread during service startup.
 - Provider wait messages schedule a persisted `not_before` deadline instead of failing or occupying a transfer slot. Respect stated English/French minute limits with a five-second margin; guest-slot exhaustion schedules a five-minute recheck; the daily free-use page schedules one 24-hour recheck because it gives no reset time. 1fichier owns one queue head at a time: the job shown at the bottom of the web list keeps retry ownership until it completes, fails, or is paused, and only then may the next job start. Following jobs show a sequential-queue message instead of copying the active job's countdown. A renewed limit reschedules only the queue head; no proxy rotation, login-cookie copying, or CAPTCHA bypass is used.

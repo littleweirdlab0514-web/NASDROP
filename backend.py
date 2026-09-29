@@ -2240,6 +2240,9 @@ printf 'SEGMENTS_READY=1\n'
             f'url = "{_curl_config_value(download)}"',
             'proto = "=https"', 'proto-redir = "=https"',
             f'resolve = "{_curl_config_value(host + ":443:" + pinned)}"',
+            f'user-agent = "{_curl_config_value(f"NASDrop/{PACKAGE_VERSION}")}"',
+            'header = "Accept: application/octet-stream"',
+            'header = "Accept-Encoding: identity"',
             'proxy = ""',
         ])
         merger = f"{shlex.quote(sys.executable)} {shlex.quote(str(ROOT / 'transfer_parts.py'))}"

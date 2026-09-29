@@ -26,7 +26,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot/daily limits, run one connection at a time, and restart from zero after interruption. On 2026-09-28, four sequential NAS transfers completed, including the deferred owner and the following job after the daily limit reset. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
 
-**0.9.27-6 stable:** 1fichier inspection, file-password entry, sequential retry, and X-Share server handoff are included. X-Share requires the separate Chrome 0.5.7 companion and a real user-completed verification/Download click; pasting its share URL alone is not supported. Docker images are published for amd64 and arm64.
+**0.9.27-7 candidate:** fixes X-Share transfers rejected by the provider when NASDrop redeemed the one-time URL with curl's default user agent. X-Share requires the separate Chrome 0.5.7 companion and a real user-completed verification/Download click; pasting its share URL alone is not supported.
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
 
@@ -39,7 +39,7 @@ Send supported download buttons directly to your own NASDrop server, manage the 
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
 
-NASDrop Server 0.9.27-6 remains compatible with Chrome 0.5.5 for its existing providers. X-Share requires Chrome 0.5.7.
+NASDrop Server 0.9.27-7 remains compatible with Chrome 0.5.5 for its existing providers. X-Share requires Chrome 0.5.7.
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -53,8 +53,10 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on external download websites and APIs. Providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
-## What's new in 0.9.27-6 (stable release)
+## What's new in 0.9.27-7 (bugfix candidate)
 
+- Sends an explicit NASDrop user agent and identity encoding when redeeming the one-time X-Share file URL, matching the already-working public metadata request.
+- Keeps X-Share as one pinned HTTPS GET without cookies, Referer, Turnstile data, preflight, redirect, resume, or automatic replay.
 - Added direct 1fichier share registration with optional file passwords.
 - Added a live local countdown for provider waits and daily limits without repeatedly polling 1fichier.
 - Runs 1fichier jobs strictly one at a time from the bottom of the visible queue. The next job starts only after the current owner completes, fails, or is paused.
@@ -361,7 +363,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.27-6-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.27-7-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 
