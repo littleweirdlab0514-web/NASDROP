@@ -22,6 +22,12 @@ def direct(provider):
     return 'https://vikingfile.com/d/synthetic-token/file.zip'
 
 
+def modern_akira(issued=None):
+    issued = int(time.time()) if issued is None else issued
+    return ('https://akirabox.com/download/synthetic-token/file.zip?expiration=' + str(issued + 600)
+            + '&t=' + str(issued) + '&s=' + 'a' * 64 + '&b=' + 'b' * 64)
+
+
 class Response:
     def __init__(self, url, name='테스트 영상.mp4'):
         self.url, self.status = url, 200
@@ -129,6 +135,34 @@ class BrowserHandoffTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 backend._validate_akira_url(bad, direct=True)
 
+    def test_current_akira_four_field_signature_is_strictly_validated(self):
+        issued = int(time.time())
+        url = modern_akira(issued)
+        self.assertEqual(backend._validate_akira_url(url, direct=True), url)
+        for bad in (url + '&s=' + 'c' * 64,
+                    url.replace('&s=' + 'a' * 64, '&s=short'),
+                    url.replace('&b=' + 'b' * 64, '&b=short'),
+                    url.replace('&t=', '&extra=1&t='),
+                    url.replace('expiration=', 'expiration=99999999999&expiration='),
+                    url.replace('expiration=' + str(issued + 600), 'expiration=' + str(issued + 7200)),
+                    url.replace('&t=' + str(issued), '&t=' + str(issued + 900))):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                backend._validate_akira_url(bad, direct=True)
+
+    def test_akira_uses_browser_identity_for_inspection_and_transfer(self):
+        url = modern_akira()
+        opener = mock.Mock()
+        opener.open.return_value = Response(url)
+        with mock.patch.object(backend, 'build_opener', return_value=opener):
+            backend.inspect_browser_handoff(SHARES['akirabox'], url, 'akirabox')
+        request = opener.open.call_args.args[0]
+        self.assertEqual(request.get_header('User-agent'), backend.GOFILE_USER_AGENT)
+
+        c = backend.Controller.__new__(backend.Controller)
+        script = c._download_script_direct(url, SHARES['akirabox'], 'file.zip', '123456abcdef', 100,
+                                           '/tmp/test', mode='single', user_agent=backend.GOFILE_USER_AGENT)
+        self.assertIn(f'user-agent = "{backend.GOFILE_USER_AGENT}"', script)
+
     def test_redirects_blocked_and_error_contains_no_token(self):
         for target in ('http://127.0.0.1/a', direct('akirabox')):
             url = direct('akirabox')
@@ -208,6 +242,8 @@ class BrowserHandoffTests(unittest.TestCase):
                 self.assertEqual(job.transfer_mode, 'single')
                 self.assertEqual(c._download_script_direct.call_args.args[0], url)
                 self.assertEqual(c._download_script_direct.call_args.kwargs['mode'], 'single')
+                self.assertEqual(c._download_script_direct.call_args.kwargs.get('user_agent', ''),
+                                 backend.GOFILE_USER_AGENT if provider == 'akirabox' else '')
 
 
 class DeleteWorkspaceTests(unittest.TestCase):

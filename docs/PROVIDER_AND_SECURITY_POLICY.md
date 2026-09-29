@@ -27,7 +27,7 @@ Provider websites are external systems and may change without notice. “Support
 | Pixeldrain | Official `/u/<id>` share on recognized Pixeldrain domains | Server metadata API | User-selected single/segmented mode; provider SHA-256 is verified | Retry only after checking availability; a hash mismatch is an integrity failure |
 | Buzzheavier | Signed `https://<delivery>.buzzheavier.com/d/<id>?v=<token>` from **Copy download link** | Direct paste or Chrome’s official Download/Copy control | User-selected single/segmented mode; Range support is mandatory | Generate a fresh signed link when it expires or returns 401/403/404 |
 | 1fichier | Official `https://1fichier.com/?<id>` share | Server metadata check; optional file password entered when adding the job | Respect the site's wait, guest-slot, and daily free-use limits; one job and one connection; free downloads restart from zero | Provider limits are deferred automatically; if a challenge appears, complete it on the provider site |
-| AkiraBox | Official share plus the prepared signed file URL | Chrome browser handoff only | Forced single connection; bounded transient resume retries | Complete any site interaction yourself, prepare a fresh official button, then submit again |
+| AkiraBox | Official `https://akirabox.to/<id>/file` share plus the prepared signed file URL | Chrome browser handoff only | Forced single connection; browser identity headers; bounded transient resume retries | Complete the page wait yourself, prepare a fresh official Download button, then submit again |
 | VikingFile | Official share plus its prepared file URL | Chrome browser handoff only | Forced single connection; strict redirect/account allowlist and Range validation | Use a fresh official button/link; do not broaden the host allowlist to make one sample pass |
 | Send.now | Official share plus the final browser-created download URL | Chrome user-assisted handoff only | Forced single connection; DNS validation and IP pinning | Complete verification and Continue yourself, then click the final `Download [size]` button again |
 | X-Share (candidate) | Official `https://x-share.net/s/<id>` plus its same-file `/api/download/<id>?key=...` URL | Chrome user-assisted handoff only | One full GET; no keyed preflight, ranges, replay, or automatic retries; DNS/IP pinning | Complete verification yourself and use a fresh official Download click; real NAS transfer is pending |
@@ -114,6 +114,10 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 - On 401, 403, or 404, ask for a newly generated Copy link; do not hammer an expired token.
 
 ## AkiraBox
+
+- The current page observed on 2026-09-29 uses `https://akirabox.to/<id>/file` and prepares `a#download.download-button` with a first-party `akirabox.com/download/...` URL containing `expiration`, `t`, `s`, and `b`. The legacy `expiration` plus `signature` form remains accepted for compatibility; mixed, duplicate, unknown, malformed, or overly long-lived signatures are rejected.
+- The current first-party endpoint redirects to the exact delivery host `eeur1.akirabox.com` with one opaque `access` value. This host is allowlisted alongside the previously verified `us1.akirabox.com`; arbitrary AkiraBox subdomains and lookalikes remain blocked.
+- The current delivery edge rejects NASDrop's product user agent but accepts the same browser-shaped identity used by the browser handoff together with the canonical share Referer. NASDrop supplies those two non-secret headers for inspection and transfer. It does not copy cookies, browser storage, account data, challenge tokens, or page scripts.
 
 ### Characteristics
 

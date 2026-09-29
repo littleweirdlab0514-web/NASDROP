@@ -1915,6 +1915,7 @@ class Controller:
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 mode=download_mode, capture_headers=True, transient_retries=3 if provider == "akirabox" else 0,
                 resolve_host=private.get("resolve_host", ""), resolve_address=private.get("resolve_address", ""),
+                user_agent=GOFILE_USER_AGENT if provider == "akirabox" else "",
             )
         else:
             file_id = parsed.path.strip("/")
@@ -2161,7 +2162,7 @@ curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent -
             raise ValueError("Gofile 다운로드 인증 정보가 없습니다.")
         return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}", mode=mode, max_parallel=2)
 
-    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False, max_parallel: int = 8, transient_retries: int = 0, resolve_host: str = "", resolve_address: str = "") -> str:
+    def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False, max_parallel: int = 8, transient_retries: int = 0, resolve_host: str = "", resolve_address: str = "", user_agent: str = "") -> str:
         if not download.startswith("https://"):
             raise ValueError("직접 다운로드 주소가 올바르지 않습니다.")
         config_lines = [
@@ -2169,6 +2170,8 @@ curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent -
             f'referer = "{_curl_config_value(page)}"',
             'proto = "=https"', 'proto-redir = "=https"',
         ]
+        if user_agent:
+            config_lines.append(f'user-agent = "{_curl_config_value(user_agent)}"')
         if cookie:
             config_lines.append(f'header = "{_curl_config_value("Cookie: " + cookie)}"')
         if resolve_host or resolve_address:
@@ -2763,12 +2766,21 @@ def _validate_akira_url(value: str, *, direct: bool) -> str:
             if parsed.hostname != "akirabox.com" or not re.fullmatch(r"/download/[^/]+/[^/]+", parsed.path):
                 raise ValueError(error)
             query = parse_qs(parsed.query, keep_blank_values=True)
-            if set(query) != {"expiration", "signature"} or any(len(v) != 1 for v in query.values()):
+            if set(query) not in ({"expiration", "signature"}, {"expiration", "t", "s", "b"}) or any(len(v) != 1 for v in query.values()):
                 raise ValueError(error)
             if not re.fullmatch(r"[0-9]{10,11}", query["expiration"][0]) or int(query["expiration"][0]) <= time.time():
                 raise ValueError(error)
-            if not re.fullmatch(r"[a-fA-F0-9]{32,128}", query["signature"][0]):
-                raise ValueError(error)
+            if "signature" in query:
+                if not re.fullmatch(r"[a-fA-F0-9]{32,128}", query["signature"][0]):
+                    raise ValueError(error)
+            else:
+                issued, expires = query["t"][0], query["expiration"][0]
+                if (not re.fullmatch(r"[0-9]{10,11}", issued)
+                        or not re.fullmatch(r"[a-fA-F0-9]{64}", query["s"][0])
+                        or not re.fullmatch(r"[a-fA-F0-9]{64}", query["b"][0])
+                        or int(issued) > time.time() + 300
+                        or int(issued) > int(expires) or int(expires) - int(issued) > 3600):
+                    raise ValueError(error)
         elif parsed.hostname not in {"akirabox.to", "akirabox.com"} or not re.fullmatch(r"/[a-zA-Z0-9]+/file", parsed.path) or parsed.query:
             raise ValueError(error)
     except (ValueError, KeyError):
@@ -2886,7 +2898,7 @@ class HandoffError(ValueError):
 
 
 HANDOFF_FILE_HOSTS = {
-    "akirabox": {"us1.akirabox.com"},
+    "akirabox": {"us1.akirabox.com", "eeur1.akirabox.com"},
     "vikingfile": {"vikingfile.04b3d96d52475741e6b10f97f0a84a16.r2.cloudflarestorage.com"},
 }
 
@@ -3083,7 +3095,10 @@ def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> d
     if provider == "xshare":
         return inspect_xshare_handoff(canonical, direct)
     opener = build_opener(AkiraNoRedirectHandler())
-    headers = {"User-Agent": f"NASDrop/{PACKAGE_VERSION}", "Accept": "*/*", "Accept-Encoding": "identity", "Referer": canonical}
+    headers = {
+        "User-Agent": GOFILE_USER_AGENT if provider == "akirabox" else f"NASDrop/{PACKAGE_VERSION}",
+        "Accept": "*/*", "Accept-Encoding": "identity", "Referer": canonical,
+    }
     try:
         metadata = None
         final_url = direct

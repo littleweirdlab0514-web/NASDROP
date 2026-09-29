@@ -2,6 +2,10 @@
 
 ## 0.9.27-7 X-Share live-transfer bugfix candidate
 
+- [x] Inspect the changed AkiraBox `/&lt;id&gt;/file` page and record its exact official control, new four-field first-party signature, `eeur1.akirabox.com` redirect, and browser-identity requirement.
+- [x] Keep AkiraBox's legacy signed-link form while rejecting mixed, duplicate, malformed, expired, overly long-lived, and unknown fields.
+- [ ] Complete one real browser-to-Docker AkiraBox transfer using the updated Chrome companion before promotion.
+
 - [x] Reproduce X-Share public API HTTP 403 with curl's default user agent from the NAS Docker network.
 - [x] Confirm the same pinned IPv4 request succeeds with the explicit `NASDrop/0.9.27-6` user agent.
 - [x] Add an explicit NASDrop user agent and identity encoding to the one-shot keyed file request without forwarding cookies, Referer, or Turnstile data.
