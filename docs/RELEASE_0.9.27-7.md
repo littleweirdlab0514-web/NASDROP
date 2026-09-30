@@ -1,0 +1,15 @@
+# NASDrop 0.9.27-7 — Browser handoff and state recovery fixes
+
+NASDrop 0.9.27-7 fixes the first real X-Share browser-to-NAS transfer reaching the job list but failing before receiving file data.
+
+It also tracks AkiraBox's September 2026 download-page change: the server accepts the new four-field first-party signature, validates the newly observed exact European delivery host, and uses the browser-shaped identity required by that delivery edge without copying browser cookies or challenge data.
+
+X-Share's Cloudflare edge returns HTTP 403 to curl's default user agent. The public metadata request already used an explicit NASDrop user agent and succeeded, while the keyed file request omitted it. This revision applies the same product user agent to the one-shot file request and requests an unencoded binary response.
+
+State persistence now uses a unique restricted temporary file for every atomic write. If the DSM app-data directory briefly disappears during a write, NASDrop recreates it and retries with bounded delays instead of failing the active download with a missing jobs.tmp error. Other I/O and permission failures still stop immediately so a persistent storage fault is not hidden.
+
+Chrome companion 0.5.9 also recognizes Pixeldrain's current classless no-preview Download button while keeping upgrade, share, and advertising controls native.
+
+The user confirmed the updated AkiraBox, X-Share, and Pixeldrain flows on 2026-09-30. Automated validation passed 229 Python tests with one skip, 79 JavaScript/Chrome tests, concurrent atomic-state-write smoke testing, and Synology package validation.
+
+The security boundary is unchanged: the browser still completes Turnstile and the provider wait, NASDrop receives only the same-file one-time URL, DNS remains pinned to validated public addresses, and NASDrop does not forward browser cookies, Referer, Turnstile tokens, or unrelated page data. The keyed URL is used for one full GET without preflight, redirect, retry, or resume.

@@ -9,7 +9,7 @@ from test_browser_handoff import SHARES, Response, direct
 
 def final(provider):
     if provider == 'akirabox':
-        return 'https://us1.akirabox.com/synthetic/path/file.zip?access=synthetic-private-access'
+        return 'https://eeur1.akirabox.com/synthetic/path/file.zip?access=synthetic-private-access'
     date = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     host = next(iter(backend.HANDOFF_FILE_HOSTS['vikingfile']))
     return f'https://{host}/synthetic/file.zip?X-Amz-Date={date}&X-Amz-Expires=3600&X-Amz-Signature=synthetic-private-signature'
@@ -76,6 +76,7 @@ class HandoffRedirectTests(unittest.TestCase):
         self.assertEqual(result['url'], SHARES['akirabox'])
         self.assertNotIn('synthetic-private', str(backend.public_inspection(result)))
         self.assertEqual(opener.open.call_args.args[0].get_method(), 'HEAD')
+        self.assertEqual(opener.open.call_args.args[0].get_header('User-agent'), backend.GOFILE_USER_AGENT)
 
     def test_viking_get_signed_url_rejects_head_but_range_works(self):
         url = final('vikingfile')
@@ -101,7 +102,7 @@ class HandoffRedirectTests(unittest.TestCase):
     def test_disallowed_redirect_never_reaches_destination(self):
         for provider in SHARES:
             for bad in ('http://127.0.0.1/private', 'https://us2.akirabox.com/a?access=x',
-                        'https://us1.akirabox.com.evil.example/a?access=x',
+                        'https://eeur1.akirabox.com.evil.example/a?access=x',
                         'https://unrelated.r2.cloudflarestorage.com/a',
                         final(provider).replace('https://', 'https://user@'),
                         final(provider).replace('.com/', '.com:444/'),

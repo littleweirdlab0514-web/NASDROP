@@ -8,6 +8,7 @@ const i18nSource = await readFile(new URL('i18n.js', root), 'utf8');
 const adapterSource = await readFile(new URL('provider-adapters.js', root), 'utf8');
 const contentSource = await readFile(new URL('content.js', root), 'utf8');
 const workerSource = await readFile(new URL('background.js', root), 'utf8');
+const xshareMainSource = await readFile(new URL('xshare-main.js', root), 'utf8');
 const page = 'https://buzzheavier.com/testfile1234';
 const signed = 'https://ts.buzzheavier.com/d/testfile1234?v=synthetic-token';
 const context = vm.createContext({URL, AbortSignal});
@@ -62,26 +63,31 @@ test('GigaFile parses only the observed official literal download controls',()=>
   assert.equal(adapter.resolve(control({onclick:"remove_file('0927-d67f99a2b4ddf500579fdabae10989275')"},['button.download_panel_btn_dl.gfbtn, span#dl.download_file_caption']),gigaPage),null);
 });
 
-function contentHarness({ready = true, fail = false, pageUrl = page, referrer='', handoffSupported,gigafileKeySupported=false,gigaKey='',language,browserLanguage='ko',throwAt='',syncThrow=false,errorText='Extension context invalidated.'} = {}) {
+function contentHarness({ready = true, fail = false, armFailureCode='', pageUrl = page, referrer='', handoffSupported,gigafileKeySupported=false,gigaKey='',language,browserLanguage='ko',throwAt='',syncThrow=false,errorText='Extension context invalidated.'} = {}) {
   let handler, runtimeListener;
   const messages = [], requests = [], nodes = [];
+  const documentListeners = new Map();
   function node() {
     const n = {style:{}, textContent:'', isConnected:true, append(){}, setAttribute(){}, addEventListener(){}, remove(){this.isConnected=false;}, attachShadow:node};
     nodes.push(n); return n;
   }
   const keyInput={value:gigaKey,focused:false,focus(){this.focused=true;}};
-  const c = vm.createContext({URL, AbortSignal, setTimeout, clearTimeout, navigator:{language:browserLanguage}, location:{href:pageUrl},
+  class CustomEvent { constructor(type,options={}) { this.type=type;this.detail=options.detail; } }
+  const document={createElement:node, body:node(), referrer,querySelector:selector=>selector==='#dlkey'?keyInput:null,
+    addEventListener(name,fn){if(!documentListeners.has(name))documentListeners.set(name,[]);documentListeners.get(name).push(fn);},
+    dispatchEvent(event){for(const fn of documentListeners.get(event.type)||[])fn(event);return true;}};
+  const c = vm.createContext({URL, AbortSignal, CustomEvent, setTimeout, clearTimeout, navigator:{language:browserLanguage}, location:{href:pageUrl},
     window:{addEventListener(name, fn, capture){assert.equal(name,'click'); assert.equal(capture,true); handler=fn;}},
-    document:{createElement:node, body:node(), referrer,querySelector:selector=>selector==='#dlkey'?keyInput:null},
+    document,
     fetch:async (url, options) => { requests.push({url, options}); return {ok:true, headers:new Headers({'HX-Redirect':signed})}; },
-    chrome:{runtime:{onMessage:{addListener(fn){runtimeListener=fn;}},sendMessage:message => {messages.push(message); if(message.type===throwAt){if(syncThrow)throw new Error(errorText);return Promise.reject(new Error(errorText));} return Promise.resolve(message.type === 'pageReady' ? {ok:true, result:{ready,handoffSupported,gigafileDownloadKeySupported:gigafileKeySupported,language}} : fail ? {ok:false,error:'Server unavailable'} : {ok:true,result:{count:1,language}});}}},
+    chrome:{runtime:{onMessage:{addListener(fn){runtimeListener=fn;}},sendMessage:message => {messages.push(message); if(message.type===throwAt){if(syncThrow)throw new Error(errorText);return Promise.reject(new Error(errorText));} return Promise.resolve(message.type === 'pageReady' ? {ok:true, result:{ready,handoffSupported,gigafileDownloadKeySupported:gigafileKeySupported,language}} : armFailureCode && ['pageArmDownload','pageArmXShare'].includes(message.type) ? {ok:false,code:armFailureCode,error:'Capability changed'} : fail ? {ok:false,error:'Server unavailable'} : {ok:true,result:{count:1,language}});}}},
   });
   vm.runInContext(i18nSource,c); vm.runInContext(adapterSource, c); vm.runInContext(contentSource, c);
   function click(target = download, overrides = {}) {
     const e = {isTrusted:true, button:0, target, preventDefault(){this.prevented=true;}, stopImmediatePropagation(){this.stopped=true;}, ...overrides};
     handler(e); return e;
   }
-  return {click, messages, requests, nodes,keyInput,deliver:message=>runtimeListener(message)};
+  return {click, messages, requests, nodes,keyInput,deliver:message=>runtimeListener(message),emit:(type,detail)=>document.dispatchEvent(new CustomEvent(type,{detail}))};
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -139,9 +145,18 @@ function pixelControl(buttonClass, region, icon = 'download') {
   return button;
 }
 
-test('Pixeldrain current toolbar and no-preview buttons redirect nested clicks to the current share', async () => {
+function currentPixelDescriptionControl(icon = 'download') {
+  return {
+    getAttribute: () => null,
+    matches: selector => selector === 'button',
+    closest: selector => selector === '.description' ? {} : null,
+    querySelector: selector => selector === ':scope > i.icon' ? {textContent:icon} : null,
+  };
+}
+
+test('Pixeldrain current toolbar and classless no-preview buttons redirect nested clicks to the current share', async () => {
   const pageUrl = 'https://pixeldrain.com/u/uLZ8vMm3';
-  for (const button of [pixelControl('toolbar_button','.toolbar'), pixelControl('button_highlight','.description')]) {
+  for (const button of [pixelControl('toolbar_button','.toolbar'), currentPixelDescriptionControl()]) {
     assert.equal(adapter.resolve(button,pageUrl).url,pageUrl);
     const h = contentHarness({pageUrl});
     // The user may click the icon or text span rather than the button itself.
@@ -157,6 +172,7 @@ test('Pixeldrain current toolbar and no-preview buttons redirect nested clicks t
 test('Pixeldrain ignores share/menu controls, lookalikes outside the viewer, and non-file pages', () => {
   const url = 'https://pixeldrain.com/u/uLZ8vMm3';
   for (const icon of ['share','help','content_copy','fullscreen']) assert.equal(adapter.resolve(pixelControl('toolbar_button','.toolbar',icon),url),null);
+  assert.equal(adapter.resolve(currentPixelDescriptionControl('content_copy'),url),null);
   assert.equal(adapter.resolve(pixelControl('button_highlight','.advertisement'),url),null);
   assert.equal(adapter.resolve(pixelControl('toolbar_button','.toolbar'),'https://pixeldrain.com/'),null);
 });
@@ -282,7 +298,12 @@ const vikingPage = 'https://vik1ngfile.site/f/Share123';
 const sendNowPage = 'https://send.now/d/1pBGp';
 const sendNowLegacyPage = 'https://send.now/e0g53wnqs8ze';
 const sendNowFinalPage = 'https://send.now/';
-const akiraUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${Math.floor(Date.now()/1000)+3600}&signature=${'a'.repeat(64)}`;
+const xsharePage = 'https://x-share.net/s/Share123';
+const xshareUrl = 'https://x-share.net/api/download/Share123?key=synthetic%2Bopaque%2Fkey%3D';
+const akiraIssued = Math.floor(Date.now()/1000);
+const akiraExpiry = akiraIssued + 3600;
+const akiraUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${akiraExpiry}&t=${akiraIssued}&s=${'a'.repeat(64)}&b=${'b'.repeat(64)}`;
+const akiraLegacyUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${akiraExpiry}&signature=${'a'.repeat(64)}`;
 const vikingUrl = 'https://vikingfile.com/d/OpaqueID123/example.zip';
 const sendNowUrl = 'https://download-eu.example-cdn.net/files/OpaqueID123/example.zip?token=synthetic';
 const akiraButton = href => control({href,'aria-disabled':'false'}, ['a#download.download-button']);
@@ -290,6 +311,10 @@ const vikingButton = href => control({href}, ['a#download-link.button']);
 const sendNowButton = href => control({href}, ['#direct_link a[href]']);
 function sendNowFinalButton() {
   return {clicks:0,getAttribute:()=>null,matches:selector=>selector==='button#downloadbtn',closest(){return this;},click(){this.clicks++;}};
+}
+function xshareButton() {
+  return {clicks:0,disabled:false,getAttribute:key=>key==='aria-disabled'?null:null,
+    matches:selector=>selector==='button#dl-btn.btn.btn-primary',closest(){return this;},click(){this.clicks++;}};
 }
 
 test('AkiraBox/Viking recognize only the official button and strict issued-link structure', () => {
@@ -305,12 +330,29 @@ test('AkiraBox/Viking recognize only the official button and strict issued-link 
   }
 });
 
-test('AkiraBox rejects missing, duplicated or expired signatures and does not count clicks', () => {
+test('AkiraBox accepts exact current and legacy signatures, rejects mixed or malformed fields, and does not count clicks', () => {
   assert.equal(adapter.classifyHandoff(control({href:akiraUrl},['a#download.download-button']),akiraPage).kind,'preparing');
-  for (const invalid of [akiraUrl.split('?')[0],akiraUrl+'&signature='+ 'a'.repeat(64),akiraUrl+'&redirect=https://evil.example',akiraUrl.replace('signature=','other=')]) {
+  assert.equal(adapter.classifyHandoff(akiraButton(akiraLegacyUrl),akiraPage).kind,'file');
+  for (const invalid of [
+    akiraUrl.split('?')[0],
+    akiraUrl+'&s='+ 'c'.repeat(64),
+    akiraUrl+'&signature='+ 'c'.repeat(64),
+    akiraUrl+'&redirect=https://evil.example',
+    akiraUrl.replace('&t=', '&other='),
+    akiraUrl.replace(/&s=[a-f0-9]{64}/i, ''),
+    akiraUrl.replace(/&b=[a-f0-9]{64}/i, ''),
+    akiraUrl.replace(/t=\d{10}/, 't=123'),
+    akiraUrl.replace(/s=[a-f0-9]{64}/i, 's=not-hex'),
+    akiraUrl.replace(/b=[a-f0-9]{64}/i, 'b='+ 'c'.repeat(63)),
+    akiraUrl.replace(`t=${akiraIssued}`, `t=${akiraIssued+600}`),
+    akiraUrl.replace(`expiration=${akiraExpiry}`, `expiration=${akiraExpiry+1}`),
+  ]) {
     assert.equal(adapter.classifyHandoff(akiraButton(invalid),akiraPage).kind,'unrecognized');
+    assert.equal(adapter.allowedSubmission(akiraPage,invalid),false);
   }
-  const expired = akiraUrl.replace(/expiration=\d+/, 'expiration=1000000000');
+  const expired = akiraUrl
+    .replace(/expiration=\d+/, 'expiration=1700000000')
+    .replace(/t=\d+/, 't=1699996400');
   assert.equal(adapter.classifyHandoff(akiraButton(expired),akiraPage).kind,'expired');
   assert.equal(adapter.allowedSubmission(akiraPage,expired),false);
   // Two ads followed by a real link: only the real link qualifies. No third-click assumption.
@@ -342,11 +384,12 @@ test('Send.now ignores verification Continue and arms only the final download bu
   const challenge=control({},['input[type="submit"][name="download_a"]']);
   const challengeHarness=contentHarness({pageUrl:sendNowPage,handoffSupported:true});
   assert.equal(challengeHarness.click(challenge).prevented,undefined);
-  await flush();assert.equal(challengeHarness.messages.length,0);
+  await flush();assert.equal(challengeHarness.messages.some(message=>message.type!=='pageReady'),false);
   const button=sendNowFinalButton();
   assert.equal(JSON.stringify(adapter.resolve(button,sendNowFinalPage,sendNowPage)),JSON.stringify({handoff:'sendnow',captureDownload:true,source:sendNowPage}));
   assert.equal(adapter.resolve(button,sendNowFinalPage,'https://ads.example/'),null);
   const h=contentHarness({pageUrl:sendNowFinalPage,referrer:sendNowPage,handoffSupported:true});
+  await flush();
   const event=h.click(button);assert.equal(event.prevented,true);assert.equal(event.stopped,true);
   await flush();
   assert.equal(h.messages.filter(m=>m.type==='pageArmDownload').length,1);
@@ -356,11 +399,84 @@ test('Send.now ignores verification Continue and arms only the final download bu
   assert.ok(h.nodes.some(n=>n.textContent==='NASDrop에 추가했습니다.'));
 });
 
+test('X-Share recognizes only the ready official button and same-file issued URL', () => {
+  const button=xshareButton();
+  assert.equal(adapter.share(xsharePage),xsharePage);
+  assert.deepEqual(JSON.parse(JSON.stringify(adapter.resolve(button,xsharePage))),{handoff:'xshare',captureXShare:true,source:xsharePage});
+  assert.equal(adapter.allowedSubmission(xsharePage,xshareUrl),true);
+  for(const invalid of [
+    'https://ads.example/file', 'http://x-share.net/api/download/Share123?key=x',
+    'https://x-share.net/api/download/OtherId?key=x', 'https://x-share.net/api/download/Share123',
+    'https://x-share.net/api/download/Share123?key=x&next=y',
+    `https://x-share.net/api/download/Share123?key=${'x'.repeat(4097)}`,
+    'https://x-share.net/api/download/Share123?key=bad%20space',
+    'https://user:secret@x-share.net/api/download/Share123?key=x',
+    'https://x-share.net:8443/api/download/Share123?key=x', `${xshareUrl}#fragment`,
+  ]) assert.equal(adapter.allowedSubmission(xsharePage,invalid),false);
+  assert.equal(adapter.resolve(control({},['button#dl-btn']),xsharePage),null);
+});
+
+test('X-Share leaves native behavior intact unless NAS capability is ready', async () => {
+  for(const options of [{ready:false,handoffSupported:false},{ready:true,handoffSupported:false}]) {
+    const h=contentHarness({pageUrl:xsharePage,...options});await flush();
+    const event=h.click(xshareButton());
+    assert.equal(event.prevented,undefined);assert.equal(event.stopped,undefined);
+    assert.equal(h.messages.some(message=>message.type==='pageArmXShare'),false);
+  }
+});
+
+test('X-Share arms after the official click and submits the intercepted one-time URL', async () => {
+  const button=xshareButton();
+  const h=contentHarness({pageUrl:xsharePage,handoffSupported:true});await flush();
+  const event=h.click(button);
+  assert.equal(event.prevented,true);assert.equal(event.stopped,true);
+  await flush();
+  assert.equal(h.messages.filter(message=>message.type==='pageArmXShare').length,1);
+  assert.equal(button.clicks,1);
+  h.emit('__nasdrop_xshare_url_v1',xshareUrl);await flush();await flush();
+  const submit=h.messages.find(message=>message.type==='pageSubmit');
+  assert.deepEqual(JSON.parse(JSON.stringify(submit)),{type:'pageSubmit',url:xshareUrl,downloadKey:''});
+});
+
+test('X-Share restores the official native click when cached capability becomes stale', async () => {
+  for(const armFailureCode of ['login','serverUnsupported']) {
+    const button=xshareButton();
+    const h=contentHarness({pageUrl:xsharePage,handoffSupported:true,armFailureCode});await flush();
+    const event=h.click(button);
+    assert.equal(event.prevented,true);assert.equal(event.stopped,true);
+    await flush();
+    assert.equal(h.messages.filter(message=>message.type==='pageArmXShare').length,1);
+    assert.equal(button.clicks,1);
+    assert.equal(h.messages.some(message=>message.type==='pageSubmit'),false);
+  }
+});
+
+test('X-Share MAIN-world hook suppresses only one armed exact issued anchor click', () => {
+  const listeners=new Map(),issued=[];
+  class CustomEvent { constructor(type,options={}) {this.type=type;this.detail=options.detail;} }
+  const document={addEventListener(name,fn){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(fn);},
+    dispatchEvent(event){if(event.type==='__nasdrop_xshare_url_v1')issued.push(event.detail);for(const fn of listeners.get(event.type)||[])fn(event);return true;}};
+  class HTMLAnchorElement {
+    constructor(href,download=true){this.href=href;this.download=download;this.originalClicks=0;}
+    getAttribute(name){return name==='href'?this.href:null;}
+    hasAttribute(name){return name==='download'&&this.download;}
+    click(){this.originalClicks++;}
+  }
+  const c=vm.createContext({URL,Reflect,Date,CustomEvent,document,HTMLAnchorElement,location:{href:xsharePage}});
+  vm.runInContext(xshareMainSource,c);
+  document.dispatchEvent(new CustomEvent('__nasdrop_xshare_arm_v1',{detail:{shareId:'Share123',expiresAt:Date.now()+60000}}));
+  const captured=new HTMLAnchorElement(xshareUrl);captured.click();
+  assert.equal(captured.originalClicks,0);assert.deepEqual(issued,[xshareUrl]);
+  captured.click();assert.equal(captured.originalClicks,1);
+  const unrelated=new HTMLAnchorElement('https://x-share.net/api/download/OtherId?key=synthetic');unrelated.click();
+  assert.equal(unrelated.originalClicks,1);
+});
+
 test('Send.now challenge controls are not clicked, solved or submitted by the extension', async () => {
   const h=contentHarness({pageUrl:sendNowPage,handoffSupported:true});
   assert.equal(h.click(control({},['button#challenge','button.continue'])).prevented,undefined);
   await flush();
-  assert.equal(h.messages.length,0);assert.equal(h.requests.length,0);
+  assert.equal(h.messages.some(message=>message.type!=='pageReady'),false);assert.equal(h.requests.length,0);
 });
 
 test('Send.now browser download capture ignores ads, cancels the armed file and forwards only the final URL', async () => {
@@ -394,9 +510,22 @@ test('provider capabilities are independent',async()=>{
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:akiraPage})).result.handoffSupported,true);
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:vikingPage})).result.handoffSupported,false);
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:sendNowPage})).result.handoffSupported,false);
+  assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:xsharePage})).result.handoffSupported,false);
   assert.equal((await h.dispatch({type:'pageSubmit',url:vikingUrl},{...h.sender,url:vikingPage})).ok,false);
   assert.equal((await h.dispatch({type:'pageSubmit',url:sendNowUrl},{...h.sender,url:sendNowPage})).ok,false);
   assert.ok(!h.calls.some(c=>c.url.endsWith('/api/inspect')));
+});
+
+test('X-Share worker gates arming and forwards the agreed inspect payload',async()=>{
+  const sender={id:'extension-id',url:xsharePage,tab:{id:7},frameId:0};
+  const unsupported=workerHarness();
+  assert.equal((await unsupported.dispatch({type:'pageArmXShare',source:xsharePage},sender)).ok,false);
+  const h=workerHarness({capabilities:['xshare']});
+  assert.equal((await h.dispatch({type:'pageArmXShare',source:xsharePage},sender)).ok,true);
+  assert.equal((await h.dispatch({type:'pageSubmit',url:xshareUrl},sender)).ok,true);
+  const body=JSON.parse(h.calls.find(call=>call.url.endsWith('/api/inspect')).options.body);
+  assert.deepEqual(body,{url:xsharePage,resolved_url:xshareUrl,provider:'xshare'});
+  assert.equal(JSON.stringify(h.saved).includes('synthetic+opaque/key='),false);
 });
 
 test('protected and unprotected GigaFile jobs use enqueue; keys are capability-gated and separate',async()=>{
@@ -438,7 +567,7 @@ test('download-key retry uses its dedicated endpoint and validates without persi
 });
 
 test('handoff failure reports server error and permits a fresh official link without final-host permissions',async()=>{
-  for(const [pageUrl,first,next,provider] of [[akiraPage,akiraUrl,akiraUrl.replace('signature='+ 'a'.repeat(64),'signature='+ 'b'.repeat(64)),'akirabox'],[vikingPage,vikingUrl,vikingUrl.replace('OpaqueID123','FreshID123'),'vikingfile'],[sendNowPage,sendNowUrl,sendNowUrl.replace('OpaqueID123','FreshID123'),'sendnow']]) {
+  for(const [pageUrl,first,next,provider] of [[akiraPage,akiraUrl,akiraUrl.replace('s='+ 'a'.repeat(64),'s='+ 'c'.repeat(64)),'akirabox'],[vikingPage,vikingUrl,vikingUrl.replace('OpaqueID123','FreshID123'),'vikingfile'],[sendNowPage,sendNowUrl,sendNowUrl.replace('OpaqueID123','FreshID123'),'sendnow']]) {
     const h=workerHarness({capabilities:[provider],inspectFailures:1});
     const sender={...h.sender,url:pageUrl};
     const failed=await h.dispatch({type:'pageSubmit',url:first},sender);
@@ -471,7 +600,7 @@ test('advertising links are never queued by the page click handler', async () =>
 });
 
 test('worker independently gates new providers and keeps source URL separate from issued URL', async () => {
-  for (const [pageUrl, url, provider] of [[akiraPage,akiraUrl,'akirabox'],[vikingPage,vikingUrl,'vikingfile'],[sendNowPage,sendNowUrl,'sendnow']]) {
+  for (const [pageUrl, url, provider] of [[akiraPage,akiraUrl,'akirabox'],[vikingPage,vikingUrl,'vikingfile'],[sendNowPage,sendNowUrl,'sendnow'],[xsharePage,xshareUrl,'xshare']]) {
     const h = workerHarness();
     const sender = {...h.sender,url:pageUrl};
     const rejected = await h.dispatch({type:'pageSubmit',url},sender);
@@ -489,18 +618,18 @@ test('worker independently gates new providers and keeps source URL separate fro
 test('saved default survives login and governs new manual, shared, multi-file and handoff jobs only',async()=>{
   const popup={id:'extension-id',url:'chrome-extension://extension-id/popup.html'};
   for (const value of [false,true]) {
-    const h=workerHarness({autoExtract:value,count:3,capabilities:['akirabox','vikingfile','sendnow']});
+    const h=workerHarness({autoExtract:value,count:3,capabilities:['akirabox','vikingfile','sendnow','xshare']});
     await h.dispatch({type:'login',baseUrl:'https://nas.example',username:'test',password:'synthetic'},popup);
     assert.equal(h.saved.autoExtract,value);
     for (const url of ['https://pixeldrain.com/u/test1234','https://gofile.io/d/test1234','https://1.gigafile.nu/1234-test1234']) {
       const result=await h.dispatch({type:'submit',url,extract:!value,password:'synthetic'},popup);
       assert.equal(result.ok,true);assert.equal(result.result.count,3);
     }
-    for (const [pageUrl,url] of [[page,signed],[akiraPage,akiraUrl],[vikingPage,vikingUrl],[sendNowPage,sendNowUrl]]) {
+    for (const [pageUrl,url] of [[page,signed],[akiraPage,akiraUrl],[vikingPage,vikingUrl],[sendNowPage,sendNowUrl],[xsharePage,xshareUrl]]) {
       assert.equal((await h.dispatch({type:'pageSubmit',url},{...h.sender,url:pageUrl})).ok,true);
     }
     const starts=h.calls.filter(c=>c.url.endsWith('/api/start'));
-    assert.equal(starts.length,6);
+    assert.equal(starts.length,7);
     assert.ok(starts.every(c=>JSON.parse(c.options.body).extract===value));
     if (!value) assert.ok(starts.every(c=>JSON.parse(c.options.body).password===''));
     const enqueues=h.calls.filter(c=>c.url.endsWith('/api/enqueue'));

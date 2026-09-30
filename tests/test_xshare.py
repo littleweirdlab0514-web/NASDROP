@@ -86,6 +86,9 @@ class XShareTests(unittest.TestCase):
         self.assertNotIn("referer =", script)
         self.assertIn('proxy = ""', script)
         self.assertIn('resolve = "x-share.net:443:93.184.216.34"', script)
+        self.assertIn(f'user-agent = "NASDrop/{backend.PACKAGE_VERSION}"', script)
+        self.assertIn('header = "Accept: application/octet-stream"', script)
+        self.assertIn('header = "Accept-Encoding: identity"', script)
         self.assertIn('--max-redirs 0', script)
         self.assertIn('[ "$actual" -eq 100 ]', script)
 

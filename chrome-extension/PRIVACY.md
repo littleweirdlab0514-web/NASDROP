@@ -1,6 +1,6 @@
 # Privacy Policy for NASDrop for Chrome
 
-Last updated: September 22, 2026
+Last updated: September 26, 2026
 
 NASDrop for Chrome is a companion extension for a NASDrop Server selected and operated by the user. The developer does not operate an intermediary download service and does not receive the user's NAS credentials, download links, files or job history.
 
@@ -31,7 +31,7 @@ The server is controlled by the user, not by the extension developer. The user's
 
 ## Supported provider sites
 
-The extension runs only on the supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile and Send.now page patterns listed in its package. It observes the page only to recognize an official download control and respond to the user's click. For providers that issue a short-lived download URL, the extension may request that URL from the provider and send it to the user's NASDrop Server. On Send.now, the verification and Continue steps are left untouched. Only after the user clicks the later final `Download [size]` button does the extension temporarily watch that tab's Chrome download, cancel the matching download, remove its browser download-history entry and send the final HTTPS address to the user's NASDrop Server. Unrelated downloads are ignored. It does not solve or bypass CAPTCHA, Cloudflare or other security-verification steps, and it does not copy browser cookies to the server.
+The extension runs only on the supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share page patterns listed in its package. It observes the page only to recognize an official download control and respond to the user's click. For providers that issue a short-lived download URL, the extension may request or capture that URL and send it to the user's NASDrop Server. On Send.now, verification and Continue are left untouched. On X-Share, the user completes Turnstile and the provider wait; only an enabled official Download click temporarily arms capture of the exact same-file one-time anchor before a local transfer begins. Unsupported or unarmed X-Share downloads retain the site's normal behavior. It does not read challenge tokens, solve or bypass CAPTCHA, Cloudflare or other security-verification steps, click advertisements, or copy browser cookies to the server.
 
 ## Chrome permissions
 

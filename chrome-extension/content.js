@@ -4,6 +4,7 @@
   const text=new Proxy({}, {get:(_,key)=>NASDropI18n.dictionaries[language][key]});
   let pending = false;
   let sendNowTimer = 0;
+  let xShareTimer = 0;
   let contextLost = false;
   let readinessCache = null;
   function invalidContext(error) { return /extension context invalidated/i.test(String(error?.message || error || '')); }
@@ -60,7 +61,11 @@
       const response = await chrome.runtime.sendMessage({type:'pageArmDownload',source:action.source});
       language=NASDropI18n.normalize(response?.result?.language || language);
       if(panel?.closeButton)panel.closeButton.setAttribute('aria-label',text.close);
-      if (!response?.ok) { pending=false; show(text[response?.code] || response?.error || text.failed); return; }
+      if (!response?.ok) {
+        pending=false;
+        if (['login','serverUnsupported'].includes(response?.code)) element.click();
+        show(text[response?.code] || response?.error || text.failed); return;
+      }
       element.click();
       sendNowTimer=setTimeout(()=>{pending=false;show(text.uncertain);},65000);
     } catch (error) {
@@ -69,13 +74,42 @@
       else show(error.message || text.failed);
     }
   }
+  async function armXShare(action, element) {
+    if (contextLost) { show(text.reloadExtension); return; }
+    pending = true;
+    show(text.sending);
+    try {
+      const response = await chrome.runtime.sendMessage({type:'pageArmXShare',source:action.source});
+      language=NASDropI18n.normalize(response?.result?.language || language);
+      if(panel?.closeButton)panel.closeButton.setAttribute('aria-label',text.close);
+      if (!response?.ok) {
+        pending=false;
+        if (['login','serverUnsupported'].includes(response?.code)) element.click();
+        show(text[response?.code] || response?.error || text.failed); return;
+      }
+      const shareId=new URL(action.source).pathname.split('/').filter(Boolean)[1] || '';
+      document.dispatchEvent(new CustomEvent('__nasdrop_xshare_arm_v1',{detail:{shareId,expiresAt:Date.now()+60000}}));
+      element.click();
+      xShareTimer=setTimeout(()=>{pending=false;show(text.uncertain);},65000);
+    } catch (error) {
+      pending=false;
+      if (invalidContext(error)) { contextLost=true; show(text.reloadExtension); }
+      else show(error.message || text.failed);
+    }
+  }
+  document.addEventListener('__nasdrop_xshare_url_v1', event => {
+    const url=typeof event.detail === 'string' ? event.detail : '';
+    if (!pending || adapters.provider(location.href) !== 'xshare' || !adapters.allowedSubmission(location.href,url)) return;
+    clearTimeout(xShareTimer);xShareTimer=0;pending=false;
+    void send({url,handoff:'xshare'});
+  });
   chrome.runtime.onMessage.addListener(message => {
     if (message?.type !== 'sendNowResult') return;
     clearTimeout(sendNowTimer); sendNowTimer=0; pending=false;
     show(message.ok ? text.success : message.error || text.failed);
   });
   async function preloadReadiness() {
-    if (adapters.provider(location.href) !== 'gigafile') return;
+    if (!['gigafile','sendnow','xshare'].includes(adapters.provider(location.href))) return;
     try {
       const response = await chrome.runtime.sendMessage({type:'pageReady'});
       if (response?.ok) readinessCache = response.result;
@@ -91,6 +125,8 @@
     if (!element || element.disabled || element.getAttribute('aria-disabled') === 'true') return;
     const action = adapters.resolve(element, location.href, document.referrer);
     if (!action) return;
+    if ((action.captureDownload || action.captureXShare)
+      && (!readinessCache?.ready || !readinessCache.handoffSupported)) return;
     if (action.gigafileKeyRequired) {
       // Unknown, signed-out and older servers leave the site's own download
       // behavior untouched. Capability is prefetched before the user clicks.
@@ -105,6 +141,7 @@
     }
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (!pending) void (action.captureDownload ? armDownload(action, element) : send(action));
+    if (!pending) void (action.captureDownload ? armDownload(action, element)
+      : action.captureXShare ? armXShare(action,element) : send(action));
   }, true);
 })();
