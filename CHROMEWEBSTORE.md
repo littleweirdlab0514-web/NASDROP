@@ -164,7 +164,7 @@ https://github.com/littleweirdlab0514-web/NASDROP
 - [x] Manifest V3 and extension version 0.5.9
 - [x] English default with Korean, Simplified Chinese and Japanese locales
 - [x] Automated Chrome extension tests pass
-- [ ] Publish `NASDrop-Chrome-0.5.9.zip` after live NAS verification
+- [x] Publish `NASDrop-Chrome-0.5.9.zip` in the GitHub v0.9.27-7 release after live NAS verification
 - [ ] Publish the Chrome-specific privacy policy on the public default branch
 - [ ] Create the exact 128×128 store icon
 - [ ] Capture at least one exact-size store screenshot with synthetic/redacted data
