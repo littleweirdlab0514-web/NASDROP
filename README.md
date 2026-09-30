@@ -26,7 +26,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot/daily limits, run one connection at a time, and restart from zero after interruption. On 2026-09-28, four sequential NAS transfers completed, including the deferred owner and the following job after the daily limit reset. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
 
-**0.9.27-7 candidate:** fixes X-Share transfers rejected by the provider when NASDrop redeemed the one-time URL with curl's default user agent. X-Share requires the separate Chrome 0.5.7 companion and a real user-completed verification/Download click; pasting its share URL alone is not supported.
+**0.9.27-7:** fixes X-Share transfers rejected by the provider when NASDrop redeemed the one-time URL with curl's default user agent. X-Share requires the separate Chrome 0.5.9 companion and a real user-completed verification/Download click; pasting its share URL alone is not supported.
 
 **[Download the latest SPK release](https://github.com/littleweirdlab0514-web/NASDROP/releases/latest)**
 
@@ -34,7 +34,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.8 is the coordinated X-Share and current AkiraBox handoff candidate for NASDrop Server 0.9.27-7.**
+- **Chrome extension 0.5.9 is the coordinated companion for NASDrop Server 0.9.27-7, including current AkiraBox, X-Share, and Pixeldrain controls.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
@@ -53,7 +53,7 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on external download websites and APIs. Providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
 
-## What's new in 0.9.27-7 (bugfix candidate)
+## What's new in 0.9.27-7
 
 - Sends an explicit NASDrop user agent and identity encoding when redeeming the one-time X-Share file URL, matching the already-working public metadata request.
 - Keeps X-Share as one pinned HTTPS GET without cookies, Referer, Turnstile data, preflight, redirect, resume, or automatic replay.
@@ -552,11 +552,11 @@ node --test tests/rendered-html.test.mjs tests/gofile-wt-sandbox.test.mjs
 
 The extension never copies browser cookies or solves CAPTCHA/provider challenges. TeraBox and PikPak are not supported. Provider-specific input, concurrency, expiry, retry, and security rules are maintained in the [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md).
 
-### X-Share browser-assisted downloads (candidate)
+### X-Share browser-assisted downloads
 
-Install the coordinated X-Share Chrome candidate and NASDrop 0.9.27-2 SPK, sign in to your NASDrop server, then open the official `https://x-share.net/s/<id>` share. Complete security verification yourself and click the official **Download** button. The extension passes the resulting same-file keyed address to your NAS before a local copy starts. Unsupported or signed-out companion installations keep the website's ordinary download behavior.
+Install Chrome companion 0.5.9 and NASDrop Server 0.9.27-7, sign in to your NASDrop server, then open the official `https://x-share.net/s/<id>` share. Complete security verification yourself and click the official **Download** button. The extension passes the resulting same-file keyed address to your NAS before a local copy starts. Unsupported or signed-out companion installations keep the website's ordinary download behavior.
 
-The first candidate does not assume that an issued key can be reused: it uses one full GET without segmentation, keyed HEAD/Range probes, resume, or automatic retries. A pause or failure requires a fresh official Download click and a new registration. The key never appears in public job data or errors. Public metadata has been checked, but the actual browser-to-NAS transfer and any key/IP restrictions still need a real installation test; do not treat this candidate as confirmed production support.
+X-Share keys are treated as one-use: NASDrop uses one full GET without segmentation, keyed HEAD/Range probes, resume, or automatic retries. A pause or failure requires a fresh official Download click and a new registration. The key never appears in public job data or errors. The user confirmed the real browser-to-NAS flow on 2026-09-30.
 
 ### Send.now browser-assisted downloads
 

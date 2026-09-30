@@ -6,10 +6,10 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.27-7 candidate | x86_64 SPK built from the same verified server source |
-| Docker image | 0.9.27-7 candidate (amd64 test first) | Adds the explicit X-Share transfer user agent after reproducing the provider's default-curl HTTP 403 |
+| Synology package | 0.9.27-7 stable | x86_64 SPK built from the same verified server source and confirmed by the user |
+| Docker image | 0.9.27-7 release candidate | Private amd64 validation passed; GitHub builds the immutable amd64/arm64 candidate before digest-preserving promotion |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
-| Chrome extension | 0.5.8 candidate; 0.5.5 stable | Adds capability-gated X-Share handoff and current AkiraBox signed-link capture; real NAS transfers remain release gates |
+| Chrome extension | 0.5.9 release | Includes current AkiraBox and X-Share handoff plus Pixeldrain's classless no-preview Download control |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
@@ -21,7 +21,7 @@ Revision 0.9.27-6 classifies 1fichier's form-less daily free-download-limit page
 
 Revision 0.9.27-7 fixes X-Share's first real transfer failure. From the NAS Docker network, X-Share's public API returned HTTP 403 to curl's default user agent and HTTP 200 when the explicit NASDrop user agent was supplied. The keyed transfer now supplies that same user agent and identity encoding while preserving the one-shot, pinned-address security boundary.
 
-Revision 0.9.27-2 adds `xshare` to `browser_handoff_providers` for the coordinated Chrome candidate. It accepts the existing `{provider, url, resolved_url}` inspect payload, validates a same-file first-party keyed endpoint, and obtains metadata without consuming the key. The first transfer uses one full GET without resume or automatic replay. Signed-out, unsupported, and older companion installations must leave the provider's normal download intact. Automated server regressions passed (218 tests, one skipped); real X-Share NAS transfer remains a release gate.
+Revision 0.9.27-2 added `xshare` to `browser_handoff_providers`. Chrome 0.5.9 accepts the existing `{provider, url, resolved_url}` contract, validates a same-file first-party keyed endpoint, and obtains metadata without consuming the key. The transfer uses one full GET without resume or automatic replay. Signed-out, unsupported, and older companion installations leave the provider's normal download intact. The user confirmed the real X-Share NAS flow on 2026-09-30.
 
 The 0.9.27-6 Docker `candidate`, version, `0.9`, and `latest` tags point to the verified multi-platform manifest digest `sha256:8b082e1dfd1f73c3a70d23c37f35c79e4dbb0cc0873067af4990cb38dd8bfd17`. Promotion reused that digest without rebuilding it; candidate run 36359283065 and promotion run 36359443069 passed.
 

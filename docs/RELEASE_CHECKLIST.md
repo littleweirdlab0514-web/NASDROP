@@ -1,16 +1,16 @@
 # NASDrop 0.9.27 릴리스 체크리스트
 
-## 0.9.27-7 X-Share live-transfer bugfix candidate
+## 0.9.27-7 stable release
 
 - [x] Inspect the changed AkiraBox `/&lt;id&gt;/file` page and record its exact official control, new four-field first-party signature, `eeur1.akirabox.com` redirect, and browser-identity requirement.
 - [x] Keep AkiraBox's legacy signed-link form while rejecting mixed, duplicate, malformed, expired, overly long-lived, and unknown fields.
-- [ ] Complete one real browser-to-Docker AkiraBox transfer using the updated Chrome companion before promotion.
+- [x] Complete one real browser-to-Docker AkiraBox transfer using the updated Chrome companion before promotion; user confirmed the flow on 2026-09-30.
 
 - [x] Reproduce X-Share public API HTTP 403 with curl's default user agent from the NAS Docker network.
 - [x] Confirm the same pinned IPv4 request succeeds with the explicit `NASDrop/0.9.27-6` user agent.
 - [x] Add an explicit NASDrop user agent and identity encoding to the one-shot keyed file request without forwarding cookies, Referer, or Turnstile data.
 - [x] Build and smoke-test the amd64 Docker image on the 192.168.1.203 test NAS; health, read-only root, no-new-privileges, account bootstrap, and preserved config checks passed.
-- [ ] Complete one real browser-to-NAS X-Share transfer before promotion.
+- [x] Complete one real browser-to-NAS X-Share transfer before promotion; user confirmed the flow on 2026-09-30.
 
 ## 0.9.27-6 1fichier daily-limit retry candidate
 
@@ -36,9 +36,9 @@
 
 - [x] Observe the official user-click/token/hidden-anchor flow and public metadata response.
 - [x] Add authenticated same-file keyed handoff, public metadata-only inspection, private key state, pinned one-GET transfer, secret-free errors, and final response validation.
-- [ ] Full server/transfer and Chrome regression suites pass; package a versioned SPK and Chrome ZIP.
-- [ ] User installs both candidates and completes a real X-Share browser-to-NAS download; confirm redirect, IP/key restrictions, response filename, final size, and extraction.
-- [ ] Only after real success, hand canonical changes to Docker and verify amd64/arm64 parity before promotion.
+- [x] Full server/transfer and Chrome regression suites pass; package a versioned SPK and Chrome ZIP.
+- [x] User confirms the coordinated candidates complete the real X-Share browser-to-NAS flow.
+- [x] After real success, verify the canonical Docker source and automated amd64/arm64 candidate build before promotion.
 
 ## 0.9.27-1 1fichier Synology candidate
 

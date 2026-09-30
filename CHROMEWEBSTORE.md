@@ -147,7 +147,7 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
-| 0.5.9 | 2026-09-30 | Recognizes Pixeldrain's classless official no-preview Download button on transfer-limit pages without broad text matching | Candidate |
+| 0.5.9 | 2026-09-30 | Recognizes Pixeldrain's classless official no-preview Download button on transfer-limit pages without broad text matching | GitHub release |
 | 0.5.8 | 2026-09-29 | Strict support for AkiraBox's current four-field prepared URL while preserving 0.5.7 X-Share behavior | Candidate |
 | 0.5.7 | 2026-09-26 | Capability-gated X-Share official-button handoff; same-ID one-time URL captured before local transfer without reading Turnstile tokens or cookies | Candidate |
 | 0.5.6 | 2026-09-23 | Login bootstrap wording uses NASDrop rather than Docker | Draft |
