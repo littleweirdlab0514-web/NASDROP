@@ -1,6 +1,6 @@
 # NASDrop provider behavior and security policy
 
-Last updated: 2026-09-26
+Last updated: 2026-09-30
 Applies to: NASDrop Server 0.9.27-7 candidate
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
@@ -98,6 +98,7 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 - Require a valid positive size and a 64-character SHA-256 before queueing.
 - Treat a final SHA-256 mismatch as corruption: do not publish the file. A retry must start from data that still passes range and integrity checks.
 - Surface the provider’s fixed availability explanation without exposing arbitrary remote response bodies.
+- The Chrome companion recognizes both Pixeldrain toolbar downloads and the official no-preview download button inside the first-party file description, including the classless form used on transfer-limit pages. It still requires the direct `download` icon and an exact `/u/<id>` share so nearby upgrade, share, and advertisement controls are never submitted.
 
 ## Buzzheavier
 

@@ -145,9 +145,18 @@ function pixelControl(buttonClass, region, icon = 'download') {
   return button;
 }
 
-test('Pixeldrain current toolbar and no-preview buttons redirect nested clicks to the current share', async () => {
+function currentPixelDescriptionControl(icon = 'download') {
+  return {
+    getAttribute: () => null,
+    matches: selector => selector === 'button',
+    closest: selector => selector === '.description' ? {} : null,
+    querySelector: selector => selector === ':scope > i.icon' ? {textContent:icon} : null,
+  };
+}
+
+test('Pixeldrain current toolbar and classless no-preview buttons redirect nested clicks to the current share', async () => {
   const pageUrl = 'https://pixeldrain.com/u/uLZ8vMm3';
-  for (const button of [pixelControl('toolbar_button','.toolbar'), pixelControl('button_highlight','.description')]) {
+  for (const button of [pixelControl('toolbar_button','.toolbar'), currentPixelDescriptionControl()]) {
     assert.equal(adapter.resolve(button,pageUrl).url,pageUrl);
     const h = contentHarness({pageUrl});
     // The user may click the icon or text span rather than the button itself.
@@ -163,6 +172,7 @@ test('Pixeldrain current toolbar and no-preview buttons redirect nested clicks t
 test('Pixeldrain ignores share/menu controls, lookalikes outside the viewer, and non-file pages', () => {
   const url = 'https://pixeldrain.com/u/uLZ8vMm3';
   for (const icon of ['share','help','content_copy','fullscreen']) assert.equal(adapter.resolve(pixelControl('toolbar_button','.toolbar',icon),url),null);
+  assert.equal(adapter.resolve(currentPixelDescriptionControl('content_copy'),url),null);
   assert.equal(adapter.resolve(pixelControl('button_highlight','.advertisement'),url),null);
   assert.equal(adapter.resolve(pixelControl('toolbar_button','.toolbar'),'https://pixeldrain.com/'),null);
 });

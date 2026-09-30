@@ -105,7 +105,7 @@ globalThis.NASDropProviders = (() => {
       // Current Svelte viewer: hashed classes vary between builds. Match the stable
       // viewer region, button class and direct icon, including clicks on nested spans.
       const viewerButton = (element.matches('button.toolbar_button') && element.closest('.toolbar'))
-        || (element.matches('button.button_highlight') && element.closest('.description'));
+        || (element.matches('button') && element.closest('.description'));
       if (viewerButton && element.querySelector(':scope > i.icon')?.textContent.trim() === 'download') return {url: source};
     }
     return null;
