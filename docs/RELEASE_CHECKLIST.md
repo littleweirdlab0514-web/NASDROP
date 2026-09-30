@@ -11,6 +11,8 @@
 - [x] Add an explicit NASDrop user agent and identity encoding to the one-shot keyed file request without forwarding cookies, Referer, or Turnstile data.
 - [x] Build and smoke-test the amd64 Docker image on the 192.168.1.203 test NAS; health, read-only root, no-new-privileges, account bootstrap, and preserved config checks passed.
 - [x] Complete one real browser-to-NAS X-Share transfer before promotion; user confirmed the flow on 2026-09-30.
+- [x] Publish the signed-checksum Synology SPK and Chrome 0.5.9 companion in the GitHub v0.9.27-7 release.
+- [x] Publish the immutable amd64/arm64 candidate in run 36655115146 and promote the exact digest in run 36655501406.
 
 ## 0.9.27-6 1fichier daily-limit retry candidate
 

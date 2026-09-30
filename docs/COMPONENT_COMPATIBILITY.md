@@ -7,7 +7,7 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 | Component | Current line | Server contract |
 | --- | --- | --- |
 | Synology package | 0.9.27-7 stable | x86_64 SPK built from the same verified server source and confirmed by the user |
-| Docker image | 0.9.27-7 release candidate | Private amd64 validation passed; GitHub builds the immutable amd64/arm64 candidate before digest-preserving promotion |
+| Docker image | 0.9.27-7 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.9 release | Includes current AkiraBox and X-Share handoff plus Pixeldrain's classless no-preview Download control |
 
@@ -23,7 +23,7 @@ Revision 0.9.27-7 fixes X-Share's first real transfer failure. From the NAS Dock
 
 Revision 0.9.27-2 added `xshare` to `browser_handoff_providers`. Chrome 0.5.9 accepts the existing `{provider, url, resolved_url}` contract, validates a same-file first-party keyed endpoint, and obtains metadata without consuming the key. The transfer uses one full GET without resume or automatic replay. Signed-out, unsupported, and older companion installations leave the provider's normal download intact. The user confirmed the real X-Share NAS flow on 2026-09-30.
 
-The 0.9.27-6 Docker `candidate`, version, `0.9`, and `latest` tags point to the verified multi-platform manifest digest `sha256:8b082e1dfd1f73c3a70d23c37f35c79e4dbb0cc0873067af4990cb38dd8bfd17`. Promotion reused that digest without rebuilding it; candidate run 36359283065 and promotion run 36359443069 passed.
+The 0.9.27-7 Docker `candidate`, version, `0.9`, and `latest` tags point to the verified multi-platform manifest digest `sha256:3c146e31ca803ba98a025b71e693f25bcc0264e91ea8e1e58c6996bd64a17561`. Promotion reused that digest without rebuilding it; candidate run 36655115146 and promotion run 36655501406 passed.
 
 ## Ownership model
 
