@@ -13,6 +13,8 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
+NASDrop Server 0.9.28-1 adds `async_enqueue_providers: ["gigafile", "gofile"]`. `POST /api/enqueue` now persistently accepts canonical GoFile shares before any provider request, and same-provider metadata inspection runs serially behind the existing shared GoFile cooldown. Existing inspect/start clients remain supported. Chrome 0.5.10 may opt into the GoFile path only when this capability is present.
+
 NASDrop 0.9.27 adds an optional `source_password` field to the existing inspect/start flow for 1fichier. Older Android/Chrome clients remain compatible because the field is optional; they do not yet collect a 1fichier file password. Web-form use needs no new client capability. Docker real-flow and multi-architecture parity checks passed.
 
 Revision 0.9.27-5 gives the bottom visible 1fichier job exclusive retry ownership. Following 1fichier jobs remain queued without copying its countdown and become eligible one at a time only after the current owner completes, fails, or is paused. The API shape is unchanged, so existing clients remain compatible.
@@ -49,12 +51,13 @@ Current coordinated capabilities include:
 - `job_processing_options`: permits per-job extraction and password updates.
 - `browser_handoff_providers`: lists the exact browser-assisted providers accepted by the server.
 - `gigafile_download_key`: permits a client to submit a GigaFile download key when creating a job and to resume a paused `download_key_required` job through the dedicated key endpoint.
+- `async_enqueue_providers`: lists providers whose canonical share URLs can be persistently accepted by `POST /api/enqueue` before remote inspection. Clients must retain inspect/start when the provider is absent.
 
 As decided by the user on 2026-09-26, shared changes are implemented and tested first in the private Docker deployment. Coordinate Chrome changes with its dedicated maintainer and verify the real provider flow there before building the Synology SPK from the same canonical source. Docker must not add a provider-specific fork. Synology still requires separate DSM launcher, permissions, packaging, and update/stop verification; Docker success alone does not close those gates. Preserve accounts, jobs, and mounted storage during test updates.
 
 Creating a normal `v*` server tag builds, smoke-tests, and publishes only an immutable `candidate-<package-version>` Docker manifest. It must not move the version, minor, or `latest` tags. After the user confirms the Synology package on real hardware and the Docker maintainer verifies parity, run the separate `Docker promote candidate` workflow manually. Promotion attaches the version, minor, and `latest` tags to the already-tested candidate digest without rebuilding it.
 
-An explicit async-enqueue capability must be added before Android removes its remaining legacy version check. Until then, the client must retain the normal inspect/start fallback.
+Android and Chrome must retain the normal inspect/start fallback whenever `async_enqueue_providers` is absent or does not list the requested provider.
 
 ## Release gate
 

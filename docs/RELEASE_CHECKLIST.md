@@ -1,4 +1,14 @@
-# NASDrop 0.9.27 릴리스 체크리스트
+# NASDrop 0.9.28 release checklist
+
+## 0.9.28-1 GoFile persistent async enqueue candidate
+
+- [x] Accept canonical GoFile shares through `POST /api/enqueue` without making a provider request.
+- [x] Advertise `async_enqueue_providers: ["gigafile", "gofile"]` and retain inspect/start compatibility.
+- [x] Serialize inspection per provider even when parallel downloads are enabled.
+- [x] Preserve failed inspection jobs for retry and release the provider slot for the next queued inspection.
+- [x] Apply the shared persisted GoFile cooldown before and during metadata inspection.
+- [ ] Build and validate the versioned Synology SPK.
+- [ ] Complete a real two-link GoFile queue test before Docker synchronization or release.
 
 ## 0.9.27-7 stable release
 

@@ -309,7 +309,24 @@ class AccountAuthTests(unittest.TestCase):
         status, payload = self.request("/api/status?cache=1", token=token)
         self.assertEqual(status, 200)
         self.assertEqual(payload["version"], backend.PACKAGE_VERSION)
+        self.assertEqual(payload["async_enqueue_providers"], ["gigafile", "gofile"])
         self.assertEqual(self.request("/api/missing?cache=1", token=token)[0], 404)
+
+    def test_enqueue_routes_gofile_to_persistent_async_controller(self):
+        backend.replace_credentials("owner", "original password")
+        token = backend.create_session("owner")
+        job = backend.Job(
+            "012345abcdef", "GoFile example", "https://gofile.io/d/example", 0, 0,
+            "inspecting", "now", target="/downloads", inspection_pending=True,
+        )
+        with mock.patch.object(backend.CONTROLLER, "enqueue_link", return_value=job) as enqueue:
+            status, payload = self.request(
+                "/api/enqueue", method="POST", token=token,
+                payload={"url": "https://gofile.io/d/example", "target": "/downloads", "extract": True},
+            )
+        self.assertEqual(status, 202)
+        self.assertEqual(payload["job"]["status"], "inspecting")
+        enqueue.assert_called_once_with("https://gofile.io/d/example", "/downloads", True, "", "")
 
     def test_api_errors_include_stable_localization_codes(self):
         status, payload = self.request("/api/status")

@@ -56,6 +56,30 @@ test('GigaFile form queues immediately without synchronous inspection', async ()
   assert.equal(nodes['#start-button'].disabled,false);
 });
 
+test('GoFile form uses async enqueue only when the server advertises it', async () => {
+  const source = await readFile(new URL('../synology/web/app.js', import.meta.url), 'utf8');
+  const handler = source.slice(source.indexOf('  $("#download-form").addEventListener'),
+    source.indexOf('  $("#extract-download").addEventListener'));
+  async function submitWith(capabilities) {
+    let submit;
+    const nodes = {
+      '#download-form': {addEventListener(_event, fn){submit=fn;}},
+      '#start-button': {}, '#download-url': {value:'https://gofile.io/d/example'},
+      '#extract-download': {checked:false}, '#archive-password': {value:''}, '#notice': {},
+      '#gigafile-download-key': {value:''}, '#onefichier-password': {value:''},
+      '#onefichier-password-wrap': {classList:{add(){}}}
+    };
+    const requests=[];
+    vm.runInNewContext(handler, {$:key=>nodes[key], URL, t:key=>key,
+      state:{selectedTarget:'/downloads',status:{async_enqueue_providers:capabilities}}, refreshJobs:async()=>{},
+      api:async(path,options)=>{requests.push([path,JSON.parse(options.body)]);return path==='/api/inspect'?{file:{url:'https://gofile.io/d/example',name:'example.bin',size:1}}:{count:1};}});
+    await submit({preventDefault(){}});
+    return requests.map(request=>request[0]);
+  }
+  assert.deepEqual(await submitWith(['gigafile','gofile']), ['/api/enqueue']);
+  assert.deepEqual(await submitWith(undefined), ['/api/inspect','/api/start']);
+});
+
 test('polling keeps password form identity, caret and open verification details', async () => {
   const source = await readFile(new URL('../synology/web/app.js', import.meta.url), 'utf8');
   const fn = source.slice(source.indexOf('  function replaceJobList('), source.indexOf('  function renderJobs('));

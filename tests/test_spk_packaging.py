@@ -152,6 +152,8 @@ class SpkPackagingTests(unittest.TestCase):
         self.assertIn('data["NAS_PORTAL_NAS_TARGET"] = ""', postupgrade)
         self.assertIn('Path(NAS_TARGET) if NAS_TARGET else None', backend)
         self.assertNotIn('state.status?.target || "/volume2/downloads"', app)
+        self.assertIn('state.status?.async_enqueue_providers', app)
+        self.assertIn('["gofile.io", "www.gofile.io"].includes(hostname)', app)
 
     def test_official_seven_zip_runtime_is_pinned_and_packaged(self):
         build_script = (ROOT / "synology" / "build-spk.ps1").read_text(encoding="utf-8")

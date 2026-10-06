@@ -237,7 +237,12 @@
     $("#notice").textContent = t("inspectLink");
     try {
       const parsedUrl = new URL(url);
-      if (parsedUrl.protocol === "https:" && /^[a-z0-9-]+\.gigafile\.nu$/i.test(parsedUrl.hostname)) {
+      const hostname = parsedUrl.hostname.toLowerCase();
+      const asyncProvider = /^[a-z0-9-]+\.gigafile\.nu$/i.test(hostname) ? "gigafile" :
+        (["gofile.io", "www.gofile.io"].includes(hostname) ? "gofile" : "");
+      const asyncProviders = Array.isArray(state.status?.async_enqueue_providers) ? state.status.async_enqueue_providers : [];
+      const canEnqueueAsync = asyncProvider === "gigafile" || asyncProviders.includes(asyncProvider);
+      if (parsedUrl.protocol === "https:" && asyncProvider && canEnqueueAsync) {
         await api("/api/enqueue", {method:"POST",body:JSON.stringify({url,target:state.selectedTarget,extract,password,download_key})});
         $("#download-url").value = ""; $("#archive-password").value = "";
         if (downloadKeyInput) downloadKeyInput.value = "";

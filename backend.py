@@ -79,7 +79,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.27")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.28")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -1344,23 +1344,42 @@ class Controller:
     def start(self, file: dict, target: str = "", extract: bool | None = None, password: str = "") -> Job:
         return self.start_many([file], target, extract, password)[0]
 
-    def enqueue_gigafile(self, url: str, target: str = "", extract: bool | None = None, password: str = "", download_key: str = "") -> Job:
+    def enqueue_link(self, url: str, target: str = "", extract: bool | None = None, password: str = "", download_key: str = "") -> Job:
         parsed = urlparse(url.strip())
         host = (parsed.hostname or "").lower()
-        if parsed.scheme != "https" or not GIGAFILE_HOST.fullmatch(host) or parsed.username or parsed.password or parsed.port not in {None, 443}:
-            raise ValueError("정식 GigaFile HTTPS 링크가 아닙니다.")
-        file_id = service_path_id(parsed)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("다운로드 링크의 포트가 올바르지 않습니다.") from exc
+        if parsed.scheme != "https" or parsed.username or parsed.password or port not in {None, 443}:
+            raise ValueError("비동기 등록을 지원하는 정식 HTTPS 링크가 아닙니다.")
+        if GIGAFILE_HOST.fullmatch(host):
+            provider = "gigafile"
+            file_id = service_path_id(parsed)
+            canonical = f"https://{host}/{file_id}"
+            placeholder_name = f"GigaFile {file_id}"
+        elif host in {"gofile.io", "www.gofile.io"}:
+            if parsed.query or parsed.fragment:
+                raise ValueError("정식 GoFile HTTPS 공유 링크가 아닙니다.")
+            provider = "gofile"
+            file_id = service_path_id(parsed, "d")
+            canonical = f"https://gofile.io/d/{file_id}"
+            placeholder_name = f"GoFile {file_id}"
+        else:
+            raise ValueError("비동기 등록을 지원하는 다운로드 링크가 아닙니다.")
         if extract is not None and not isinstance(extract, bool):
             raise ValueError("압축 해제 선택값이 올바르지 않습니다.")
         secret = _validate_job_password(password)
         source_key = _validate_gigafile_download_key(download_key)
+        if provider != "gigafile" and source_key:
+            raise ValueError("GigaFile 다운로드 키는 GigaFile 링크에만 사용할 수 있습니다.")
         destination = normalize_target(target or NAS_TARGET)
         with self.condition:
             if self.stopping:
                 raise ValueError("서비스가 종료 중입니다.")
             if sum(j.inspection_pending for j in self.jobs.values()) >= 100:
                 raise ValueError("정보 확인 대기 작업이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
-            job = Job(secrets.token_hex(6), f"GigaFile {file_id}", f"https://{host}/{file_id}",
+            job = Job(secrets.token_hex(6), placeholder_name, canonical,
                       0, 0, "inspecting", now(), target=destination,
                       extract=AUTO_EXTRACT_ARCHIVES if extract is None else extract, inspection_pending=True)
             if job.extract and secret:
@@ -1377,12 +1396,24 @@ class Controller:
             self.condition.notify_all()
             return job
 
+    def enqueue_gigafile(self, url: str, target: str = "", extract: bool | None = None, password: str = "", download_key: str = "") -> Job:
+        parsed = urlparse(url.strip())
+        if not GIGAFILE_HOST.fullmatch((parsed.hostname or "").lower()):
+            raise ValueError("정식 GigaFile HTTPS 링크가 아닙니다.")
+        return self.enqueue_link(url, target, extract, password, download_key)
+
     def _resolve_queued_link(self, job_id: str) -> None:
         with self.lock:
             job = self.jobs[job_id]
             source = job.source
-        download_key = load_job_download_key(job_id)
-        inspected = inspect_gigafile(source, download_key) if download_key else inspect_gigafile(source)
+        provider = self._provider_for_job(job)
+        download_key = load_job_download_key(job_id) if provider == "gigafile" else ""
+        if provider == "gigafile":
+            inspected = inspect_gigafile(source, download_key) if download_key else inspect_gigafile(source)
+        elif provider == "gofile":
+            inspected = inspect_gofile(source)
+        else:
+            raise ValueError("비동기 정보 확인을 지원하지 않는 서비스입니다.")
         files = inspected.get("files") if inspected.get("batch") else [inspected]
         with self.condition:
             if self.stopping or SHUTDOWN_EVENT.is_set() or self.jobs.get(job_id) is not job or job.status != "inspecting":
@@ -1485,8 +1516,9 @@ class Controller:
             return False
         provider = self._provider_for_job(job)
         if job.inspection_pending and any(
-            self.jobs.get(running_id) and self.jobs[running_id].inspection_pending
+            running_job and running_job.inspection_pending and self._provider_for_job(running_job) == provider
             for ids in self.running_providers.values() for running_id in ids
+            for running_job in (self.jobs.get(running_id),)
         ):
             return False
         if provider == "gofile" and _gofile_cooldown_status()["active"]:
@@ -4193,6 +4225,7 @@ class Handler(BaseHTTPRequestHandler):
                 "job_processing_options": True,
                 "job_safe_delete": True,
                 "gigafile_download_key": True,
+                "async_enqueue_providers": ["gigafile", "gofile"],
                 "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow", "xshare"],
                 "disk_protection": DISK_PROTECTION,
                 "temporary_folder": ".nasdrop-tmp",
@@ -4277,9 +4310,9 @@ class Handler(BaseHTTPRequestHandler):
                 inspected = inspect_payload(payload)
                 return self.send_json(HTTPStatus.OK, {"file": cache_inspection(inspected)})
             if path == "/api/enqueue":
-                job = CONTROLLER.enqueue_gigafile(str(payload.get("url", "")), str(payload.get("target", "")),
-                                                  payload.get("extract"), str(payload.get("password", "")),
-                                                  str(payload.get("download_key", "")))
+                job = CONTROLLER.enqueue_link(str(payload.get("url", "")), str(payload.get("target", "")),
+                                              payload.get("extract"), str(payload.get("password", "")),
+                                              str(payload.get("download_key", "")))
                 return self.send_json(HTTPStatus.ACCEPTED, {"job": asdict(job), "count": 1})
             if path == "/api/start":
                 inspected = consume_inspection(payload)

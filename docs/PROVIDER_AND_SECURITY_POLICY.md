@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
-Last updated: 2026-09-30
-Applies to: NASDrop Server 0.9.27-7 candidate
+Last updated: 2026-10-06
+Applies to: NASDrop Server 0.9.28-1 candidate
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -23,7 +23,7 @@ Provider websites are external systems and may change without notice. “Support
 | Provider | Accepted input | Registration path | Transfer policy | Typical recovery |
 | --- | --- | --- | --- | --- |
 | GigaFile | Official `https://<node>.gigafile.nu/<id>` share | Web, Android, Chrome; inspection is queued asynchronously | User-selected single/segmented mode; multi-file shares create individual jobs | Enter a required 1–4 character download key, wait after provider throttling, or enqueue a fresh share |
-| GoFile | Official `https://gofile.io/d/<id>` share | Server API/page inspection | Maximum two connections per file; persistent provider-wide cooldown on 429/network bursts | Do not force retries; wait for the displayed cooldown and reduce same-provider concurrency |
+| GoFile | Official `https://gofile.io/d/<id>` share | Web and capability-aware clients enqueue persistently before provider inspection | Provider inspection is serialized; maximum two transfer connections per file; persistent provider-wide cooldown on 429/network bursts | Resume a preserved failed inspection or wait for the displayed cooldown; do not force retries |
 | Pixeldrain | Official `/u/<id>` share on recognized Pixeldrain domains | Server metadata API | User-selected single/segmented mode; provider SHA-256 is verified | Retry only after checking availability; a hash mismatch is an integrity failure |
 | Buzzheavier | Signed `https://<delivery>.buzzheavier.com/d/<id>?v=<token>` from **Copy download link** | Direct paste or Chrome’s official Download/Copy control | User-selected single/segmented mode; Range support is mandatory | Generate a fresh signed link when it expires or returns 401/403/404 |
 | 1fichier | Official `https://1fichier.com/?<id>` share | Server metadata check; optional file password entered when adding the job | Respect the site's wait, guest-slot, and daily free-use limits; one job and one connection; free downloads restart from zero | Provider limits are deferred automatically; if a challenge appears, complete it on the provider site |
@@ -73,6 +73,9 @@ Provider websites are external systems and may change without notice. “Support
 
 - NASDrop uses a guest account token, a short-lived website token, and the GoFile contents API.
 - Shared folders are traversed recursively and paginated. Files become separate jobs while validated relative folder structure is recreated below the selected destination.
+- `POST /api/enqueue` accepts a canonical GoFile share without contacting GoFile, persists an `inspecting` placeholder, and returns HTTP 202 immediately. `/api/status.async_enqueue_providers` advertises this path to capability-aware clients; older clients may continue using inspect/start.
+- Pending metadata inspections are serialized per provider even when same-provider parallel downloads are enabled. A failed inspection remains visible and resumable, releases its provider slot, and does not prevent a later queued GoFile inspection from proceeding.
+- An active persisted GoFile cooldown prevents queued inspections from contacting the provider. A 429 or bounded network failure during inspection returns the placeholder to the queue with the shared cooldown deadline.
 - GoFile has shown HTTP 429 and temporary IP restrictions under high request/concurrency pressure.
 
 ### Required response
