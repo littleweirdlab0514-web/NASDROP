@@ -4,6 +4,9 @@
   const rows={
     language:['Language','언어','语言','言語'],autoLanguage:['Automatic (browser)','자동 (브라우저 언어)','自动（浏览器语言）','自動（ブラウザーの言語）'],
     sending:['Sending to NASDrop…','NASDrop으로 보내는 중…','正在发送到 NASDrop…','NASDropへ送信中…'],
+    submissionQueued:['Queued behind the current GoFile request ({count} waiting).','현재 GoFile 요청 뒤에 추가했습니다(대기 {count}개).','已加入当前 GoFile 请求之后的队列（等待 {count} 个）。','現在のGoFileリクエストの後ろに追加しました（{count}件待機）。'],
+    alreadyQueued:['This GoFile item is already being sent or queued.','이 GoFile 항목은 이미 전송 중이거나 대기 중입니다.','此 GoFile 项目已在发送或队列中。','このGoFile項目はすでに送信中または待機中です。'],
+    submissionQueueFull:['The GoFile submission queue is full. Wait for an item to finish, then try again.','GoFile 등록 대기열이 가득 찼습니다. 한 항목이 끝난 뒤 다시 시도하세요.','GoFile 提交队列已满。请等待一个项目完成后重试。','GoFile送信キューがいっぱいです。1件完了してから再試行してください。'],
     success:['Added to NASDrop.','NASDrop에 추가했습니다.','已添加到 NASDrop。','NASDropに追加しました。'],
     login:['Open the extension and sign in to NASDrop first.','확장 아이콘을 눌러 NASDrop에 먼저 로그인하세요.','请先打开扩展并登录 NASDrop。','拡張機能を開いてNASDropにログインしてください。'],
     failed:['Could not send. Check your connection.','전송하지 못했습니다. 연결 상태를 확인하세요.','发送失败，请检查连接。','送信できませんでした。接続を確認してください。'],

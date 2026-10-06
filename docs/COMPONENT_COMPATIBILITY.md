@@ -9,7 +9,7 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 | Synology package | 0.9.27-7 stable | x86_64 SPK built from the same verified server source and confirmed by the user |
 | Docker image | 0.9.27-7 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
-| Chrome extension | 0.5.9 release | Includes current AkiraBox and X-Share handoff plus Pixeldrain's classless no-preview Download control |
+| Chrome extension | 0.5.10 candidate | Preserves multiple GoFile file clicks in a bounded FIFO and uses capability-gated asynchronous GoFile enqueue; 0.5.9 remains the public release |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
@@ -51,7 +51,7 @@ Current coordinated capabilities include:
 - `job_processing_options`: permits per-job extraction and password updates.
 - `browser_handoff_providers`: lists the exact browser-assisted providers accepted by the server.
 - `gigafile_download_key`: permits a client to submit a GigaFile download key when creating a job and to resume a paused `download_key_required` job through the dedicated key endpoint.
-- `async_enqueue_providers`: lists providers whose canonical share URLs can be persistently accepted by `POST /api/enqueue` before remote inspection. Clients must retain inspect/start when the provider is absent.
+- `async_enqueue_providers`: lists providers whose canonical share URLs may be persisted immediately through `POST /api/enqueue` before remote inspection. Chrome 0.5.10 uses this only when the list explicitly contains `gofile`; other clients and older servers retain inspect/start when the provider is absent.
 
 As decided by the user on 2026-09-26, shared changes are implemented and tested first in the private Docker deployment. Coordinate Chrome changes with its dedicated maintainer and verify the real provider flow there before building the Synology SPK from the same canonical source. Docker must not add a provider-specific fork. Synology still requires separate DSM launcher, permissions, packaging, and update/stop verification; Docker success alone does not close those gates. Preserve accounts, jobs, and mounted storage during test updates.
 
