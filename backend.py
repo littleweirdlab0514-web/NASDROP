@@ -2964,6 +2964,15 @@ HANDOFF_FILE_HOSTS = {
 # arbitrary Cloudflare tenants or nested/lookalike domains.
 VIKING_R2_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.04b3d96d52475741e6b10f97f0a84a16\.r2\.cloudflarestorage\.com\Z")
 VIKING_FILE_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.vikingfile\.com\Z")
+# VikingFile also uses OVH Object Storage. Pin its signing credential while
+# allowing the provider to rotate a single bucket label or OVH region. A valid
+# AWS V4 signature for this credential cannot be produced by an unrelated OVH
+# tenant, so this remains provider-specific instead of allowing arbitrary S3.
+VIKING_OVH_CREDENTIAL = "12d9e8c00a5148b180664101e49eca30"
+VIKING_OVH_HOST = re.compile(
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.s3\."
+    r"(?P<region>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.io\.cloud\.ovh\.net\Z"
+)
 
 
 def _validate_handoff_transfer_url(value: str, provider: str) -> str:
@@ -2990,7 +2999,10 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
                 raise HandoffError("Send.now 공유 페이지는 직접 다운로드 주소가 아닙니다.")
             return value
         regional = provider == "vikingfile" and bool(VIKING_FILE_HOST.fullmatch(parsed.hostname or ""))
-        if parsed.hostname not in HANDOFF_FILE_HOSTS.get(provider, set()) and not (provider == "vikingfile" and (regional or VIKING_R2_HOST.fullmatch(parsed.hostname or ""))):
+        ovh = VIKING_OVH_HOST.fullmatch(parsed.hostname or "") if provider == "vikingfile" else None
+        if parsed.hostname not in HANDOFF_FILE_HOSTS.get(provider, set()) and not (
+            provider == "vikingfile" and (regional or VIKING_R2_HOST.fullmatch(parsed.hostname or "") or ovh)
+        ):
             raise HandoffError("허용 목록에 없는 다운로드 서버입니다.")
         if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
             raise ValueError(error)
@@ -3019,6 +3031,16 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
                 raise ValueError(error)
             if signed_at + lifetime <= time.time():
                 raise HandoffError("다운로드 링크가 만료됐습니다.")
+            if ovh:
+                date = query["X-Amz-Date"][0][:8]
+                credential = query.get("X-Amz-Credential", [""])[0]
+                expected_credential = f"{VIKING_OVH_CREDENTIAL}/{date}/{ovh.group('region')}/s3/aws4_request"
+                if (query.get("X-Amz-Algorithm") != ["AWS4-HMAC-SHA256"]
+                        or query.get("X-Amz-Content-Sha256") != ["UNSIGNED-PAYLOAD"]
+                        or query.get("X-Amz-SignedHeaders") != ["host"]
+                        or credential != expected_credential
+                        or not re.fullmatch(r"[a-fA-F0-9]{64}", query["X-Amz-Signature"][0])):
+                    raise ValueError(error)
     except HandoffError:
         raise
     except (ValueError, KeyError, OverflowError):

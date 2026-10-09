@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
 Last updated: 2026-10-06
-Applies to: NASDrop Server 0.9.28-1 candidate
+Applies to: NASDrop Server 0.9.28-2 candidate
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -143,11 +143,11 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 ### Characteristics
 
 - VikingFile also requires an official browser-prepared URL. Some valid signed objects reject HEAD but accept a minimal Range request.
-- Observed delivery may use regional `vikingfile.com` hosts or one bucket label beneath the pinned Cloudflare R2 account used by VikingFile.
+- Observed delivery may use regional `vikingfile.com` hosts, one bucket label beneath the pinned Cloudflare R2 account, or one bucket label beneath an OVH Object Storage regional endpoint signed by VikingFile's pinned AWS V4 credential.
 
 ### Required response
 
-- Keep the exact regional-host and pinned-R2-account rules. Never allow arbitrary R2 tenants, nested subdomains, or a broad “any public host” fallback.
+- Keep the exact regional-host and pinned-R2-account rules. OVH delivery must match `<bucket>.s3.<region>.io.cloud.ovh.net` with one bucket label and a valid AWS V4 scope for VikingFile's pinned credential, the hostname region, and the S3 service. Never allow arbitrary R2/OVH tenants, nested subdomains, lookalikes, or a broad “any public host” fallback.
 - When HEAD returns 403/405/501, issue only `Range: bytes=0-0`, read no file body, and require a correct 206/`Content-Range` response.
 - Validate signed expiration fields, redirects, filename, size, and range support before queueing. Persist the final issued URL privately and disable transfer-time redirects.
 - Use one connection. Do not copy AkiraBox’s special retry policy to VikingFile without separate evidence and tests.

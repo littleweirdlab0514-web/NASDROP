@@ -19,6 +19,17 @@ def redirect(url, location):
     return HTTPError(url, 302, '', {'Location': location}, None)
 
 
+def ovh_final(host='gleaming-lehr.s3.sbg.io.cloud.ovh.net', credential=None):
+    date = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+    scope_date = date[:8]
+    credential = credential or backend.VIKING_OVH_CREDENTIAL
+    return (f'https://{host}/synthetic-object?response-content-disposition=attachment%3Bfilename%3Dfile.rar'
+            f'&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Algorithm=AWS4-HMAC-SHA256'
+            f'&X-Amz-Credential={credential}%2F{scope_date}%2Fsbg%2Fs3%2Faws4_request'
+            f'&X-Amz-Date={date}&X-Amz-SignedHeaders=host&X-Amz-Expires=172800'
+            f'&X-Amz-Signature={'a' * 64}')
+
+
 def ranged(url):
     response = Response(url)
     response.status = 206
@@ -60,6 +71,30 @@ class HandoffRedirectTests(unittest.TestCase):
                      base + '.evil.example', '127.0.0.1', '192.168.1.157', 'localhost'):
             with self.assertRaises(ValueError):
                 backend._validate_handoff_transfer_url(original.replace(base, host), 'vikingfile')
+
+    def test_viking_ovh_signed_bucket_and_region_rotation(self):
+        for host in ('gleaming-lehr.s3.sbg.io.cloud.ovh.net', 'next-bucket.s3.sbg.io.cloud.ovh.net'):
+            url = ovh_final(host)
+            self.assertEqual(backend._validate_handoff_transfer_url(url, 'vikingfile'), url)
+            result, _ = self.inspect('vikingfile', [redirect(direct('vikingfile'), url), Response(url)])
+            self.assertEqual(result['download_url'], url)
+
+    def test_viking_ovh_rejects_other_tenants_and_malformed_scopes(self):
+        valid = ovh_final()
+        for bad in (
+            ovh_final(credential='b' * 32),
+            valid.replace('%2Fsbg%2Fs3%2Faws4_request', '%2Fgra%2Fs3%2Faws4_request'),
+            valid.replace('%2Fsbg%2Fs3%2Faws4_request', '%2Fsbg%2Fec2%2Faws4_request'),
+            valid.replace('X-Amz-Algorithm=AWS4-HMAC-SHA256', 'X-Amz-Algorithm=other'),
+            valid.replace('X-Amz-Content-Sha256=UNSIGNED-PAYLOAD', 'X-Amz-Content-Sha256=other'),
+            valid.replace('X-Amz-SignedHeaders=host', 'X-Amz-SignedHeaders=host%3Bx-test'),
+            valid.replace('X-Amz-Signature=' + 'a' * 64, 'X-Amz-Signature=short'),
+            valid.replace('gleaming-lehr.s3.sbg.io.cloud.ovh.net', 'nested.gleaming-lehr.s3.sbg.io.cloud.ovh.net'),
+            valid.replace('gleaming-lehr.s3.sbg.io.cloud.ovh.net', 'gleaming-lehr.s3.sbg.io.cloud.ovh.net.evil.example'),
+            valid.replace('s3.sbg.io.cloud.ovh.net', 's3.sbg.io.cloud.other.example'),
+        ):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                backend._validate_handoff_transfer_url(bad, 'vikingfile')
 
     def inspect(self, provider, responses):
         opener = mock.Mock()
