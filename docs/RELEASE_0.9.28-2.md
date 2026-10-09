@@ -5,3 +5,5 @@ VikingFile now delivers some files through OVH Object Storage instead of its ear
 The server requires a single OVH bucket label, a regional S3 endpoint, VikingFile's pinned AWS V4 signing credential, a credential scope whose region matches the hostname, the S3 service, host-only signed headers, an unsigned payload declaration, a bounded unexpired lifetime, and a 64-character hexadecimal signature. Other OVH tenants, nested or lookalike hosts, cross-region scopes, and non-S3 services remain blocked.
 
 The browser handoff API and Chrome extension permissions are unchanged. Automated redirect tests cover accepted rotation and rejected tenant/scope variants. A live metadata and byte-range inspection of the reported 550,659,711-byte object succeeded without downloading the file body.
+
+The private amd64 candidate was deployed to the 192.168.1.203 test NAS and reached healthy state with its existing configuration and download mounts preserved. The Synology package is `nasdrop-0.9.28-2-x86_64.spk` with SHA-256 `2B08070325EC5717187445ED8EC26C43E9B4EC622706DB5B2CB8ECD91669FDCF`.

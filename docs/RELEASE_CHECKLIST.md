@@ -6,9 +6,10 @@
 - [x] Accept one OVH bucket label and region only with VikingFile's pinned signing credential and matching AWS V4 scope.
 - [x] Reject other credentials, cross-region scopes, non-S3 services, nested/lookalike hosts, malformed signatures, and expired URLs.
 - [x] Complete a live metadata/range inspection for the supplied 550,659,711-byte VikingFile object without downloading its body.
-- [ ] Run the full Python and JavaScript regression suites.
-- [ ] Deploy the private amd64 Docker candidate on the 192.168.1.203 test NAS and complete the real browser-to-NAS transfer.
-- [ ] Build and validate the versioned Synology SPK.
+- [x] Run the full Python and JavaScript regression suites (Python: 239 passed, 1 skipped; JavaScript: 82 passed).
+- [x] Deploy the private amd64 Docker candidate on the 192.168.1.203 test NAS and verify healthy startup plus live VikingFile metadata/range inspection.
+- [ ] Complete the real browser-to-NAS VikingFile transfer before promotion.
+- [x] Build and validate the versioned Synology SPK.
 
 ## 0.9.28-1 GoFile persistent async enqueue candidate
 
