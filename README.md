@@ -615,6 +615,7 @@ NASDrop processes jobs from the same provider sequentially by default and preser
 
 ## Support and reporting issues
 
+- If NASDrop is useful to you, you can [support its continued development on Buy Me a Coffee](https://buymeacoffee.com/littleweirdlab0514).
 - For installation problems, provider compatibility, and other non-security bugs, open a [GitHub issue](https://github.com/littleweirdlab0514-web/NASDROP/issues).
 - For vulnerabilities or reports containing sensitive details, follow [SECURITY.md](SECURITY.md) and do not open a public issue.
 - Include the NAS model, DSM version, NASDrop version, relevant logs with account credentials, session tokens, and private URLs removed, and clear reproduction steps.
