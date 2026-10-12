@@ -41,7 +41,7 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   const packageVersion = info.match(/^version="([0-9.]+)-[0-9]+"$/m)[1];
   assert.ok(html.includes(`/app.js?v=${packageVersion}`));
   assert.doesNotMatch(html, /qrcode\.js/);
-  assert.match(html, /href="https:\/\/github\.com\/sponsors\/littleweirdlab0514-web"/);
+  assert.match(html, /href="https:\/\/buymeacoffee\.com\/littleweirdlab0514"/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
   assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("download-behavior-card"));

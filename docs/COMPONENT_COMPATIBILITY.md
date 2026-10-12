@@ -15,7 +15,7 @@ The version numbers document tested combinations. Runtime feature decisions must
 
 NASDrop Server 0.9.28-1 adds `async_enqueue_providers: ["gigafile", "gofile"]`. `POST /api/enqueue` now persistently accepts canonical GoFile shares before any provider request, and same-provider metadata inspection runs serially behind the existing shared GoFile cooldown. Existing inspect/start clients remain supported. Chrome 0.5.10 may opt into the GoFile path only when this capability is present.
 
-NASDrop Server 0.9.28-2 accepts VikingFile's observed OVH Object Storage redirect without changing the browser handoff API. The server permits one bucket label beneath `<bucket>.s3.<region>.io.cloud.ovh.net` only when the AWS V4 credential, date, hostname region, S3 service, signed headers, payload mode, expiration, and signature shape match VikingFile's pinned delivery contract. Chrome behavior and permissions are unchanged.
+NASDrop Server 0.9.28-3 accepts VikingFile's observed OVH Object Storage redirect without changing the browser handoff API. The server permits one bucket label beneath `<bucket>.s3.<region>.io.cloud.ovh.net` only when the AWS V4 credential, date, hostname region, S3 service, signed headers, payload mode, expiration, and signature shape match VikingFile's pinned delivery contract. Chrome behavior and permissions are unchanged.
 
 NASDrop 0.9.27 adds an optional `source_password` field to the existing inspect/start flow for 1fichier. Older Android/Chrome clients remain compatible because the field is optional; they do not yet collect a 1fichier file password. Web-form use needs no new client capability. Docker real-flow and multi-architecture parity checks passed.
 

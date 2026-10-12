@@ -1,5 +1,12 @@
 # NASDrop 0.9.28 release checklist
 
+## 0.9.28-3 Buy Me a Coffee candidate
+
+- [x] Replace the GitHub Sponsors destination in the NASDrop settings UI with Buy Me a Coffee in all four translations.
+- [x] Replace GitHub Funding's GitHub account entry with the Buy Me a Coffee custom URL and add the same support link to README.
+- [ ] Run the Python and JavaScript regression suites.
+- [ ] Build and validate the versioned Synology SPK.
+
 ## 0.9.28-2 VikingFile OVH delivery candidate
 
 - [x] Reproduce the rejected redirect and record only its sanitized OVH host and AWS V4 field structure.

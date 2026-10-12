@@ -24,7 +24,7 @@ Already using NASDrop? LittleWeirdLab is recruiting existing NASDrop users to he
 
 NASDrop is a self-hosted personal download portal for Synology DSM and Docker hosts. Paste a supported GigaFile, GoFile, Pixeldrain, 1fichier, or Buzzheavier signed direct link, or use the Chrome companion for browser-assisted providers, and the storage server downloads the file directly.
 
-**0.9.28-2 candidate:** persistently accepts GoFile links before contacting the provider and accepts VikingFile's current OVH Object Storage delivery route. OVH remains fail-closed: the host must have one bucket label beneath an OVH S3 regional endpoint and the AWS V4 scope must match VikingFile's pinned signing credential, the hostname region, and the S3 service.
+**0.9.28-3 candidate:** persistently accepts GoFile links before contacting the provider, accepts VikingFile's current OVH Object Storage delivery route, and directs project support to Buy Me a Coffee. OVH remains fail-closed: the host must have one bucket label beneath an OVH S3 regional endpoint and the AWS V4 scope must match VikingFile's pinned signing credential, the hostname region, and the S3 service.
 
 1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot/daily limits, run one connection at a time, and restart from zero after interruption. On 2026-09-28, four sequential NAS transfers completed, including the deferred owner and the following job after the daily limit reset. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
 
@@ -365,7 +365,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.28-2-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.28-3-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 
@@ -617,6 +617,7 @@ NASDrop processes jobs from the same provider sequentially by default and preser
 
 ## Support and reporting issues
 
+- If NASDrop is useful to you, you can [support its continued development on Buy Me a Coffee](https://buymeacoffee.com/littleweirdlab0514).
 - For installation problems, provider compatibility, and other non-security bugs, open a [GitHub issue](https://github.com/littleweirdlab0514-web/NASDROP/issues).
 - For vulnerabilities or reports containing sensitive details, follow [SECURITY.md](SECURITY.md) and do not open a public issue.
 - Include the NAS model, DSM version, NASDrop version, relevant logs with account credentials, session tokens, and private URLs removed, and clear reproduction steps.
