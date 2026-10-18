@@ -12,6 +12,11 @@ main { padding: 18px; }
 h1 { margin: 0 0 5px; font-size: 20px; }
 h2 { margin: 0; font-size: 14px; }
 .muted { margin: 0 0 18px; color: #697386; font-size: 12px; line-height: 1.5; }
+.automatic-hint { margin-bottom: 10px; }
+.sponsor-banner { display: flex; align-items: center; justify-content: center; min-height: 79px; margin: 0 0 16px; padding: 8px; border: 1px solid #e9c98f; border-radius: 12px; background: linear-gradient(135deg,#fff4da,#fff8ed 55%,#fff1f3); text-decoration: none; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.sponsor-banner:hover { border-color: #cc8e2e; box-shadow: 0 8px 20px #9a6b1818; transform: translateY(-1px); }
+.sponsor-banner:focus-visible { outline: 3px solid #9f3e50; outline-offset: 2px; }
+.sponsor-banner img { display: block; width: 217px; height: 61px; max-width: 100%; }
 form { display: grid; gap: 12px; }
 summary { cursor: pointer; color: #2452a6; font-size: 12px; margin-bottom: 12px; }
 label { display: grid; gap: 6px; font-size: 12px; font-weight: 650; }

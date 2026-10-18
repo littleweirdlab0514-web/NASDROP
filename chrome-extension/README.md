@@ -2,9 +2,9 @@
 
 This Manifest V3 extension connects supported sites' download controls to an existing NASDrop server. After signing in once, click a recognized download button on the provider page. NASDrop receives the link and the page shows the result.
 
-Version 0.5.10 requires Chrome 111 or later because its narrowly scoped X-Share integration uses a statically declared MAIN-world content script.
+Version 0.5.11 requires Chrome 111 or later because its narrowly scoped X-Share integration uses a statically declared MAIN-world content script.
 
-Version 0.5.10 supports English, Korean, Simplified Chinese and Japanese across the popup, job statuses, site notices, context menus and notifications, with a persistent language selector. It retains job pause/resume/deletion, extraction/password controls, automatic progress updates, AkiraBox and X-Share handoff, and Pixeldrain's transfer-limit-page control. On GoFile pages, distinct file clicks are preserved in a bounded FIFO instead of being discarded while an earlier registration is pending. AkiraBox, VikingFile, Send.now and X-Share require a NASDrop server that advertises the matching browser-handoff capability. See [HANDOFF.md](HANDOFF.md) for the verified contract and security boundaries.
+Version 0.5.11 supports English, Korean, Simplified Chinese and Japanese across the popup, job statuses, site notices, context menus and notifications, with a persistent language selector. It retains 0.5.10's GoFile queue, job controls, extraction/password controls, automatic progress updates, AkiraBox and X-Share handoff, and Pixeldrain's transfer-limit-page control. The connected popup now uses a shorter site-button explanation and includes an optional Buy Me a Coffee banner. AkiraBox, VikingFile, Send.now and X-Share require a NASDrop server that advertises the matching browser-handoff capability. See [HANDOFF.md](HANDOFF.md) for the verified contract and security boundaries.
 
 Server, Synology packages and setup instructions: [NASDrop project](https://github.com/littleweirdlab0514-web/NASDROP). This extension requires a running NASDrop server; it does not download files independently. This is a developer-mode distribution, not an official Chrome Web Store release.
 
@@ -25,7 +25,7 @@ Controls inserted after page load are supported. Only genuine, unmodified primar
 
 ## Install locally
 
-Version 0.5.10 keeps file controls collapsed by default. Click a file to expand Pause, Resume, Delete and the relevant secret-entry form below its progress display; click again to collapse. GigaFile download keys and archive passwords are separate. Automatic extraction is configured only in the toolbar. Long filenames wrap within the card.
+Version 0.5.11 keeps file controls collapsed by default. Click a file to expand Pause, Resume, Delete and the relevant secret-entry form below its progress display; click again to collapse. GigaFile download keys and archive passwords are separate. Automatic extraction is configured only in the toolbar. Long filenames wrap within the card. The Buy Me a Coffee banner opens the project's external support page in a new tab and does not send NASDrop credentials or job data.
 
 Detailed Korean instructions: [한국어 설치 및 사용 안내](INSTALL.ko.md).
 
@@ -37,7 +37,7 @@ Install and start NASDrop on the NAS. Open its web portal, create or confirm you
 
 ### 2. Download and extract the extension
 
-Download the separately supplied **NASDrop-Chrome-0.5.10.zip** release. After a matching GitHub release is published, use its asset rather than GitHub's automatically generated **Source code (zip)** or the Synology `.spk` installer.
+Download the separately supplied **NASDrop-Chrome-0.5.11.zip** release. After a matching GitHub release is published, use its asset rather than GitHub's automatically generated **Source code (zip)** or the Synology `.spk` installer.
 
 Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`. Do not run files inside the ZIP or select the ZIP itself. The folder you will select must contain `manifest.json`, `background.js`, `popup.html`, `icons` and `_locales` directly. If there is an extra nested folder, select that inner folder. Keep this directory in place while the extension is installed.
 
@@ -46,7 +46,7 @@ Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`
 1. Type `chrome://extensions` in Chrome's address bar and press Enter.
 2. Turn on **Developer mode** in the upper-right corner.
 3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
-4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.10**. Chrome will disclose that the extension can manage downloads; this is used only for the user-initiated Send.now handoff described above.
+4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.11**. Chrome will disclose that the extension can manage downloads; this is used only for the user-initiated Send.now handoff described above.
 5. Open Chrome's puzzle-piece Extensions menu and pin NASDrop to the toolbar for easy access.
 
 These steps follow [Chrome's official unpacked-extension instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked). This package is not a Chrome Web Store installation. Managed work/school Chrome may prohibit developer-mode extensions; ask the administrator rather than bypassing the policy. This guide is for desktop Chrome, not mobile Chrome.
@@ -93,4 +93,4 @@ The NASDrop server must already have a writable default destination configured. 
 
 ## Verification limits
 
-The GigaFile page inspected on 2026-09-22 uses `#dlkey[maxlength="4"]` and official controls calling `download(file, true, false)` for a protected file. The extension recognizes that literal structure without executing page code. The X-Share page inspected on 2026-09-26 enables `button#dl-btn.btn.btn-primary` only after Turnstile and a five-second wait, then requests `/api/download-token` and clicks a hidden same-file `/api/download/ID?key=...` anchor. Version 0.5.10 retains 0.5.9's provider controls and adds serialized, duplicate-safe GoFile click submission plus capability-gated background inspection. The installed-extension-to-NAS X-Share flow was confirmed by the user on 2026-09-30; one-use keys still intentionally disable response resume. Automated tests cover the observed control shapes, one-time URL suppression, same-ID validation, capability gating, GoFile FIFO behavior, GigaFile key handling, signed-link validation, click cancellation, login errors, restricted worker messages and job controls. Popup interaction tests use a mocked DOM, not an installed Chrome extension. Other provider DOM variants may require adapter updates.
+The GigaFile page inspected on 2026-09-22 uses `#dlkey[maxlength="4"]` and official controls calling `download(file, true, false)` for a protected file. The extension recognizes that literal structure without executing page code. The X-Share page inspected on 2026-09-26 enables `button#dl-btn.btn.btn-primary` only after Turnstile and a five-second wait, then requests `/api/download-token` and clicks a hidden same-file `/api/download/ID?key=...` anchor. Version 0.5.11 retains 0.5.10's serialized, duplicate-safe GoFile submission and adds only the compact site-button copy and bundled sponsor banner. The installed-extension-to-NAS X-Share flow was confirmed by the user on 2026-09-30; one-use keys still intentionally disable response resume. Automated tests cover the observed control shapes, one-time URL suppression, same-ID validation, capability gating, GoFile FIFO behavior, GigaFile key handling, signed-link validation, click cancellation, login errors, restricted worker messages, job controls and the sponsor asset/link. Popup interaction tests use a mocked DOM, not an installed Chrome extension. Other provider DOM variants may require adapter updates.

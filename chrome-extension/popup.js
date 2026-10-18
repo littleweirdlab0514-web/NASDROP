@@ -43,12 +43,13 @@ function localize() {
   $('#destination-label').textContent=`${t('destination')}: ${uiState.status?.target || t('noDestination')}`;
   document.querySelectorAll('[data-i18n]').forEach(node => { node.textContent = t(node.dataset.i18n); });
   const automatic = {
-    en:['Site buttons connected', 'Click Download on a supported site. Buzzheavier also supports Copy download link. Reload open pages after installing.', 'Send a link manually'],
-    ko:['사이트 버튼 연결됨', '지원 사이트의 다운로드 버튼을 누르면 NASDrop으로 보냅니다. Buzzheavier는 Copy download link도 지원합니다. 설치 후 열린 페이지를 새로고침하세요.', '링크 직접 입력'],
-    ja:['サイトのボタンを接続', '対応サイトのダウンロードボタンでNASDropへ送信します。BuzzheavierはCopy download linkにも対応。インストール後はページを再読み込みしてください。', 'リンクを手動入力'],
-    zh:['网站按钮已连接', '点击支持网站的下载按钮即可发送到 NASDrop。Buzzheavier 也支持 Copy download link。安装后请刷新已打开的页面。', '手动输入链接'],
+    en:['Send from supported sites', "Click a site's download button to send it to NASDrop.", 'Send a link manually', 'Support NASDrop on Buy Me a Coffee'],
+    ko:['사이트에서 바로 보내기', '다운로드 버튼을 누르면 NASDrop으로 전송됩니다.', '링크 직접 입력', 'Buy Me a Coffee에서 NASDrop 후원하기'],
+    ja:['対応サイトから送信', 'ダウンロードボタンを押すとNASDropへ送信します。', 'リンクを手動入力', 'Buy Me a CoffeeでNASDropを支援'],
+    zh:['从支持的网站发送', '点击下载按钮即可发送到 NASDrop。', '手动输入链接', '在 Buy Me a Coffee 上支持 NASDrop'],
   }[language];
   ['automatic-title','automatic-hint','manual-title'].forEach((id,index) => { document.getElementById(id).textContent = automatic[index]; });
+  $('#sponsor-banner').setAttribute('aria-label',automatic[3]);
 }
 function notice(text = '', success = false) { $('#notice').textContent = text ? NASDropI18n.error(language,text) : ''; $('#notice').classList.toggle('success', success); }
 function send(message) { return chrome.runtime.sendMessage(message).then(response => { if (!response?.ok) { const error = new Error(NASDropI18n.error(language,response?.error)); error.status=response?.status; throw error; } return response.result; }); }

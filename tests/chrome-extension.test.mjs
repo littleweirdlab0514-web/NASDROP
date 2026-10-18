@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
@@ -33,4 +34,19 @@ test('popup avoids inline scripts and requests origin permission interactively',
   assert.match(script, /chrome\.permissions\.request/);
   assert.match(script, /function supportedProvider/);
   assert.match(script, /useCurrentTab\(false\)/);
+});
+
+test('popup uses the bundled official Buy Me a Coffee banner as an accessible external link', async () => {
+  const [html, script, asset, notices] = await Promise.all([
+    readFile(new URL('popup.html', root), 'utf8'),
+    readFile(new URL('popup.js', root), 'utf8'),
+    readFile(new URL('buy-me-a-coffee.png', root)),
+    readFile(new URL('../THIRD_PARTY_NOTICES.md', root), 'utf8'),
+  ]);
+  assert.match(html, /href="https:\/\/buymeacoffee\.com\/littleweirdlab0514" target="_blank" rel="noopener noreferrer"/);
+  assert.match(html, /<img src="buy-me-a-coffee\.png" width="217" height="61" alt="">/);
+  assert.match(script, /Buy Me a Coffee에서 NASDrop 후원하기/);
+  assert.match(script, /setAttribute\('aria-label',automatic\[3\]\)/);
+  assert.equal(createHash('sha256').update(asset).digest('hex'), 'a72341bd3e0d51568e4c621bfb4bd315f6e71cf39fd3e71f7daf4a93f00425a7');
+  assert.match(notices, /chrome-extension\/buy-me-a-coffee\.png/);
 });
