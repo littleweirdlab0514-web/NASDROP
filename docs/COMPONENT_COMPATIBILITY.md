@@ -7,7 +7,7 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 | Component | Current line | Server contract |
 | --- | --- | --- |
 | Synology package | 0.9.29-2 release | x86_64 SPK built from the canonical server source with split-archive waiting and a configurable DSM launcher URL |
-| Docker image | 0.9.27-7 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
+| Docker image | 0.9.29-2 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
 | Chrome extension | 0.5.11 release | Retains 0.5.10's GoFile FIFO and capability-gated enqueue, with shorter site-button guidance and an optional Buy Me a Coffee banner |
 
@@ -32,6 +32,8 @@ Revision 0.9.27-7 fixes X-Share's first real transfer failure. From the NAS Dock
 Revision 0.9.27-2 added `xshare` to `browser_handoff_providers`. Chrome 0.5.9 accepts the existing `{provider, url, resolved_url}` contract, validates a same-file first-party keyed endpoint, and obtains metadata without consuming the key. The transfer uses one full GET without resume or automatic replay. Signed-out, unsupported, and older companion installations leave the provider's normal download intact. The user confirmed the real X-Share NAS flow on 2026-09-30.
 
 The 0.9.27-7 Docker `candidate`, version, `0.9`, and `latest` tags point to the verified multi-platform manifest digest `sha256:3c146e31ca803ba98a025b71e693f25bcc0264e91ea8e1e58c6996bd64a17561`. Promotion reused that digest without rebuilding it; candidate run 36655115146 and promotion run 36655501406 passed.
+
+The 0.9.29-2 Docker `candidate`, version, `0.9`, and `latest` tags point to the verified multi-platform manifest digest `sha256:438d03a802f04c06768a16875e9a82e9ee2c0f1c5b13b4de302735d6a5f8ee16`. The amd64 image passed a fresh Docker Desktop 4.95.0 runtime check, bootstrap-account confinement and persistence checks, mounted-storage and security checks, 36 archive-processing tests, and 56 VikingFile, browser-handoff, reverse-proxy launcher, and 1fichier tests. The manifest also contains the arm64 image. Promotion reused the candidate digest without rebuilding it; candidate run 39094486913 and promotion run 39097067974 passed.
 
 ## Ownership model
 
