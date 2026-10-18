@@ -221,6 +221,7 @@ def public_error_code(message: object) -> str:
         (("연결하지 못", "HTTP ", "응답을 반환", "응답이 일정 시간 멈춰"), "network_error"),
         (("만료", "링크를 다시", "Copy download link"), "link_expired"),
         (("무결성", "손상", "크기가 예상값"), "integrity_failed"),
+        (("분할 압축의 나머지 조각", "분할 압축의 다음 파일"), "archive_parts_waiting"),
         (("압축", "7-Zip", "archive"), "archive_error"),
         (("지원 서비스", "정식 GigaFile", "정식 Gofile", "정식 Pixeldrain", "Buzzheavier"), "invalid_link"),
         (("작업", "파일 정보가 변경", "파일이 없습니다"), "invalid_job_state"),
@@ -618,6 +619,10 @@ class PasswordRequiredError(ValueError):
     """Raised when an encrypted archive needs a new password without redownloading."""
 
 
+class MissingArchiveVolumeError(ValueError):
+    """Raised when 7-Zip needs another split-archive volume."""
+
+
 class GigaFileDownloadKeyRequiredError(ValueError):
     """Raised when GigaFile requires a source-side download key."""
 
@@ -934,6 +939,39 @@ def split_archive_groups(names: list[str], destinations: list[str]) -> list[dict
     return result
 
 
+def split_archive_member(name: str) -> dict | None:
+    """Describe an unmistakable numbered archive volume, including incomplete sets."""
+    match = re.fullmatch(r"(.+)\.(7z|zip|rar)\.(\d{3,})", name, re.I)
+    if match:
+        return {
+            "family": f"numbered:{match.group(2).casefold()}:{match.group(1).casefold()}",
+            "number": int(match.group(3)), "entry": int(match.group(3)) == 1,
+            "name": match.group(1), "entry_name": "",
+        }
+    match = re.fullmatch(r"(.+)\.part(\d+)\.rar", name, re.I)
+    if match:
+        return {
+            "family": f"part-rar:{match.group(1).casefold()}",
+            "number": int(match.group(2)), "entry": int(match.group(2)) == 1,
+            "name": match.group(1), "entry_name": "",
+        }
+    match = re.fullmatch(r"(.+)\.z(\d{2,})", name, re.I)
+    if match:
+        return {
+            "family": f"split-zip:{match.group(1).casefold()}",
+            "number": int(match.group(2)), "entry": False,
+            "name": match.group(1), "entry_name": f"{match.group(1)}.zip",
+        }
+    match = re.fullmatch(r"(.+)\.r(\d{2,})", name, re.I)
+    if match:
+        return {
+            "family": f"legacy-rar:{match.group(1).casefold()}",
+            "number": int(match.group(2)), "entry": False,
+            "name": match.group(1), "entry_name": f"{match.group(1)}.rar",
+        }
+    return None
+
+
 def archive_kind(name: str) -> str:
     lowered = name.lower()
     if re.search(r"\.part\d+\.rar$", lowered):
@@ -974,6 +1012,14 @@ def _password_failure(message: str) -> bool:
     return any(fragment in lowered for fragment in (
         "wrong password", "password is incorrect", "password required", "enter password",
         "can not open encrypted archive", "data error in encrypted file",
+    ))
+
+
+def _missing_archive_volume_failure(message: str) -> bool:
+    lowered = message.lower()
+    return any(fragment in lowered for fragment in (
+        "missing volume", "can't open volume", "cannot open volume",
+        "unexpected end of archive", "unexpected end of data",
     ))
 
 
@@ -1020,6 +1066,8 @@ def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = 
     if result.returncode != 0:
         if _password_failure(message) or not password and "encrypted" in message.lower():
             raise PasswordRequiredError("압축 암호가 필요하거나 입력한 암호가 올바르지 않습니다.")
+        if _missing_archive_volume_failure(message):
+            raise MissingArchiveVolumeError("분할 압축의 다음 파일을 기다리고 있습니다.")
         raise ValueError((message or "7-Zip 압축 해제 엔진이 작업을 완료하지 못했습니다.")[-400:])
     return result
 
@@ -1579,6 +1627,11 @@ class Controller:
                     jobs[index].multipart_group = group_id
                     jobs[index].multipart_entry = bool(descriptor and descriptor["entry"])
                     jobs[index].multipart_name = str(descriptor["name"]) if descriptor else ""
+            multipart_before = {
+                candidate.id: (candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name)
+                for candidate in self.jobs.values()
+            }
+            self._reconcile_split_archive_jobs()
             replaced = self.jobs.pop(replace_id, None) if replace_id else None
             try:
                 self.save()
@@ -1588,6 +1641,10 @@ class Controller:
                     self.private_downloads.pop(added.id, None)
                 if replaced:
                     self.jobs[replaced.id] = replaced
+                for candidate in self.jobs.values():
+                    previous = multipart_before.get(candidate.id)
+                    if previous:
+                        candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name = previous
                 raise
             if replaced:
                 try:
@@ -1600,6 +1657,60 @@ class Controller:
     def _provider_for_job(self, job: Job) -> str:
         private = self.private_downloads.get(job.id, {})
         return private.get("provider") or provider_for_url(job.source)
+
+    def _reconcile_split_archive_jobs(self) -> bool:
+        """Join numbered volumes from separate registrations without publishing early parts."""
+        eligible = {
+            "inspecting", "queued", "ready", "downloading", "waiting_processing",
+            "verifying", "paused", "extracting",
+        }
+        candidates = [
+            job for job in self.jobs.values()
+            if job.extract and not job.output and job.status in eligible
+        ]
+        plain: dict[tuple[str, str, str], list[Job]] = {}
+        families: dict[tuple[str, str, str], list[tuple[Job, dict]]] = {}
+        for candidate in candidates:
+            provider = self._provider_for_job(candidate)
+            target = candidate.target or NAS_TARGET
+            plain.setdefault((provider, target, candidate.name.casefold()), []).append(candidate)
+            descriptor = split_archive_member(candidate.name)
+            if descriptor:
+                families.setdefault((provider, target, str(descriptor["family"])), []).append((candidate, descriptor))
+
+        changed = False
+        for (provider, target, _family), described in families.items():
+            number_counts: dict[int, int] = {}
+            for _candidate, descriptor in described:
+                number = int(descriptor["number"])
+                number_counts[number] = number_counts.get(number, 0) + 1
+            if any(count > 1 for count in number_counts.values()):
+                # Ambiguous duplicate volume numbers must never be combined.
+                for candidate, descriptor in described:
+                    values = (candidate.id, bool(descriptor["entry"]), str(descriptor["name"]))
+                    if (candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name) != values:
+                        candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name = values
+                        changed = True
+                continue
+
+            members = list(described)
+            entry_name = str(described[0][1].get("entry_name", ""))
+            if entry_name:
+                entries = plain.get((provider, target, entry_name.casefold()), [])
+                if len(entries) == 1:
+                    members.append((entries[0], {
+                        "entry": True, "name": described[0][1]["name"],
+                    }))
+
+            existing_groups = [candidate.multipart_group for candidate, _descriptor in members if candidate.multipart_group]
+            group_id = existing_groups[0] if existing_groups else members[0][0].id
+            output_name = str(described[0][1]["name"])
+            for candidate, descriptor in members:
+                values = (group_id, bool(descriptor.get("entry")), output_name)
+                if (candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name) != values:
+                    candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name = values
+                    changed = True
+        return changed
 
     def _provider_limit(self) -> int:
         return SAME_PROVIDER_LIMIT if ALLOW_SAME_PROVIDER_PARALLEL else 1
@@ -1891,7 +2002,14 @@ class Controller:
             return False
         with self.lock:
             members = self._multipart_members(job.multipart_group)
-            ready = bool(members) and all(member.sha256 and self._multipart_artifact(member).is_file() for member in members)
+            structure = split_archive_groups(
+                [member.name for member in members],
+                [member.target or NAS_TARGET for member in members],
+            )
+            complete_set = len(members) >= 2 and all(structure)
+            ready = complete_set and all(
+                member.sha256 and self._multipart_artifact(member).is_file() for member in members
+            )
             if not ready:
                 job.status = "waiting_processing"
                 job.error = "분할 압축의 나머지 조각을 기다리고 있습니다."
@@ -1947,6 +2065,13 @@ class Controller:
                     member.error = str(exc) if member.id == entry.id else "분할 압축 암호 입력을 기다리고 있습니다."
                 self.save()
             return True
+        except MissingArchiveVolumeError as exc:
+            with self.lock:
+                for member in members:
+                    member.status = "waiting_processing"
+                    member.error = str(exc)
+                self.save()
+            return True
         except Exception as exc:
             with self.lock:
                 for member in members:
@@ -1995,6 +2120,9 @@ class Controller:
                     job.sha256 = ""
                     raise ValueError("임시 완성 파일이 손상되어 삭제했습니다. 작업을 재개하면 처음부터 다시 다운로드합니다.")
             artifact = self._apply_response_filename(job, workspace, artifact, private)
+            with self.lock:
+                if self._reconcile_split_archive_jobs():
+                    self.save()
             # The provider key is no longer needed once the complete artifact is
             # verified locally. Do not retain it during extraction or publishing.
             delete_job_download_key(job_id)
@@ -2019,6 +2147,16 @@ class Controller:
                     job.status = "stopping" if job.delete_requested else "password_required"
                     job.error = str(exc)
                     self.private_downloads.pop(job_id, None)
+                    self.save()
+                return
+            except MissingArchiveVolumeError as exc:
+                with self.lock:
+                    job = self.jobs[job_id]
+                    job.multipart_group = job.multipart_group or job.id
+                    job.multipart_entry = True
+                    job.multipart_name = job.multipart_name or archive_output_name(job.name)
+                    job.status = "waiting_processing"
+                    job.error = str(exc)
                     self.save()
                 return
             shutil.rmtree(workspace, ignore_errors=True)

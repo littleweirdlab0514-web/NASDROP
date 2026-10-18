@@ -173,6 +173,60 @@ class ProcessingPipelineTests(unittest.TestCase):
         self.assertEqual(grouped, [None, None, None])
         self.assertEqual(backend.archive_kind("movie.part01.rar"), "")
 
+    def test_numbered_split_archive_member_is_recognized_before_the_set_is_complete(self):
+        descriptor = backend.split_archive_member("Masterplan.part2.rar")
+        self.assertEqual(descriptor["family"], "part-rar:masterplan")
+        self.assertEqual(descriptor["number"], 2)
+        self.assertFalse(descriptor["entry"])
+        self.assertEqual(descriptor["name"], "Masterplan")
+
+    def test_separately_registered_split_volumes_join_the_same_waiting_group(self):
+        with tempfile.TemporaryDirectory() as target_value:
+            first = backend.Job(
+                "111111111111", "movie.part1.rar", "https://gofile.io/d/one", 3, 0, "queued", "now",
+                target=target_value,
+            )
+            second = backend.Job(
+                "222222222222", "movie.part2.rar", "https://gofile.io/d/two", 3, 0, "queued", "now",
+                target=target_value,
+            )
+            controller = backend.Controller.__new__(backend.Controller)
+            controller.jobs = {first.id: first}
+            controller.private_downloads = {first.id: {"provider": "gofile"}}
+
+            self.assertTrue(controller._reconcile_split_archive_jobs())
+            self.assertEqual(first.multipart_group, first.id)
+            self.assertTrue(first.multipart_entry)
+
+            controller.jobs[second.id] = second
+            controller.private_downloads[second.id] = {"provider": "gofile"}
+            self.assertTrue(controller._reconcile_split_archive_jobs())
+            self.assertEqual(second.multipart_group, first.multipart_group)
+            self.assertFalse(second.multipart_entry)
+            self.assertEqual({first.multipart_name, second.multipart_name}, {"movie"})
+
+    def test_lone_split_volume_waits_without_publishing_the_archive(self):
+        with tempfile.TemporaryDirectory() as target_value:
+            job = backend.Job(
+                "111111111111", "movie.part1.rar", "https://gofile.io/d/one", 3, 3, "verifying", "now",
+                target=target_value, sha256="a" * 64, multipart_group="111111111111",
+                multipart_entry=True, multipart_name="movie",
+            )
+            workspace = backend.job_workspace(target_value, job.id)
+            workspace.mkdir(parents=True)
+            artifact = workspace / job.name
+            artifact.write_bytes(b"one")
+            controller = backend.Controller.__new__(backend.Controller)
+            controller.lock = backend.threading.RLock()
+            controller.jobs = {job.id: job}
+            controller.private_downloads = {job.id: {"provider": "gofile"}}
+            controller.save = mock.Mock()
+
+            self.assertTrue(controller._postprocess_multipart(job, workspace))
+            self.assertEqual(job.status, "waiting_processing")
+            self.assertTrue(artifact.is_file())
+            self.assertFalse((Path(target_value) / "movie.part1.rar").exists())
+
     def test_split_archive_waits_for_every_part_then_extracts_once(self):
         with tempfile.TemporaryDirectory() as target_value:
             target = Path(target_value)
@@ -216,6 +270,104 @@ class ProcessingPipelineTests(unittest.TestCase):
             self.assertEqual((target / "movie" / "video.mkv").read_bytes(), b"video")
             self.assertFalse(backend.job_workspace(target_value, first.id).exists())
             self.assertFalse(backend.job_workspace(target_value, second.id).exists())
+
+    def test_missing_next_volume_returns_the_group_to_waiting_then_retries(self):
+        with tempfile.TemporaryDirectory() as target_value:
+            first = backend.Job(
+                "111111111111", "movie.part1.rar", "https://gofile.io/d/one", 3, 3, "verifying", "now",
+                target=target_value, sha256="a" * 64, multipart_group="111111111111",
+                multipart_entry=True, multipart_name="movie",
+            )
+            second = backend.Job(
+                "222222222222", "movie.part2.rar", "https://gofile.io/d/two", 3, 3, "verifying", "now",
+                target=target_value, sha256="b" * 64, multipart_group="111111111111", multipart_name="movie",
+            )
+            for item in (first, second):
+                item_workspace = backend.job_workspace(target_value, item.id)
+                item_workspace.mkdir(parents=True)
+                (item_workspace / item.name).write_bytes(item.id.encode())
+            controller = backend.Controller.__new__(backend.Controller)
+            controller.lock = backend.threading.RLock()
+            controller.jobs = {first.id: first, second.id: second}
+            controller.private_downloads = {
+                first.id: {"provider": "gofile"}, second.id: {"provider": "gofile"},
+            }
+            controller.save = mock.Mock()
+
+            with mock.patch.object(
+                backend, "_extract_with_seven_zip",
+                side_effect=backend.MissingArchiveVolumeError("분할 압축의 다음 파일을 기다리고 있습니다."),
+            ):
+                self.assertTrue(controller._postprocess_multipart(second, backend.job_workspace(target_value, second.id)))
+
+            self.assertEqual({first.status, second.status}, {"waiting_processing"})
+            self.assertTrue(all("다음 파일" in item.error for item in (first, second)))
+            self.assertTrue(all(backend.job_workspace(target_value, item.id).exists() for item in (first, second)))
+
+            third = backend.Job(
+                "333333333333", "movie.part3.rar", "https://gofile.io/d/three", 3, 3, "verifying", "now",
+                target=target_value, sha256="c" * 64,
+            )
+            third_workspace = backend.job_workspace(target_value, third.id)
+            third_workspace.mkdir(parents=True)
+            (third_workspace / third.name).write_bytes(b"three")
+            controller.jobs[third.id] = third
+            controller.private_downloads[third.id] = {"provider": "gofile"}
+            self.assertTrue(controller._reconcile_split_archive_jobs())
+
+            def fake_extract(_archive, destination, _password, **_kwargs):
+                (destination / "video.mkv").write_bytes(b"video")
+
+            with mock.patch.object(backend, "_extract_with_seven_zip", side_effect=fake_extract) as extract:
+                self.assertTrue(controller._postprocess_multipart(third, third_workspace))
+
+            extract.assert_called_once()
+            self.assertEqual({first.status, second.status, third.status}, {"completed"})
+            self.assertEqual(len({first.output, second.output, third.output}), 1)
+            self.assertEqual((Path(target_value) / "movie" / "video.mkv").read_bytes(), b"video")
+
+    def test_external_engine_classifies_missing_volume_as_retryable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            engine = Path(temp) / "7zz"
+            engine.write_bytes(b"placeholder")
+            result = backend.subprocess.CompletedProcess([], 2, "", "ERROR: Missing volume : movie.part3.rar")
+            with mock.patch.object(backend, "SEVEN_ZIP", engine), mock.patch.object(
+                backend, "_run_interruptible", return_value=result,
+            ):
+                with self.assertRaises(backend.MissingArchiveVolumeError):
+                    backend._run_seven_zip(["x", "movie.part1.rar"], "")
+
+    def test_single_archive_that_requests_another_volume_moves_to_waiting_board(self):
+        with tempfile.TemporaryDirectory() as target_value:
+            job = backend.Job(
+                "111111111111", "legacy.rar", "https://gofile.io/d/one", 3, 3, "verifying", "now",
+                target=target_value, sha256="a" * 64,
+            )
+            workspace = backend.job_workspace(target_value, job.id)
+            workspace.mkdir(parents=True)
+            artifact = workspace / job.name
+            artifact.write_bytes(b"one")
+            controller = backend.Controller.__new__(backend.Controller)
+            controller.lock = backend.threading.RLock()
+            controller.condition = backend.threading.Condition(controller.lock)
+            controller.jobs = {job.id: job}
+            controller.private_downloads = {job.id: {"provider": "gofile", "target": target_value}}
+            controller.processes = {}
+            controller.postprocess_waiting = []
+            controller.processing_job = None
+            controller.save = mock.Mock()
+
+            with mock.patch.object(
+                backend, "promote_download",
+                side_effect=backend.MissingArchiveVolumeError("분할 압축의 다음 파일을 기다리고 있습니다."),
+            ):
+                controller._postprocess(job.id, workspace, artifact, target_value)
+
+            self.assertEqual(job.status, "waiting_processing")
+            self.assertEqual(job.multipart_group, job.id)
+            self.assertTrue(job.multipart_entry)
+            self.assertEqual(job.multipart_name, "legacy")
+            self.assertTrue(artifact.is_file())
 
     def test_deleting_one_split_volume_removes_the_private_group(self):
         with tempfile.TemporaryDirectory() as target_value:

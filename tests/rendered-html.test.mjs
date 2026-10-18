@@ -46,7 +46,7 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("download-behavior-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "currentAccessAddress", "launcherAddress", "launcherPort", "launcherPortHint", "connectionRouteTitle", "connectionRoute", "connectionRouteHint", "saveLauncherPort", "launcherPortSaved", "reverseProxyMode", "reverseProxyHint", "proxyDetectedTitle", "proxyDetectedWarning", "proxyEnabledWarning", "confirmReverseProxy", "saveConnectionSettings", "connectionSettingsSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "downloadBehavior", "downloadBehaviorHint", "combinedDownloadWarning", "saveDownloadBehavior", "downloadBehaviorSaved", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction", "httpWarningTitle", "httpWarningBody", "error_auth_required", "error_invalid_credentials", "error_invalid_username", "error_invalid_password", "error_too_many_attempts", "error_permission_denied", "error_password_required", "error_rate_limited", "error_link_expired", "error_integrity_failed", "error_archive_error", "error_invalid_link", "error_invalid_job_state", "error_internal_error", "error_generic_error"]) {
+  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "archiveWaitingEyebrow", "archiveWaitingBoard", "archiveWaitingHint", "archiveWaitingSummary", "statusWaitingArchiveParts", "noRegularJobsTitle", "noRegularJobsHint", "accessMethodHint", "currentAccessAddress", "launcherAddress", "launcherPort", "launcherPortHint", "connectionRouteTitle", "connectionRoute", "connectionRouteHint", "saveLauncherPort", "launcherPortSaved", "reverseProxyMode", "reverseProxyHint", "proxyDetectedTitle", "proxyDetectedWarning", "proxyEnabledWarning", "confirmReverseProxy", "saveConnectionSettings", "connectionSettingsSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "downloadBehavior", "downloadBehaviorHint", "combinedDownloadWarning", "saveDownloadBehavior", "downloadBehaviorSaved", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction", "httpWarningTitle", "httpWarningBody", "error_auth_required", "error_invalid_credentials", "error_invalid_username", "error_invalid_password", "error_too_many_attempts", "error_permission_denied", "error_password_required", "error_rate_limited", "error_link_expired", "error_integrity_failed", "error_archive_error", "error_archive_parts_waiting", "error_invalid_link", "error_invalid_job_state", "error_internal_error", "error_generic_error"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
   assert.match(i18n, /function error\(code, fallback/);
@@ -67,6 +67,10 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(html, /id="extract-download"/);
   assert.match(html, /id="archive-password"/);
   assert.match(html, /id="save-processing"/);
+  assert.match(html, /id="archive-waiting-section"[^>]*aria-labelledby="archive-waiting-title"/);
+  assert.match(html, /id="archive-waiting-jobs"/);
+  assert.match(app, /job\.multipart_group && !\["completed","failed","cancelled"\]/);
+  assert.match(app, /statusWaitingArchiveParts/);
   assert.match(app, /auto_extract_archives:enabled,disk_protection:diskProtection/);
   assert.doesNotMatch(app, /location\.hash\.slice\(1\)/);
   assert.doesNotMatch(app, /history\.replaceState/);
@@ -134,6 +138,9 @@ test("client connection and Sponsor cards share the top row equally", async () =
   const style = await readFile(new URL("synology/web/style.css", root), "utf8");
   assert.match(style, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
   assert.match(style, /\.account-card\{grid-column:span 3\}/);
+  assert.match(style, /\.sponsor-card\{display:grid;grid-template-columns:auto minmax\(0,1fr\) auto/);
+  assert.match(html, /class="sponsor-icon" aria-hidden="true"/);
+  assert.doesNotMatch(html, /github\.com\/sponsors/i);
   assert.match(style, /\.download-behavior-card,\.processing-card,\.folder-card,\.service-card\{grid-column:span 3\}/);
   assert.match(style, /\.download-behavior-controls\{display:grid/);
   assert.doesNotMatch(html, /download-behavior-grid/);
