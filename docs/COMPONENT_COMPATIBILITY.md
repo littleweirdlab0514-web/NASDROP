@@ -6,10 +6,10 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.27-7 stable | x86_64 SPK built from the same verified server source and confirmed by the user |
+| Synology package | 0.9.29-2 release | x86_64 SPK built from the canonical server source with split-archive waiting and a configurable DSM launcher URL |
 | Docker image | 0.9.27-7 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
 | Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
-| Chrome extension | 0.5.10 candidate | Preserves multiple GoFile file clicks in a bounded FIFO and uses capability-gated asynchronous GoFile enqueue; 0.5.9 remains the public release |
+| Chrome extension | 0.5.11 release | Retains 0.5.10's GoFile FIFO and capability-gated enqueue, with shorter site-button guidance and an optional Buy Me a Coffee banner |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
@@ -17,7 +17,7 @@ NASDrop Server 0.9.29-2 recognizes split-archive volumes discovered in one multi
 
 The same Synology candidate adds an optional `NAS_PORTAL_LAUNCHER_PUBLIC_URL` setting for the DSM desktop icon. It affects only the Synology launcher file and does not change the server API used by Android, Chrome, or Docker clients. An empty value keeps the established adaptive hostname and port behavior.
 
-NASDrop Server 0.9.28-1 adds `async_enqueue_providers: ["gigafile", "gofile"]`. `POST /api/enqueue` now persistently accepts canonical GoFile shares before any provider request, and same-provider metadata inspection runs serially behind the existing shared GoFile cooldown. Existing inspect/start clients remain supported. Chrome 0.5.10 may opt into the GoFile path only when this capability is present.
+NASDrop Server 0.9.28-1 adds `async_enqueue_providers: ["gigafile", "gofile"]`. `POST /api/enqueue` now persistently accepts canonical GoFile shares before any provider request, and same-provider metadata inspection runs serially behind the existing shared GoFile cooldown. Existing inspect/start clients remain supported. Chrome 0.5.10 and later may opt into the GoFile path only when this capability is present.
 
 NASDrop Server 0.9.28-3 accepts VikingFile's observed OVH Object Storage redirect without changing the browser handoff API. The server permits one bucket label beneath `<bucket>.s3.<region>.io.cloud.ovh.net` only when the AWS V4 credential, date, hostname region, S3 service, signed headers, payload mode, expiration, and signature shape match VikingFile's pinned delivery contract. Chrome behavior and permissions are unchanged.
 
@@ -57,7 +57,7 @@ Current coordinated capabilities include:
 - `job_processing_options`: permits per-job extraction and password updates.
 - `browser_handoff_providers`: lists the exact browser-assisted providers accepted by the server.
 - `gigafile_download_key`: permits a client to submit a GigaFile download key when creating a job and to resume a paused `download_key_required` job through the dedicated key endpoint.
-- `async_enqueue_providers`: lists providers whose canonical share URLs may be persisted immediately through `POST /api/enqueue` before remote inspection. Chrome 0.5.10 uses this only when the list explicitly contains `gofile`; other clients and older servers retain inspect/start when the provider is absent.
+- `async_enqueue_providers`: lists providers whose canonical share URLs may be persisted immediately through `POST /api/enqueue` before remote inspection. Chrome 0.5.10 and later use this only when the list explicitly contains `gofile`; other clients and older servers retain inspect/start when the provider is absent.
 
 As decided by the user on 2026-09-26, shared changes are implemented and tested first in the private Docker deployment. Coordinate Chrome changes with its dedicated maintainer and verify the real provider flow there before building the Synology SPK from the same canonical source. Docker must not add a provider-specific fork. Synology still requires separate DSM launcher, permissions, packaging, and update/stop verification; Docker success alone does not close those gates. Preserve accounts, jobs, and mounted storage during test updates.
 
