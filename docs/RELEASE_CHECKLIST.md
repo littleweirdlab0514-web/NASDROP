@@ -8,6 +8,8 @@
 - [x] Publish one extracted result after the later volume completes; never publish the raw partial archives.
 - [x] Show active split sets in a dedicated, localized NASDrop waiting board while ordinary single archives continue to extract immediately.
 - [x] Keep Buy Me a Coffee as the only support destination and show its official website button as a full clickable banner in NASDrop settings.
+- [x] Let Synology administrators set a complete HTTPS reverse-proxy destination for the DSM icon while preserving the current-hostname and port fallback when the field is empty.
+- [x] Reject custom launcher destinations containing plain HTTP, credentials, query strings, fragments, control characters, or ambiguous backslashes.
 
 ## 0.9.29-1 split-archive candidate
 

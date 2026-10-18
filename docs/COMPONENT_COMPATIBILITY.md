@@ -15,6 +15,8 @@ The version numbers document tested combinations. Runtime feature decisions must
 
 NASDrop Server 0.9.29-2 recognizes split-archive volumes discovered in one multi-file share or through separate supported-service links. Matching is limited to the same provider, destination, and exact numbered filename family. A numbered volume remains private while the set is incomplete; if 7-Zip identifies another missing volume, all members return to waiting and extraction retries when that volume arrives. This is automatic server behavior and does not require an Android or Chrome API change.
 
+The same Synology candidate adds an optional `NAS_PORTAL_LAUNCHER_PUBLIC_URL` setting for the DSM desktop icon. It affects only the Synology launcher file and does not change the server API used by Android, Chrome, or Docker clients. An empty value keeps the established adaptive hostname and port behavior.
+
 NASDrop Server 0.9.28-1 adds `async_enqueue_providers: ["gigafile", "gofile"]`. `POST /api/enqueue` now persistently accepts canonical GoFile shares before any provider request, and same-provider metadata inspection runs serially behind the existing shared GoFile cooldown. Existing inspect/start clients remain supported. Chrome 0.5.10 may opt into the GoFile path only when this capability is present.
 
 NASDrop Server 0.9.28-3 accepts VikingFile's observed OVH Object Storage redirect without changing the browser handoff API. The server permits one bucket label beneath `<bucket>.s3.<region>.io.cloud.ovh.net` only when the AWS V4 credential, date, hostname region, S3 service, signed headers, payload mode, expiration, and signature shape match VikingFile's pinned delivery contract. Chrome behavior and permissions are unchanged.

@@ -462,6 +462,8 @@ Internet HTTPS :8791 -> router -> NAS HTTPS :8443 -> DSM Reverse Proxy -> HTTP 1
 
 If the router uses a different external port, such as `8795`, open **NASDrop > Settings > Service address** and set **DSM icon external port** to the same value. The DSM icon will then open `https://your-public-hostname:8795`, while private LAN launches continue to use the internal NASDrop port `8791`.
 
+If the reverse proxy has its own hostname, open **NASDrop > Settings > Connection path** and enter its complete HTTPS address in **Custom DSM icon URL**, for example `https://nasdrop.example.com/`. The DSM desktop icon will open that address regardless of the hostname used to access DSM. Leave the field blank to keep the adaptive current-hostname and external-port behavior. For safety, the custom destination accepts HTTPS URLs without embedded credentials, query strings, or fragments.
+
 ### DSM icon external port setting
 
 The following screenshots show the new port setting in all four supported interface languages. The public hostname is intentionally hidden.
@@ -498,7 +500,7 @@ Do not forward any external port directly to NAS port `8791`; that would expose 
 
 After saving the configuration, test the exact HTTPS address from outside the local network. A request beginning with `http://` will return `400 Bad Request` because plain HTTP was sent to an HTTPS listener.
 
-The DSM launcher preserves the protocol used to open DSM. It uses port `8791` for private hosts and the external icon port selected in NASDrop settings for public hostnames. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
+When no custom URL is configured, the DSM launcher preserves the protocol used to open DSM. It uses port `8791` for private hosts and the external icon port selected in NASDrop settings for public hostnames. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
 
 Login throttling uses the direct peer address by default and does not trust `X-Forwarded-For`. Behind DSM Reverse Proxy, enable **Use DSM reverse proxy** under **NASDrop > Settings > Service address**; otherwise every proxied client shares the loopback address and therefore one login-throttle bucket. NASDrop accepts the rightmost forwarded address only from a loopback proxy and records both peer and selected client addresses in its log. Docker users can set `NASDROP_TRUST_FORWARDED_FOR=true` instead. Never enable this mode when untrusted clients can reach NASDrop port `8791` directly.
 

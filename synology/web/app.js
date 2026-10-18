@@ -100,8 +100,9 @@
     $("#service-user").textContent = s.service_user || t("dedicatedAccount");
     $("#service-url").textContent = location.origin;
     const launcherPort = Number(s.launcher_port || 8791);
+    $("#launcher-public-url").value = s.launcher_public_url || "";
     $("#launcher-port").value = String(launcherPort);
-    renderConnectionRoute(launcherPort);
+    renderConnectionRoute(launcherPort, s.launcher_public_url || "");
     $("#reverse-proxy-mode").checked = Boolean(s.reverse_proxy_mode);
     $("#proxy-detected-warning").classList.toggle("hidden", !s.untrusted_forwarded_header_seen || s.reverse_proxy_mode);
     $("#proxy-enabled-warning").classList.toggle("hidden", !s.reverse_proxy_mode);
@@ -298,11 +299,14 @@
   $("#reverse-proxy-mode").addEventListener("change", event => {
     $("#proxy-enabled-warning").classList.toggle("hidden", !event.target.checked);
   });
-  function renderConnectionRoute(port) {
+  function renderConnectionRoute(port, publicUrl = $("#launcher-public-url").value.trim()) {
     const host = location.hostname.includes(":") ? `[${location.hostname}]` : location.hostname;
-    $("#launcher-url").textContent = `${location.protocol}//${host}:${port}`;
+    $("#launcher-url").textContent = publicUrl || `${location.protocol}//${host}:${port}`;
     $("#connection-route").textContent = t("connectionRoute", {publicPort:port, appPort:8791});
   }
+  $("#launcher-public-url").addEventListener("input", event => {
+    renderConnectionRoute(Number($("#launcher-port").value) || 8791, event.target.value.trim());
+  });
   $("#launcher-port").addEventListener("input", event => {
     const port = Number(event.target.value);
     if (Number.isInteger(port) && port >= 1 && port <= 65535) renderConnectionRoute(port);
@@ -310,13 +314,14 @@
   $("#save-service-settings").addEventListener("click", async () => {
     const rawPort = $("#launcher-port").value.trim();
     const port = rawPort ? Number(rawPort) : 8791;
+    const launcherPublicUrl = $("#launcher-public-url").value.trim();
     const reverseProxyMode = $("#reverse-proxy-mode").checked;
     if (reverseProxyMode && !confirm(t("confirmReverseProxy"))) return;
     const button = $("#save-service-settings"); button.disabled = true; $("#service-settings-message").textContent = t("saving");
     try {
-      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({launcher_port:port,reverse_proxy_mode:reverseProxyMode})});
+      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({launcher_port:port,launcher_public_url:launcherPublicUrl,reverse_proxy_mode:reverseProxyMode})});
       state.status = await api("/api/status"); renderStatus();
-      $("#service-settings-message").textContent = t("connectionSettingsSaved", {port:result.launcher_port});
+      $("#service-settings-message").textContent = result.launcher_public_url ? t("connectionSettingsSavedUrl", {url:result.launcher_public_url}) : t("connectionSettingsSaved", {port:result.launcher_port});
     } catch (error) { $("#service-settings-message").textContent = error.message; }
     finally { button.disabled = false; }
   });

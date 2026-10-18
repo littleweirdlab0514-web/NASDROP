@@ -88,7 +88,9 @@
           <h3 data-i18n="serviceAddress">Connection path</h3>
           <p class="muted" data-i18n="serviceAddressHint">The public router port, DSM reverse proxy port, and NASDrop internal port have different roles.</p>
           <p class="muted" data-i18n="accessMethodHint">The DSM icon opens the NASDrop login page. All clients use the NASDrop ID and password.</p>
-          <dl class="connection-map"><div><dt data-i18n="currentAccessAddress">Current address</dt><dd><code id="service-url">—</code></dd></div><div><dt data-i18n="launcherAddress">DSM icon address on this hostname</dt><dd><code id="launcher-url">—</code></dd></div></dl>
+          <dl class="connection-map"><div><dt data-i18n="currentAccessAddress">Current address</dt><dd><code id="service-url">—</code></dd></div><div><dt data-i18n="launcherAddress">DSM icon destination</dt><dd><code id="launcher-url">—</code></dd></div></dl>
+          <label class="launcher-url-setting"><span data-i18n="launcherPublicUrl">Custom DSM icon URL</span><input id="launcher-public-url" type="url" inputmode="url" autocomplete="url" placeholder="https://nasdrop.example.com/"></label>
+          <p class="muted launcher-url-hint" data-i18n="launcherPublicUrlHint">Optional. Enter the HTTPS address of your reverse proxy. Leave it blank to use the current DSM hostname and the port below.</p>
           <label class="launcher-port-setting"><span data-i18n="launcherPort">Public router port (DSM icon address)</span><input id="launcher-port" type="number" min="1" max="65535" inputmode="numeric"></label>
           <p class="muted launcher-port-hint" data-i18n="launcherPortHint">This is the port visible on the internet, not DSM's reverse proxy source port or NASDrop's internal port.</p>
           <div class="connection-route"><strong data-i18n="connectionRouteTitle">Reverse proxy route example</strong><span id="connection-route">—</span><small data-i18n="connectionRouteHint">Even if both ends use 8791, the public router port and NASDrop internal port are separate roles.</small></div>

@@ -37,7 +37,7 @@ import time
 import unicodedata
 import zipfile
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, ProxyHandler, Request, build_opener
 from transfer_parts import commit_fragment, segment_count, segment_chunk, initial_transfer_mode
 
@@ -179,6 +179,63 @@ def launcher_port_setting() -> int:
         return LISTEN_PORT
 
 
+def normalize_launcher_public_url(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) > 2048 or any(char.isspace() or ord(char) < 32 for char in raw) or "\\" in raw:
+        raise ValueError("DSM 아이콘 사용자 지정 주소가 올바르지 않습니다.")
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("DSM 아이콘 사용자 지정 주소가 올바르지 않습니다.") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("DSM 아이콘 사용자 지정 주소는 쿼리나 인증 정보가 없는 HTTPS 주소여야 합니다.")
+    try:
+        hostname = parsed.hostname.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ValueError("DSM 아이콘 사용자 지정 주소의 호스트 이름이 올바르지 않습니다.") from exc
+    if ":" in hostname:
+        try:
+            hostname = str(ipaddress.IPv6Address(hostname))
+        except ValueError as exc:
+            raise ValueError("DSM 아이콘 사용자 지정 주소의 호스트 이름이 올바르지 않습니다.") from exc
+        authority = f"[{hostname}]"
+    else:
+        hostname = hostname.rstrip(".")
+        labels = hostname.split(".")
+        if (
+            not hostname
+            or len(hostname) > 253
+            or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels)
+        ):
+            raise ValueError("DSM 아이콘 사용자 지정 주소의 호스트 이름이 올바르지 않습니다.")
+        authority = hostname
+    if port is not None:
+        authority += f":{port}"
+    path = parsed.path or "/"
+    if not path.startswith("/"):
+        raise ValueError("DSM 아이콘 사용자 지정 주소가 올바르지 않습니다.")
+    if not path.endswith("/"):
+        path += "/"
+    return f"https://{authority}{path}"
+
+
+def launcher_public_url_setting() -> str:
+    try:
+        return normalize_launcher_public_url(setting("NAS_PORTAL_LAUNCHER_PUBLIC_URL"))
+    except ValueError:
+        return ""
+
+
 def normalize_download_mode(value: object) -> str:
     mode = str(value).strip().lower()
     if mode not in {"segmented", "single"}:
@@ -196,6 +253,7 @@ def download_mode_setting() -> str:
 ALLOW_SAME_PROVIDER_PARALLEL = bool_setting("NAS_PORTAL_ALLOW_SAME_PROVIDER_PARALLEL")
 SAME_PROVIDER_LIMIT = parallel_limit_setting()
 LAUNCHER_PORT = launcher_port_setting()
+LAUNCHER_PUBLIC_URL = launcher_public_url_setting()
 DOWNLOAD_MODE = download_mode_setting()
 AUTO_EXTRACT_ARCHIVES = bool_setting("NAS_PORTAL_AUTO_EXTRACT_ARCHIVES", True)
 DISK_PROTECTION = bool_setting("NAS_PORTAL_DISK_PROTECTION", True)
@@ -567,10 +625,15 @@ def note_forwarded_header(peer_ip: str, forwarded_for: str) -> None:
     )
 
 
-def render_launcher_html(public_port: int) -> str:
+def render_launcher_html(public_port: int, public_url: str = "") -> str:
+    custom_target = json.dumps(normalize_launcher_public_url(public_url), ensure_ascii=True).replace("<", "\\u003c")
     return f'''<!doctype html>
 <html><head><meta charset="utf-8"><title>NASDrop</title></head>
 <body><script>
+  var customTarget = {custom_target};
+  if (customTarget) {{
+    location.replace(customTarget);
+  }} else {{
   var host = location.hostname;
   var plainHost = host.replace(/^\\[|\\]$/g, "").toLowerCase();
   var isV6 = plainHost.indexOf(":") !== -1;
@@ -582,16 +645,18 @@ def render_launcher_html(public_port: int) -> str:
   var targetProtocol = location.protocol === "https:" ? "https://" : "http://";
   if (privateHost) targetProtocol = "http://";
   location.replace(targetProtocol + host + ":" + targetPort + "/");
+  }}
 </script></body></html>
 '''
 
 
-def write_launcher_file(public_port: int | None = None) -> None:
+def write_launcher_file(public_port: int | None = None, public_url: str | None = None) -> None:
     if LAUNCHER_FILE is None:
         return
     port = LAUNCHER_PORT if public_port is None else normalize_launcher_port(public_port)
+    url = LAUNCHER_PUBLIC_URL if public_url is None else normalize_launcher_public_url(public_url)
     temporary = LAUNCHER_FILE.with_suffix(".tmp")
-    temporary.write_text(render_launcher_html(port), encoding="utf-8")
+    temporary.write_text(render_launcher_html(port, url), encoding="utf-8")
     temporary.chmod(0o644)
     temporary.replace(LAUNCHER_FILE)
 
@@ -4385,11 +4450,17 @@ def set_parallel_settings(enabled: object, limit: object) -> dict:
 
 
 def set_launcher_port(raw_port: object) -> int:
-    global LAUNCHER_PORT, CONFIG
+    return set_launcher_settings(raw_port, LAUNCHER_PUBLIC_URL)["launcher_port"]
+
+
+def set_launcher_settings(raw_port: object, raw_public_url: object) -> dict:
+    global LAUNCHER_PORT, LAUNCHER_PUBLIC_URL, CONFIG
     normalized = normalize_launcher_port(raw_port)
+    normalized_url = normalize_launcher_public_url(raw_public_url)
     with CONFIG_LOCK:
         updated = dict(CONFIG)
         updated["NAS_PORTAL_LAUNCHER_PORT"] = normalized
+        updated["NAS_PORTAL_LAUNCHER_PUBLIC_URL"] = normalized_url
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         temp = CONFIG_FILE.with_suffix(".tmp")
         temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -4397,8 +4468,9 @@ def set_launcher_port(raw_port: object) -> int:
         temp.replace(CONFIG_FILE)
         CONFIG = updated
         LAUNCHER_PORT = normalized
-        write_launcher_file(public_port=normalized)
-    return normalized
+        LAUNCHER_PUBLIC_URL = normalized_url
+        write_launcher_file(public_port=normalized, public_url=normalized_url)
+    return {"launcher_port": normalized, "launcher_public_url": normalized_url}
 
 
 def set_download_mode(raw_mode: object) -> str:
@@ -4595,6 +4667,7 @@ class Handler(BaseHTTPRequestHandler):
                 "same_provider_limit": SAME_PROVIDER_LIMIT,
                 "download_mode": DOWNLOAD_MODE,
                 "launcher_port": LAUNCHER_PORT,
+                "launcher_public_url": LAUNCHER_PUBLIC_URL,
                 "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
                 "auto_extract_archives": AUTO_EXTRACT_ARCHIVES,
                 "password_change_required": password_change_required(),
@@ -4711,8 +4784,11 @@ class Handler(BaseHTTPRequestHandler):
                     result["target"] = set_default_target(str(payload.get("target", "")))
                 if "same_provider_parallel" in payload or "same_provider_limit" in payload:
                     result.update(set_parallel_settings(payload.get("same_provider_parallel"), payload.get("same_provider_limit")))
-                if "launcher_port" in payload:
-                    result["launcher_port"] = set_launcher_port(payload.get("launcher_port"))
+                if "launcher_port" in payload or "launcher_public_url" in payload:
+                    result.update(set_launcher_settings(
+                        payload.get("launcher_port", LAUNCHER_PORT),
+                        payload.get("launcher_public_url", LAUNCHER_PUBLIC_URL),
+                    ))
                 if "download_mode" in payload:
                     result["download_mode"] = set_download_mode(payload.get("download_mode"))
                 if "auto_extract_archives" in payload or "disk_protection" in payload:
