@@ -86,6 +86,7 @@ class DockerPackagingTests(unittest.TestCase):
         env_example = (ROOT / "docker" / "compose.env.example").read_text(encoding="utf-8")
         english = (ROOT / "docs" / "DOCKER_INSTALL.md").read_text(encoding="utf-8")
         korean = (ROOT / "docs" / "DOCKER_INSTALL.ko.md").read_text(encoding="utf-8")
+        compatibility = (ROOT / "docs" / "COMPONENT_COMPATIBILITY.md").read_text(encoding="utf-8")
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
         self.assertIn(
@@ -98,12 +99,21 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertIn("docker/compose.release.yaml", readme)
         for guide in (english, korean):
             self.assertIn("compose.release.yaml", guide)
+            referenced_versions = set(re.findall(
+                r"ghcr\.io/littleweirdlab0514-web/nasdrop:(\d+\.\d+\.\d+-\d+)",
+                guide,
+            ))
+            self.assertEqual(referenced_versions, {stable_version})
             self.assertIn(
                 f"docker save -o nasdrop-{stable_version}-amd64.tar", guide
             )
             self.assertIn('gosu "$PUID:$PGID"', guide)
             self.assertNotIn("NASDrop-0.9.23-amd64.tar", guide)
             self.assertNotIn("test -w /downloads && echo writable'", guide)
+        self.assertRegex(
+            compatibility,
+            rf"\| Docker image \| {re.escape(stable_version)} stable \|",
+        )
 
     def test_compose_persists_state_and_downloads(self):
         compose = (ROOT / "compose.yaml").read_text(encoding="utf-8")
