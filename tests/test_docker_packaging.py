@@ -126,6 +126,29 @@ class DockerPackagingTests(unittest.TestCase):
         self.assertIn("read_only: true", compose)
         self.assertIn("no-new-privileges:true", compose)
 
+    def test_optional_auto_update_is_scoped_backed_up_and_rollback_safe(self):
+        overlay = (ROOT / "docker" / "compose.auto-update.yaml").read_text(encoding="utf-8")
+        shell = (ROOT / "docker" / "nasdrop-update.sh").read_text(encoding="utf-8")
+        powershell = (ROOT / "docker" / "nasdrop-update.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("NASDROP_UPDATE_IMAGE", overlay)
+        self.assertIn("ghcr.io/littleweirdlab0514-web/nasdrop:latest", overlay)
+        self.assertIn("NASDROP_UPDATE_PULL_POLICY", overlay)
+        for script in (shell, powershell):
+            self.assertIn("nasdrop-update-backups", script)
+            self.assertIn("nasdrop-local-rollback", script)
+            self.assertIn("/config", script)
+            self.assertIn("healthy", script)
+            self.assertIn("pull", script)
+            self.assertIn("nasdrop", script)
+            self.assertNotIn("/var/run/docker.sock", script)
+            self.assertNotIn("image prune", script)
+
+        self.assertIn('stop --timeout 60 nasdrop', shell)
+        self.assertIn('@("stop", "--timeout", "60", "nasdrop")', powershell)
+        self.assertIn('compose "$rollback_image" never up', shell)
+        self.assertIn('Invoke-Compose $rollbackImage "never"', powershell)
+
     def test_release_workflow_builds_amd64_and_arm64(self):
         workflow = (ROOT / ".github" / "workflows" / "docker.yml").read_text(encoding="utf-8")
         self.assertIn("linux/amd64,linux/arm64", workflow)

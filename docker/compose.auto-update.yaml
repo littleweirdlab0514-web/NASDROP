@@ -1,0 +1,4 @@
+services:
+  nasdrop:
+    image: "${NASDROP_UPDATE_IMAGE:-ghcr.io/littleweirdlab0514-web/nasdrop:latest}"
+    pull_policy: "${NASDROP_UPDATE_PULL_POLICY:-always}"

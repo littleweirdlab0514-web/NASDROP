@@ -145,6 +145,42 @@ tar -czf nasdrop-config-backup.tgz nasdrop-config
 docker compose start
 ```
 
+## 선택 사항: 자동 업데이트
+
+NASDrop은 앱 컨테이너에 Docker 소켓을 넘기지 않고 호스트에서 실행하는 자동 업데이트 스크립트를 제공합니다. 자동 업데이트는 `ghcr.io/littleweirdlab0514-web/nasdrop:latest`만 추적하며, 이 태그는 멀티플랫폼 릴리스 후보의 검증과 정식 승격이 끝난 뒤에만 이동합니다.
+
+설치에 사용하는 `compose.yaml` 및 `.env`와 같은 폴더에 다음 파일을 둡니다.
+
+- `docker/compose.auto-update.yaml`
+- 시놀로지·리눅스용 `docker/nasdrop-update.sh`
+- Windows Docker Desktop용 `docker/nasdrop-update.ps1`
+
+예약하기 전에 한 번 직접 실행합니다. 이미 최신 버전이면 컨테이너를 재시작하지 않고 종료합니다.
+
+```sh
+chmod 700 nasdrop-update.sh
+./nasdrop-update.sh
+```
+
+새 이미지가 있을 때만 기존 이미지를 로컬 롤백 태그로 보관하고 NASDrop을 정상 종료합니다. 이어서 `/config`를 `nasdrop-update-backups`에 백업하고 정식 승격 이미지를 실행한 뒤 헬스체크를 기다립니다. 헬스체크가 실패하면 보관한 이전 이미지로 컨테이너를 자동 복원합니다. `/downloads`의 파일은 복사하거나 삭제하지 않습니다.
+
+시놀로지에서는 **제어판 > 작업 스케줄러**에서 `root` 사용자로 실행되는 **사용자 정의 스크립트**를 만들고 사용량이 적은 시간에 다음 명령을 실행하도록 설정합니다.
+
+```sh
+/bin/sh /volume1/docker/nasdrop/nasdrop-update.sh >> /volume1/docker/nasdrop/auto-update.log 2>&1
+```
+
+경로는 Compose 파일을 저장한 실제 폴더에 맞게 바꿉니다. 리눅스에서는 Docker 사용 권한이 있는 계정의 cron 또는 systemd timer에서 같은 명령을 사용합니다.
+
+Windows에서는 Docker Desktop이 실행되는 시간에 다음 작업 스케줄러 동작을 등록합니다.
+
+```text
+프로그램: powershell.exe
+인수: -NoProfile -ExecutionPolicy Bypass -File "C:\docker\nasdrop\nasdrop-update.ps1"
+```
+
+Windows 작업 계정에는 Docker 사용 권한이 필요합니다. 롤백 뒤 스크립트를 다시 실행하면 현재 정식 `latest` 이미지를 다시 시도하며, 번호 태그를 이용한 수동 고정 설치도 계속 지원합니다.
+
 로그인을 재설정하려면 다음 명령을 실행합니다.
 
 ```sh
