@@ -43,6 +43,8 @@ The 0.9.29-2 Docker `candidate`, version, `0.9`, and `latest` tags point to the 
 - Docker may carry a container-specific runtime binary only when its architecture and checksum are pinned and its required archive formats are verified during the image build.
 - Android and Chrome own presentation and platform integration. They consume the same authenticated API and degrade safely when a capability is absent.
 
+Docker installations may optionally follow the formally promoted `latest` tag with the host-side `nasdrop-update.sh` or `nasdrop-update.ps1` script. The updater does not mount the Docker socket into NASDrop: it pulls only the Compose-managed `nasdrop` service, leaves a current container running without interruption, backs up `/config` before replacement, waits for the existing health check, and restores the retained previous image if the new container is unhealthy. It never copies or deletes `/downloads`, and numbered image tags remain available for explicitly pinned installations.
+
 ## Capability rules
 
 1. Add optional behavior to `/api/status` before a client depends on it.

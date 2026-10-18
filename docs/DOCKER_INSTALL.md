@@ -166,6 +166,42 @@ docker compose start
 
 Restore by stopping NASDrop, replacing the configuration folder from the backup, confirming ownership, and starting it again. Back up the download folder separately if its contents also need protection.
 
+## Optional automatic updates
+
+NASDrop provides host-side update scripts instead of giving the application container access to the Docker socket. Automatic updates follow only `ghcr.io/littleweirdlab0514-web/nasdrop:latest`; this tag moves only after the multi-platform release candidate passes verification and is formally promoted.
+
+Keep these files together in the directory that contains your installed `compose.yaml` and `.env`:
+
+- `docker/compose.auto-update.yaml`
+- `docker/nasdrop-update.sh` for Synology and Linux
+- `docker/nasdrop-update.ps1` for Docker Desktop on Windows
+
+Test one update check manually before scheduling it. A current installation exits without restarting the container:
+
+```sh
+chmod 700 nasdrop-update.sh
+./nasdrop-update.sh
+```
+
+The script pulls only the NASDrop service. When the image changed, it retains the old image under a local rollback tag, gracefully stops NASDrop, writes a restricted `/config` backup under `nasdrop-update-backups`, starts the promoted image, and waits for the container health check. A failed health check automatically recreates the service from the retained image. `/downloads` is never copied or deleted by the updater.
+
+On Synology, open **Control Panel > Task Scheduler**, create a **User-defined script** that runs as `root`, and schedule this command during a quiet period:
+
+```sh
+/bin/sh /volume1/docker/nasdrop/nasdrop-update.sh >> /volume1/docker/nasdrop/auto-update.log 2>&1
+```
+
+Adjust the path to the folder containing your Compose files. On Linux, use the same command from cron or a systemd timer under an account allowed to use Docker.
+
+On Windows, create a Task Scheduler action that runs only while Docker Desktop is available:
+
+```text
+Program: powershell.exe
+Arguments: -NoProfile -ExecutionPolicy Bypass -File "C:\docker\nasdrop\nasdrop-update.ps1"
+```
+
+The Windows task account must be able to use Docker. Running either script again after a rollback retries the currently promoted `latest` image. Numbered tags remain available for manual pinning.
+
 ## Reset the login
 
 Run the account command inside the active container, then restart it:

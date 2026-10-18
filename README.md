@@ -348,6 +348,8 @@ docker compose pull
 docker compose up -d
 ```
 
+Optional host-side automatic update scripts are included for Synology/Linux and Windows. They follow only the formally promoted `latest` image, back up `/config`, wait for the NASDrop health check, and restore the retained previous image when the new container is unhealthy. See the Docker installation guides for Task Scheduler, cron, and DSM Task Scheduler setup.
+
 After an update, open **Settings** and select the default download folder again. For access outside the local network, place NASDrop behind an HTTPS reverse proxy and do not expose plain HTTP port `8791` directly to the internet.
 
 ## Opening NASDrop and setting up client login
