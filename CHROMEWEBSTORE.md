@@ -149,7 +149,7 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
-| 0.5.11 | 2026-10-18 | Shorter connected-site guidance and a bundled official Buy Me a Coffee banner linking to the project support page | Candidate |
+| 0.5.11 | 2026-10-18 | Shorter connected-site guidance and a bundled official Buy Me a Coffee banner linking to the project support page | GitHub release |
 | 0.5.10 | 2026-10-06 | Bounded, duplicate-safe GoFile click FIFO plus capability-gated asynchronous server enqueue with legacy fallback | Candidate |
 | 0.5.9 | 2026-09-30 | Recognizes Pixeldrain's classless official no-preview Download button on transfer-limit pages without broad text matching | GitHub release |
 | 0.5.8 | 2026-09-29 | Strict support for AkiraBox's current four-field prepared URL while preserving 0.5.7 X-Share behavior | Candidate |
@@ -168,7 +168,7 @@ https://github.com/littleweirdlab0514-web/NASDROP
 - [x] Manifest V3 and extension version 0.5.11
 - [x] English default with Korean, Simplified Chinese and Japanese locales
 - [x] Automated Chrome extension tests pass
-- [ ] Publish `NASDrop-Chrome-0.5.11.zip` only after popup visual review and the compatible server's real multi-file GoFile flow are verified
+- [x] Publish `NASDrop-Chrome-0.5.11.zip` as the signed-checksum GitHub developer-mode package
 - [ ] Publish the Chrome-specific privacy policy on the public default branch
 - [ ] Create the exact 128×128 store icon
 - [ ] Capture at least one exact-size store screenshot with synthetic/redacted data

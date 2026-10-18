@@ -1,6 +1,6 @@
 # NASDrop 0.9.29 release checklist
 
-## 0.9.29-2 split-archive waiting candidate
+## 0.9.29-2 release
 
 - [x] Keep an unmistakably numbered archive volume private when it is registered by itself.
 - [x] Reconcile separately registered volumes only when provider, destination, and filename family match exactly.
@@ -10,6 +10,9 @@
 - [x] Keep Buy Me a Coffee as the only support destination and show its official website button as a full clickable banner in NASDrop settings.
 - [x] Let Synology administrators set a complete HTTPS reverse-proxy destination for the DSM icon while preserving the current-hostname and port fallback when the field is empty.
 - [x] Reject custom launcher destinations containing plain HTTP, credentials, query strings, fragments, control characters, or ambiguous backslashes.
+- [x] Integrate Chrome 0.5.11 with its compact connected-site guidance and bundled official Buy Me a Coffee button.
+- [x] Run the coordinated Python and JavaScript/Chrome regression suites and build versioned SPK/ZIP artifacts with SHA-256 files.
+- [x] Publish the Synology server and Chrome companion as final GitHub releases.
 
 ## 0.9.29-1 split-archive candidate
 
