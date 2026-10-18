@@ -43,6 +43,8 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.doesNotMatch(html, /qrcode\.js/);
   assert.match(html, /href="https:\/\/buymeacoffee\.com\/littleweirdlab0514"/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(html, /<a class="card setting-card sponsor-card" href="https:\/\/buymeacoffee\.com\/littleweirdlab0514"/);
+  assert.doesNotMatch(html, /<article class="card setting-card sponsor-card"/);
   assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("download-behavior-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
@@ -138,8 +140,9 @@ test("client connection and Sponsor cards share the top row equally", async () =
   const style = await readFile(new URL("synology/web/style.css", root), "utf8");
   assert.match(style, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
   assert.match(style, /\.account-card\{grid-column:span 3\}/);
-  assert.match(style, /\.sponsor-card\{display:grid;grid-template-columns:auto minmax\(0,1fr\) auto/);
-  assert.match(html, /class="sponsor-icon" aria-hidden="true"/);
+  assert.match(style, /\.sponsor-card\{display:grid;grid-template-columns:minmax\(0,1fr\) auto/);
+  assert.match(html, /class="sponsor-official-button" src="\/buy-me-a-coffee\.png" width="217" height="61" alt=""/);
+  assert.match(html, /data-i18n-aria-label="sponsorAction"/);
   assert.doesNotMatch(html, /github\.com\/sponsors/i);
   assert.match(style, /\.download-behavior-card,\.processing-card,\.folder-card,\.service-card\{grid-column:span 3\}/);
   assert.match(style, /\.download-behavior-controls\{display:grid/);

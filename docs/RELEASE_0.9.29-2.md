@@ -6,4 +6,4 @@ When the currently available contiguous volumes look complete but 7-Zip asks for
 
 The existing layouts remain supported: `.7z.001`, `.zip.001`, `.rar.001`, classic split ZIP (`.z01` plus `.zip`), modern RAR (`.part01.rar`), and legacy RAR (`.rar` plus `.r00`). Duplicate volume numbers remain isolated because their membership is ambiguous.
 
-The NASDrop dashboard now shows active split sets in a dedicated waiting board. Ordinary single archives still extract immediately. The settings page also presents the Buy Me a Coffee banner as the sole support destination.
+The NASDrop dashboard now shows active split sets in a dedicated waiting board. Ordinary single archives still extract immediately. The settings page also presents Buy Me a Coffee's official yellow website button as the sole support destination; the full banner is a keyboard-accessible link to the project page.

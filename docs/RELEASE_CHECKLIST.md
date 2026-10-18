@@ -7,7 +7,7 @@
 - [x] Return the full group to waiting when 7-Zip reports a missing next volume, preserving verified workspaces for an automatic retry when another part arrives.
 - [x] Publish one extracted result after the later volume completes; never publish the raw partial archives.
 - [x] Show active split sets in a dedicated, localized NASDrop waiting board while ordinary single archives continue to extract immediately.
-- [x] Keep Buy Me a Coffee as the only support destination and show its banner in NASDrop settings.
+- [x] Keep Buy Me a Coffee as the only support destination and show its official website button as a full clickable banner in NASDrop settings.
 
 ## 0.9.29-1 split-archive candidate
 
