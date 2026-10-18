@@ -63,9 +63,9 @@ test('GigaFile parses only the observed official literal download controls',()=>
   assert.equal(adapter.resolve(control({onclick:"remove_file('0927-d67f99a2b4ddf500579fdabae10989275')"},['button.download_panel_btn_dl.gfbtn, span#dl.download_file_caption']),gigaPage),null);
 });
 
-function contentHarness({ready = true, fail = false, armFailureCode='', pageUrl = page, referrer='', handoffSupported,gigafileKeySupported=false,gigaKey='',language,browserLanguage='ko',throwAt='',syncThrow=false,errorText='Extension context invalidated.'} = {}) {
+function contentHarness({ready = true, fail = false, armFailureCode='', pageUrl = page, referrer='', handoffSupported,gigafileKeySupported=false,gigaKey='',language,browserLanguage='ko',throwAt='',syncThrow=false,errorText='Extension context invalidated.',deferPageSubmits=false} = {}) {
   let handler, runtimeListener;
-  const messages = [], requests = [], nodes = [];
+  const messages = [], requests = [], nodes = [], submitWaiters = [];
   const documentListeners = new Map();
   function node() {
     const n = {style:{}, textContent:'', isConnected:true, append(){}, setAttribute(){}, addEventListener(){}, remove(){this.isConnected=false;}, attachShadow:node};
@@ -80,14 +80,14 @@ function contentHarness({ready = true, fail = false, armFailureCode='', pageUrl 
     window:{addEventListener(name, fn, capture){assert.equal(name,'click'); assert.equal(capture,true); handler=fn;}},
     document,
     fetch:async (url, options) => { requests.push({url, options}); return {ok:true, headers:new Headers({'HX-Redirect':signed})}; },
-    chrome:{runtime:{onMessage:{addListener(fn){runtimeListener=fn;}},sendMessage:message => {messages.push(message); if(message.type===throwAt){if(syncThrow)throw new Error(errorText);return Promise.reject(new Error(errorText));} return Promise.resolve(message.type === 'pageReady' ? {ok:true, result:{ready,handoffSupported,gigafileDownloadKeySupported:gigafileKeySupported,language}} : armFailureCode && ['pageArmDownload','pageArmXShare'].includes(message.type) ? {ok:false,code:armFailureCode,error:'Capability changed'} : fail ? {ok:false,error:'Server unavailable'} : {ok:true,result:{count:1,language}});}}},
+    chrome:{runtime:{onMessage:{addListener(fn){runtimeListener=fn;}},sendMessage:message => {messages.push(message); if(message.type===throwAt){if(syncThrow)throw new Error(errorText);return Promise.reject(new Error(errorText));} if(deferPageSubmits && message.type==='pageSubmit')return new Promise(resolve=>submitWaiters.push(resolve)); return Promise.resolve(message.type === 'pageReady' ? {ok:true, result:{ready,handoffSupported,gigafileDownloadKeySupported:gigafileKeySupported,language}} : armFailureCode && ['pageArmDownload','pageArmXShare'].includes(message.type) ? {ok:false,code:armFailureCode,error:'Capability changed'} : fail ? {ok:false,error:'Server unavailable'} : {ok:true,result:{count:1,language}});}}},
   });
   vm.runInContext(i18nSource,c); vm.runInContext(adapterSource, c); vm.runInContext(contentSource, c);
   function click(target = download, overrides = {}) {
     const e = {isTrusted:true, button:0, target, preventDefault(){this.prevented=true;}, stopImmediatePropagation(){this.stopped=true;}, ...overrides};
     handler(e); return e;
   }
-  return {click, messages, requests, nodes,keyInput,deliver:message=>runtimeListener(message),emit:(type,detail)=>document.dispatchEvent(new CustomEvent(type,{detail}))};
+  return {click, messages, requests, nodes,keyInput,deliver:message=>runtimeListener(message),emit:(type,detail)=>document.dispatchEvent(new CustomEvent(type,{detail})),resolveSubmit:(index,result={ok:true,result:{count:1,language}})=>submitWaiters[index]?.(result)};
 }
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
@@ -187,6 +187,26 @@ test('trusted Download File click stops browser navigation and submits exactly o
   assert.equal(h.messages.find(m => m.type === 'pageSubmit').url, signed);
 });
 
+test('GoFile keeps distinct clicks in a bounded FIFO while suppressing duplicate items', async () => {
+  const pageUrl='https://gofile.io/d/parent';
+  const goButton=id=>control({'data-action':'download'},[],control({'data-id':id}));
+  const h=contentHarness({pageUrl,deferPageSubmits:true});
+  const first=h.click(goButton('first-file'));
+  const second=h.click(goButton('second-file'));
+  assert.equal(first.prevented,true);assert.equal(second.prevented,true);
+  assert.ok(h.nodes.some(node=>node.textContent.includes('대기 1개')));
+  await flush();
+  let submits=h.messages.filter(message=>message.type==='pageSubmit');
+  assert.deepEqual(submits.map(message=>message.url),['https://gofile.io/d/first-file']);
+  const duplicate=h.click(goButton('second-file'));
+  assert.equal(duplicate.prevented,true);
+  assert.ok(h.nodes.some(node=>node.textContent.includes('이미 전송 중이거나 대기 중')));
+  h.resolveSubmit(0,{ok:false,error:'Synthetic GoFile inspection timeout'});await flush();await flush();
+  submits=h.messages.filter(message=>message.type==='pageSubmit');
+  assert.deepEqual(submits.map(message=>message.url),['https://gofile.io/d/first-file','https://gofile.io/d/second-file']);
+  h.resolveSubmit(1);await flush();
+});
+
 test('Copy download link is also intercepted; unsigned page is never submitted', async () => {
   const h = contentHarness(); h.click(copy); await flush();
   assert.equal(h.messages.find(m => m.type === 'pageSubmit').url, signed);
@@ -212,7 +232,7 @@ test('server rejection stays visible and does not fall through to a browser down
   assert.equal(h.requests.length, 1);
 });
 
-function workerHarness({refreshFails = false, capabilities = [], gigafileDownloadKey = false, jobs = [], autoExtract = true, count = 1, inspectFailures = 0} = {}) {
+function workerHarness({refreshFails = false, capabilities = [], asyncEnqueueProviders = [], gigafileDownloadKey = false, jobs = [], autoExtract = true, count = 1, inspectFailures = 0} = {}) {
   let listener, downloadCreated;
   const calls = [];
   const session = {}, notices = [], alarms = [], cancelled = [], erased = [], tabMessages = [];
@@ -229,7 +249,7 @@ function workerHarness({refreshFails = false, capabilities = [], gigafileDownloa
       calls.push({url, options});
       if (url.endsWith('/api/inspect') && inspectFailures-- > 0) return {ok:false,status:400,json:async()=>({error:'Synthetic inspection rejected'})};
       if (url.endsWith('/api/jobs') && refreshFails) throw new Error('offline');
-      const payload = url.endsWith('/api/login') ? {token:'private-session'} : url.endsWith('/api/status') ? {browser_handoff_providers:capabilities,gigafile_download_key:gigafileDownloadKey} : url.endsWith('/api/inspect') ? {file:{url:signed, name:'synthetic.txt', size:100, inspection_id:'id'}} : url.endsWith('/api/start') ? {count, job:{id:'job'}} : url.endsWith('/api/enqueue') ? {count,job:{id:'job',name:'giga.bin'}} : {jobs};
+      const payload = url.endsWith('/api/login') ? {token:'private-session'} : url.endsWith('/api/status') ? {browser_handoff_providers:capabilities,async_enqueue_providers:asyncEnqueueProviders,gigafile_download_key:gigafileDownloadKey} : url.endsWith('/api/inspect') ? {file:{url:signed, name:'synthetic.txt', size:100, inspection_id:'id'}} : url.endsWith('/api/start') ? {count, job:{id:'job'}} : url.endsWith('/api/enqueue') ? {count,job:{id:'job',name:'giga.bin'}} : {jobs};
       return {ok:true,json:async()=>payload};
     },
   });
@@ -291,6 +311,25 @@ test('concurrent page submissions queue once and a failed status refresh cannot 
   assert.equal(h.calls.filter(c => c.url.endsWith('/api/start')).length,1);
   assert.equal(h.calls[0].options.headers.authorization,'Bearer private-session');
   assert.ok(results.every(r => !JSON.stringify(r).includes('private-session')));
+});
+
+test('GoFile uses capability-gated async enqueue and older servers retain inspect/start',async()=>{
+  const pageUrl='https://gofile.io/d/parent';
+  const childUrl='https://gofile.io/d/child-file';
+  const current=workerHarness({asyncEnqueueProviders:['gofile']});
+  const sender={...current.sender,url:pageUrl};
+  assert.equal((await current.dispatch({type:'pageReady'},sender)).result.asyncEnqueueSupported,true);
+  assert.equal((await current.dispatch({type:'pageSubmit',url:childUrl},sender)).ok,true);
+  const enqueues=current.calls.filter(call=>call.url.endsWith('/api/enqueue'));
+  assert.equal(enqueues.length,1);
+  assert.equal(JSON.parse(enqueues[0].options.body).url,childUrl);
+  assert.equal(current.calls.some(call=>call.url.endsWith('/api/inspect')),false);
+
+  const legacy=workerHarness();
+  assert.equal((await legacy.dispatch({type:'pageSubmit',url:childUrl},{...legacy.sender,url:pageUrl})).ok,true);
+  assert.equal(legacy.calls.filter(call=>call.url.endsWith('/api/inspect')).length,1);
+  assert.equal(legacy.calls.filter(call=>call.url.endsWith('/api/start')).length,1);
+  assert.equal(legacy.calls.some(call=>call.url.endsWith('/api/enqueue')),false);
 });
 
 const akiraPage = 'https://akirabox.to/Share123/file';

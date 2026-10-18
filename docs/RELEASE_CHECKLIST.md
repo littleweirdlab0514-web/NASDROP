@@ -1,4 +1,53 @@
-# NASDrop 0.9.27 릴리스 체크리스트
+# NASDrop 0.9.29 release checklist
+
+## 0.9.29-2 release
+
+- [x] Keep an unmistakably numbered archive volume private when it is registered by itself.
+- [x] Reconcile separately registered volumes only when provider, destination, and filename family match exactly.
+- [x] Return the full group to waiting when 7-Zip reports a missing next volume, preserving verified workspaces for an automatic retry when another part arrives.
+- [x] Publish one extracted result after the later volume completes; never publish the raw partial archives.
+- [x] Show active split sets in a dedicated, localized NASDrop waiting board while ordinary single archives continue to extract immediately.
+- [x] Keep Buy Me a Coffee as the only support destination and show its official website button as a full clickable banner in NASDrop settings.
+- [x] Let Synology administrators set a complete HTTPS reverse-proxy destination for the DSM icon while preserving the current-hostname and port fallback when the field is empty.
+- [x] Reject custom launcher destinations containing plain HTTP, credentials, query strings, fragments, control characters, or ambiguous backslashes.
+- [x] Integrate Chrome 0.5.11 with its compact connected-site guidance and bundled official Buy Me a Coffee button.
+- [x] Run the coordinated Python and JavaScript/Chrome regression suites and build versioned SPK/ZIP artifacts with SHA-256 files.
+- [x] Publish the Synology server and Chrome companion as final GitHub releases.
+
+## 0.9.29-1 split-archive candidate
+
+- [x] Detect complete contiguous `.7z.001`, `.zip.001`, `.rar.001`, `.z01`/`.zip`, `.partNN.rar`, and legacy `.rar`/`.rNN` sets within one inspected multi-file batch.
+- [x] Keep every verified volume private until the full set is ready, then run one bounded 7-Zip validation/extraction and publish only the completed output.
+- [x] Preserve archive-password retry, restart recovery, collision handling, path validation, cancellation, and group-wide safe deletion.
+- [x] Never guess group membership for incomplete or non-contiguous volumes returned in the same inspection batch.
+
+## 0.9.28-3 Buy Me a Coffee candidate
+
+- [x] Replace the GitHub Sponsors destination in the NASDrop settings UI with Buy Me a Coffee in all four translations.
+- [x] Replace GitHub Funding's GitHub account entry with the Buy Me a Coffee custom URL and add the same support link to README.
+- [x] Run the Python and JavaScript regression suites (Python: 239 passed, 1 skipped; JavaScript: 82 passed).
+- [x] Build and validate the versioned Synology SPK.
+
+## 0.9.28-2 VikingFile OVH delivery candidate
+
+- [x] Reproduce the rejected redirect and record only its sanitized OVH host and AWS V4 field structure.
+- [x] Accept one OVH bucket label and region only with VikingFile's pinned signing credential and matching AWS V4 scope.
+- [x] Reject other credentials, cross-region scopes, non-S3 services, nested/lookalike hosts, malformed signatures, and expired URLs.
+- [x] Complete a live metadata/range inspection for the supplied 550,659,711-byte VikingFile object without downloading its body.
+- [x] Run the full Python and JavaScript regression suites (Python: 239 passed, 1 skipped; JavaScript: 82 passed).
+- [x] Deploy the private amd64 Docker candidate on the 192.168.1.203 test NAS and verify healthy startup plus live VikingFile metadata/range inspection.
+- [ ] Complete the real browser-to-NAS VikingFile transfer before promotion.
+- [x] Build and validate the versioned Synology SPK.
+
+## 0.9.28-1 GoFile persistent async enqueue candidate
+
+- [x] Accept canonical GoFile shares through `POST /api/enqueue` without making a provider request.
+- [x] Advertise `async_enqueue_providers: ["gigafile", "gofile"]` and retain inspect/start compatibility.
+- [x] Serialize inspection per provider even when parallel downloads are enabled.
+- [x] Preserve failed inspection jobs for retry and release the provider slot for the next queued inspection.
+- [x] Apply the shared persisted GoFile cooldown before and during metadata inspection.
+- [ ] Build and validate the versioned Synology SPK.
+- [ ] Complete a real two-link GoFile queue test before Docker synchronization or release.
 
 ## 0.9.27-7 stable release
 

@@ -15,7 +15,7 @@ window.chrome={runtime:{connect:()=>({disconnect(){}}),sendMessage:async m=>{
   return {ok:true,result:{jobs:previewJobs}};
 }},tabs:{query:async()=>[]},permissions:{request:async()=>true}};
 `;
-const allowed=new Set(['popup.html','popup.css','popup.js','popup-poller.js','i18n.js','icons/nasdrop-48.png']);
+const allowed=new Set(['popup.html','popup.css','popup.js','popup-poller.js','i18n.js','icons/nasdrop-48.png','buy-me-a-coffee.png']);
 createServer(async(req,res)=>{
   const name=new URL(req.url,'http://localhost').pathname.slice(1);
   if(name==='mock.js'){res.setHeader('Content-Type','text/javascript');res.end(mock);return;}

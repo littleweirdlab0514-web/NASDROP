@@ -41,12 +41,14 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   const packageVersion = info.match(/^version="([0-9.]+)-[0-9]+"$/m)[1];
   assert.ok(html.includes(`/app.js?v=${packageVersion}`));
   assert.doesNotMatch(html, /qrcode\.js/);
-  assert.match(html, /href="https:\/\/github\.com\/sponsors\/littleweirdlab0514-web"/);
+  assert.match(html, /href="https:\/\/buymeacoffee\.com\/littleweirdlab0514"/);
   assert.match(html, /target="_blank" rel="noopener noreferrer"/);
+  assert.match(html, /<a class="card setting-card sponsor-card" href="https:\/\/buymeacoffee\.com\/littleweirdlab0514"/);
+  assert.doesNotMatch(html, /<article class="card setting-card sponsor-card"/);
   assert.ok(html.indexOf("account-card") < html.indexOf("sponsor-card"));
   assert.ok(html.indexOf("sponsor-card") < html.indexOf("download-behavior-card"));
   assert.match(html, /folder-card[^]*id="setting-target"[^]*id="service-user"/);
-  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "accessMethodHint", "currentAccessAddress", "launcherAddress", "launcherPort", "launcherPortHint", "connectionRouteTitle", "connectionRoute", "connectionRouteHint", "saveLauncherPort", "launcherPortSaved", "reverseProxyMode", "reverseProxyHint", "proxyDetectedTitle", "proxyDetectedWarning", "proxyEnabledWarning", "confirmReverseProxy", "saveConnectionSettings", "connectionSettingsSaved", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "downloadBehavior", "downloadBehaviorHint", "combinedDownloadWarning", "saveDownloadBehavior", "downloadBehaviorSaved", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction", "httpWarningTitle", "httpWarningBody", "error_auth_required", "error_invalid_credentials", "error_invalid_username", "error_invalid_password", "error_too_many_attempts", "error_permission_denied", "error_password_required", "error_rate_limited", "error_link_expired", "error_integrity_failed", "error_archive_error", "error_invalid_link", "error_invalid_job_state", "error_internal_error", "error_generic_error"]) {
+  for (const key of ["username", "password", "accountHint", "currentPassword", "newPassword", "confirmPassword", "saveAccount", "resetAccount", "resetAccountHint", "accountSaved", "logout", "sponsorTitle", "sponsorHint", "sponsorAction", "archiveWaitingEyebrow", "archiveWaitingBoard", "archiveWaitingHint", "archiveWaitingSummary", "statusWaitingArchiveParts", "noRegularJobsTitle", "noRegularJobsHint", "accessMethodHint", "currentAccessAddress", "launcherAddress", "launcherPublicUrl", "launcherPublicUrlHint", "launcherPort", "launcherPortHint", "connectionRouteTitle", "connectionRoute", "connectionRouteHint", "saveLauncherPort", "launcherPortSaved", "reverseProxyMode", "reverseProxyHint", "proxyDetectedTitle", "proxyDetectedWarning", "proxyEnabledWarning", "confirmReverseProxy", "saveConnectionSettings", "connectionSettingsSaved", "connectionSettingsSavedUrl", "downloadMethod", "singleMode", "segmentedMode", "singleModeWarning", "saveDownloadMethod", "downloadBehavior", "downloadBehaviorHint", "combinedDownloadWarning", "saveDownloadBehavior", "downloadBehaviorSaved", "processingTitle", "temporaryFolder", "archiveEngine", "autoExtract", "diskProtection", "extractThisJob", "archivePassword", "retryExtraction", "httpWarningTitle", "httpWarningBody", "error_auth_required", "error_invalid_credentials", "error_invalid_username", "error_invalid_password", "error_too_many_attempts", "error_permission_denied", "error_password_required", "error_rate_limited", "error_link_expired", "error_integrity_failed", "error_archive_error", "error_archive_parts_waiting", "error_invalid_link", "error_invalid_job_state", "error_internal_error", "error_generic_error"]) {
     assert.equal((i18n.match(new RegExp(`\\b${key}:`, "g")) || []).length, 4);
   }
   assert.match(i18n, /function error\(code, fallback/);
@@ -55,10 +57,11 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(app, /serverError\(job\.error_code, job\.error\)/);
   assert.match(html, /data-i18n="accessMethodHint"/);
   assert.match(html, /id="launcher-port"[^>]*min="1"[^>]*max="65535"/);
+  assert.match(html, /id="launcher-public-url"[^>]*type="url"/);
   assert.match(html, /id="save-service-settings"/);
   assert.match(html, /id="reverse-proxy-mode"/);
   assert.match(html, /id="proxy-detected-warning"[^>]*role="alert"/);
-  assert.match(app, /launcher_port:port,reverse_proxy_mode:reverseProxyMode/);
+  assert.match(app, /launcher_port:port,launcher_public_url:launcherPublicUrl,reverse_proxy_mode:reverseProxyMode/);
   assert.match(app, /connectionRoute.*publicPort:port.*appPort:8791/);
   assert.match(html, /id="download-mode"/);
   assert.match(html, /value="segmented"/);
@@ -67,6 +70,10 @@ test("Synology UI defaults to English and supports Korean, Japanese, and Chinese
   assert.match(html, /id="extract-download"/);
   assert.match(html, /id="archive-password"/);
   assert.match(html, /id="save-processing"/);
+  assert.match(html, /id="archive-waiting-section"[^>]*aria-labelledby="archive-waiting-title"/);
+  assert.match(html, /id="archive-waiting-jobs"/);
+  assert.match(app, /job\.multipart_group && !\["completed","failed","cancelled"\]/);
+  assert.match(app, /statusWaitingArchiveParts/);
   assert.match(app, /auto_extract_archives:enabled,disk_protection:diskProtection/);
   assert.doesNotMatch(app, /location\.hash\.slice\(1\)/);
   assert.doesNotMatch(app, /history\.replaceState/);
@@ -134,6 +141,10 @@ test("client connection and Sponsor cards share the top row equally", async () =
   const style = await readFile(new URL("synology/web/style.css", root), "utf8");
   assert.match(style, /grid-template-columns:repeat\(6,minmax\(0,1fr\)\)/);
   assert.match(style, /\.account-card\{grid-column:span 3\}/);
+  assert.match(style, /\.sponsor-card\{display:grid;grid-template-columns:minmax\(0,1fr\) auto/);
+  assert.match(html, /class="sponsor-official-button" src="\/buy-me-a-coffee\.png" width="217" height="61" alt=""/);
+  assert.match(html, /data-i18n-aria-label="sponsorAction"/);
+  assert.doesNotMatch(html, /github\.com\/sponsors/i);
   assert.match(style, /\.download-behavior-card,\.processing-card,\.folder-card,\.service-card\{grid-column:span 3\}/);
   assert.match(style, /\.download-behavior-controls\{display:grid/);
   assert.doesNotMatch(html, /download-behavior-grid/);

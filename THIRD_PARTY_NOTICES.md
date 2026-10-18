@@ -38,3 +38,15 @@ NASDrop's Docker image installs the official 7-Zip Linux console executable duri
 The Docker build fails if the checksum does not match or the resulting executable does not advertise both RAR and RAR5 read support.
 
 NASDrop's own license is available in [`LICENSE`](LICENSE) and is also included in the SPK.
+
+## Buy Me a Coffee button graphic
+
+The NASDrop settings page and Chrome extension include Buy Me a Coffee's official yellow website button graphic and link it to the project's Buy Me a Coffee page.
+
+- Official brand and website-button page: https://buymeacoffee.com/brand
+- Original asset: https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png
+- Bundled file: `synology/web/buy-me-a-coffee.png`
+- Bundled file: `chrome-extension/buy-me-a-coffee.png`
+- SHA-256: `a72341bd3e0d51568e4c621bfb4bd315f6e71cf39fd3e71f7daf4a93f00425a7`
+
+Buy Me a Coffee and its graphics remain the property of their respective owner.

@@ -161,14 +161,22 @@ async function submitUrl(rawUrl, notify = false, handoffPage = '', options = {})
   if (downloadKey && sourceProvider !== 'gigafile') throw new Error('A GigaFile download key can only be used with a GigaFile link.');
   if (downloadKey.length > 4) throw new Error('GigaFile download key must be 1–4 characters.');
   const common = {target:'',extract:saved.autoExtract !== false,password:saved.autoExtract === false ? '' : String(options.password || '')};
-  if (sourceProvider === 'gigafile') {
+  let asyncEnqueueSupported = sourceProvider === 'gigafile';
+  if (sourceProvider === 'gofile') {
+    if (typeof options.asyncEnqueueSupported === 'boolean') asyncEnqueueSupported=options.asyncEnqueueSupported;
+    else {
+      const status=await api('/api/status');
+      asyncEnqueueSupported=Array.isArray(status.async_enqueue_providers) && status.async_enqueue_providers.includes('gofile');
+    }
+  }
+  if (asyncEnqueueSupported) {
     const body={url:source.href,...common};
     if (downloadKey) body.download_key=downloadKey;
     const started=await api('/api/enqueue',{method:'POST',body:JSON.stringify(body)}).catch(error=>{
       if (!error.status) throw new Error('Result unknown. Check NASDrop jobs before retrying.');
       throw error;
     });
-    let fallbackName=source.pathname.split('/').filter(Boolean).at(-1) || 'GigaFile download';
+    let fallbackName=source.pathname.split('/').filter(Boolean).at(-1) || `${sourceProvider === 'gofile' ? 'GoFile' : 'GigaFile'} download`;
     try { fallbackName=decodeURIComponent(fallbackName); } catch (_) { /* Keep the encoded safe fallback. */ }
     const file={name:started.job?.name || fallbackName};
     if (notify) await chrome.notifications.create({type:'basic',iconUrl:'icons/nasdrop-256.png',title:'NASDrop',message:started.count > 1 ? NASDropI18n.t(await currentLanguage(),'addedMany',{count:started.count}) : file.name}).catch(()=>{});
@@ -379,9 +387,10 @@ async function pageReadiness(page) {
   const ready = Boolean(saved.baseUrl && saved.token);
   const language=NASDropI18n.resolve(saved.language,chrome.i18n.getUILanguage());
   const provider = NASDropProviders.provider(page);
-  if (!ready || !['akirabox','vikingfile','sendnow','xshare','gigafile'].includes(provider)) return {ready,language};
+  if (!ready || !['akirabox','vikingfile','sendnow','xshare','gigafile','gofile'].includes(provider)) return {ready,language};
   const status = await api('/api/status');
   if (provider === 'gigafile') return {ready:true,language,gigafileDownloadKeySupported:status.gigafile_download_key === true};
+  if (provider === 'gofile') return {ready:true,language,asyncEnqueueSupported:Array.isArray(status.async_enqueue_providers) && status.async_enqueue_providers.includes('gofile')};
   return {ready:true, language,handoffSupported:Array.isArray(status.browser_handoff_providers) && status.browser_handoff_providers.includes(provider)};
 }
 
@@ -406,5 +415,5 @@ async function submitFromPage(page, url, options = {}) {
     const error = new Error('This NASDrop server does not support GigaFile download keys yet.');
     error.code = 'serverUnsupported'; throw error;
   }
-  return submitUrl(url, false, page, options);
+  return submitUrl(url, false, page, {...options,asyncEnqueueSupported:readiness.asyncEnqueueSupported});
 }

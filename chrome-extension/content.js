@@ -3,6 +3,10 @@
   let language=NASDropI18n.normalize(navigator.language);
   const text=new Proxy({}, {get:(_,key)=>NASDropI18n.dictionaries[language][key]});
   let pending = false;
+  const gofileQueue = [];
+  const gofileQueued = new Set();
+  const GOFILE_QUEUE_LIMIT = 100;
+  let gofileDraining = false;
   let sendNowTimer = 0;
   let xShareTimer = 0;
   let contextLost = false;
@@ -52,6 +56,41 @@
       if (invalidContext(error)) { contextLost=true; show(text.reloadExtension); }
       else show(error.message || text.failed);
     } finally { pending = false; }
+  }
+  function gofileQueueKey(action) {
+    return String(action.url || action.endpoint || '');
+  }
+  async function drainGoFileQueue() {
+    if (gofileDraining || contextLost) return;
+    gofileDraining = true;
+    try {
+      while (gofileQueue.length && !contextLost) {
+        const entry = gofileQueue.shift();
+        try { await send(entry.action); }
+        finally { gofileQueued.delete(entry.key); }
+      }
+    } finally {
+      if (contextLost) {
+        gofileQueue.length = 0;
+        gofileQueued.clear();
+      }
+      gofileDraining = false;
+    }
+  }
+  function enqueueGoFile(action) {
+    const key = gofileQueueKey(action);
+    if (!key || gofileQueued.has(key)) {
+      if (key) show(text.alreadyQueued);
+      return;
+    }
+    if (gofileQueued.size >= GOFILE_QUEUE_LIMIT) {
+      show(text.submissionQueueFull);
+      return;
+    }
+    gofileQueued.add(key);
+    gofileQueue.push({action,key});
+    if (gofileDraining) show(NASDropI18n.t(language,'submissionQueued',{count:gofileQueue.length}));
+    void drainGoFileQueue();
   }
   async function armDownload(action, element) {
     if (contextLost) { show(text.reloadExtension); return; }
@@ -141,6 +180,10 @@
     }
     event.preventDefault();
     event.stopImmediatePropagation();
+    if (adapters.provider(location.href) === 'gofile' && !action.captureDownload && !action.captureXShare) {
+      enqueueGoFile(action);
+      return;
+    }
     if (!pending) void (action.captureDownload ? armDownload(action, element)
       : action.captureXShare ? armXShare(action,element) : send(action));
   }, true);

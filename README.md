@@ -24,6 +24,8 @@ Already using NASDrop? LittleWeirdLab is recruiting existing NASDrop users to he
 
 NASDrop is a self-hosted personal download portal for Synology DSM and Docker hosts. Paste a supported GigaFile, GoFile, Pixeldrain, 1fichier, or Buzzheavier signed direct link, or use the Chrome companion for browser-assisted providers, and the storage server downloads the file directly.
 
+**0.9.29-2:** recognizes split-archive volumes even when each part arrives through a separate supported-service link. NASDrop keeps unmistakably numbered volumes in the private work queue, combines only matching provider/destination/name families, and retries extraction when another volume arrives. If 7-Zip reports that a later volume is still missing, the whole set returns to waiting instead of publishing raw archives or failing. Supported layouts are `.7z.001`, `.zip.001`, `.rar.001`, `.z01` plus `.zip`, `.part01.rar`, and legacy `.rar` plus `.r00`. Synology administrators can also set the DSM icon to open a complete HTTPS reverse-proxy address.
+
 1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot/daily limits, run one connection at a time, and restart from zero after interruption. On 2026-09-28, four sequential NAS transfers completed, including the deferred owner and the following job after the daily limit reset. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
 
 **0.9.27-7:** fixes X-Share transfers rejected by the provider when NASDrop redeemed the one-time URL with curl's default user agent. X-Share requires the separate Chrome 0.5.9 companion and a real user-completed verification/Download click; pasting its share URL alone is not supported.
@@ -34,12 +36,12 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.9 is the coordinated companion for NASDrop Server 0.9.27-7, including current AkiraBox, X-Share, and Pixeldrain controls.**
+- **Chrome extension 0.5.11 is the current GitHub companion release. It retains GoFile's ordered click queue and the current AkiraBox, X-Share, and Pixeldrain controls, with shorter popup guidance and a Buy Me a Coffee banner.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
 
-NASDrop Server 0.9.27-7 remains compatible with Chrome 0.5.5 for its existing providers. X-Share requires Chrome 0.5.7.
+NASDrop Server 0.9.29-2 remains compatible with older Chrome companions for their existing providers. X-Share requires Chrome 0.5.7 or later, and GoFile's persistent asynchronous registration requires Chrome 0.5.10 or later plus the advertised server capability.
 
 Extract the ZIP into a permanent folder, open `chrome://extensions`, enable **Developer mode**, and choose **Load unpacked** for the folder containing `manifest.json`. Connect using your own NASDrop address and ID/password, with a writable default download folder configured on the server. For updates, replace the unpacked files, click **Reload**, and refresh open provider pages. ZIP installations do not update automatically.
 
@@ -52,6 +54,15 @@ The extension supports English, Korean, Japanese and Chinese, with a manual lang
 
 > [!WARNING]
 > **Third-party service changes may break NASDrop.** NASDrop depends on external download websites and APIs. Providers may change their policies, terms, authentication, URL formats, rate limits, APIs, or download mechanisms without notice. Such changes may cause some or all NASDrop download functions to stop working temporarily or permanently. Continued compatibility and uninterrupted availability are not guaranteed.
+
+## What's new in 0.9.29-2
+
+- Keeps separately registered split-archive volumes private until the matching set is ready, then extracts and publishes only the completed result.
+- Returns a split set to its dedicated waiting board when 7-Zip asks for another volume and retries automatically after that volume arrives.
+- Supports `.7z.001`, `.zip.001`, `.rar.001`, `.z01` plus `.zip`, `.partNN.rar`, and legacy `.rar` plus `.rNN` layouts.
+- Adds a custom HTTPS destination for the Synology DSM desktop icon, suitable for Nginx Proxy Manager and other reverse proxies; clearing it restores adaptive hostname/port behavior.
+- Shows Buy Me a Coffee's official website button in NASDrop settings.
+- Coordinates with Chrome companion 0.5.11, which keeps the 0.5.10 GoFile FIFO and adds compact connected-site guidance plus the same support button.
 
 ## What's new in 0.9.27-7
 
@@ -363,7 +374,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.27-7-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.29-2-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 
@@ -460,6 +471,8 @@ Internet HTTPS :8791 -> router -> NAS HTTPS :8443 -> DSM Reverse Proxy -> HTTP 1
 
 If the router uses a different external port, such as `8795`, open **NASDrop > Settings > Service address** and set **DSM icon external port** to the same value. The DSM icon will then open `https://your-public-hostname:8795`, while private LAN launches continue to use the internal NASDrop port `8791`.
 
+If the reverse proxy has its own hostname, open **NASDrop > Settings > Connection path** and enter its complete HTTPS address in **Custom DSM icon URL**, for example `https://nasdrop.example.com/`. The DSM desktop icon will open that address regardless of the hostname used to access DSM. Leave the field blank to keep the adaptive current-hostname and external-port behavior. For safety, the custom destination accepts HTTPS URLs without embedded credentials, query strings, or fragments.
+
 ### DSM icon external port setting
 
 The following screenshots show the new port setting in all four supported interface languages. The public hostname is intentionally hidden.
@@ -496,7 +509,7 @@ Do not forward any external port directly to NAS port `8791`; that would expose 
 
 After saving the configuration, test the exact HTTPS address from outside the local network. A request beginning with `http://` will return `400 Bad Request` because plain HTTP was sent to an HTTPS listener.
 
-The DSM launcher preserves the protocol used to open DSM. It uses port `8791` for private hosts and the external icon port selected in NASDrop settings for public hostnames. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
+When no custom URL is configured, the DSM launcher preserves the protocol used to open DSM. It uses port `8791` for private hosts and the external icon port selected in NASDrop settings for public hostnames. See Synology's official [DSM Reverse Proxy documentation](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/system_login_portal_advanced?version=7).
 
 Login throttling uses the direct peer address by default and does not trust `X-Forwarded-For`. Behind DSM Reverse Proxy, enable **Use DSM reverse proxy** under **NASDrop > Settings > Service address**; otherwise every proxied client shares the loopback address and therefore one login-throttle bucket. NASDrop accepts the rightmost forwarded address only from a loopback proxy and records both peer and selected client addresses in its log. Docker users can set `NASDROP_TRUST_FORWARDED_FOR=true` instead. Never enable this mode when untrusted clients can reach NASDrop port `8791` directly.
 

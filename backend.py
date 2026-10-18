@@ -37,7 +37,7 @@ import time
 import unicodedata
 import zipfile
 from urllib.error import HTTPError
-from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse, urlsplit
 from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, ProxyHandler, Request, build_opener
 from transfer_parts import commit_fragment, segment_count, segment_chunk, initial_transfer_mode
 
@@ -79,7 +79,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.27")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.29")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -179,6 +179,63 @@ def launcher_port_setting() -> int:
         return LISTEN_PORT
 
 
+def normalize_launcher_public_url(value: object) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if len(raw) > 2048 or any(char.isspace() or ord(char) < 32 for char in raw) or "\\" in raw:
+        raise ValueError("DSM 아이콘 사용자 지정 주소가 올바르지 않습니다.")
+    try:
+        parsed = urlsplit(raw)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("DSM 아이콘 사용자 지정 주소가 올바르지 않습니다.") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError("DSM 아이콘 사용자 지정 주소는 쿼리나 인증 정보가 없는 HTTPS 주소여야 합니다.")
+    try:
+        hostname = parsed.hostname.encode("idna").decode("ascii").lower()
+    except UnicodeError as exc:
+        raise ValueError("DSM 아이콘 사용자 지정 주소의 호스트 이름이 올바르지 않습니다.") from exc
+    if ":" in hostname:
+        try:
+            hostname = str(ipaddress.IPv6Address(hostname))
+        except ValueError as exc:
+            raise ValueError("DSM 아이콘 사용자 지정 주소의 호스트 이름이 올바르지 않습니다.") from exc
+        authority = f"[{hostname}]"
+    else:
+        hostname = hostname.rstrip(".")
+        labels = hostname.split(".")
+        if (
+            not hostname
+            or len(hostname) > 253
+            or any(not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels)
+        ):
+            raise ValueError("DSM 아이콘 사용자 지정 주소의 호스트 이름이 올바르지 않습니다.")
+        authority = hostname
+    if port is not None:
+        authority += f":{port}"
+    path = parsed.path or "/"
+    if not path.startswith("/"):
+        raise ValueError("DSM 아이콘 사용자 지정 주소가 올바르지 않습니다.")
+    if not path.endswith("/"):
+        path += "/"
+    return f"https://{authority}{path}"
+
+
+def launcher_public_url_setting() -> str:
+    try:
+        return normalize_launcher_public_url(setting("NAS_PORTAL_LAUNCHER_PUBLIC_URL"))
+    except ValueError:
+        return ""
+
+
 def normalize_download_mode(value: object) -> str:
     mode = str(value).strip().lower()
     if mode not in {"segmented", "single"}:
@@ -196,6 +253,7 @@ def download_mode_setting() -> str:
 ALLOW_SAME_PROVIDER_PARALLEL = bool_setting("NAS_PORTAL_ALLOW_SAME_PROVIDER_PARALLEL")
 SAME_PROVIDER_LIMIT = parallel_limit_setting()
 LAUNCHER_PORT = launcher_port_setting()
+LAUNCHER_PUBLIC_URL = launcher_public_url_setting()
 DOWNLOAD_MODE = download_mode_setting()
 AUTO_EXTRACT_ARCHIVES = bool_setting("NAS_PORTAL_AUTO_EXTRACT_ARCHIVES", True)
 DISK_PROTECTION = bool_setting("NAS_PORTAL_DISK_PROTECTION", True)
@@ -221,6 +279,7 @@ def public_error_code(message: object) -> str:
         (("연결하지 못", "HTTP ", "응답을 반환", "응답이 일정 시간 멈춰"), "network_error"),
         (("만료", "링크를 다시", "Copy download link"), "link_expired"),
         (("무결성", "손상", "크기가 예상값"), "integrity_failed"),
+        (("분할 압축의 나머지 조각", "분할 압축의 다음 파일"), "archive_parts_waiting"),
         (("압축", "7-Zip", "archive"), "archive_error"),
         (("지원 서비스", "정식 GigaFile", "정식 Gofile", "정식 Pixeldrain", "Buzzheavier"), "invalid_link"),
         (("작업", "파일 정보가 변경", "파일이 없습니다"), "invalid_job_state"),
@@ -566,10 +625,15 @@ def note_forwarded_header(peer_ip: str, forwarded_for: str) -> None:
     )
 
 
-def render_launcher_html(public_port: int) -> str:
+def render_launcher_html(public_port: int, public_url: str = "") -> str:
+    custom_target = json.dumps(normalize_launcher_public_url(public_url), ensure_ascii=True).replace("<", "\\u003c")
     return f'''<!doctype html>
 <html><head><meta charset="utf-8"><title>NASDrop</title></head>
 <body><script>
+  var customTarget = {custom_target};
+  if (customTarget) {{
+    location.replace(customTarget);
+  }} else {{
   var host = location.hostname;
   var plainHost = host.replace(/^\\[|\\]$/g, "").toLowerCase();
   var isV6 = plainHost.indexOf(":") !== -1;
@@ -581,16 +645,18 @@ def render_launcher_html(public_port: int) -> str:
   var targetProtocol = location.protocol === "https:" ? "https://" : "http://";
   if (privateHost) targetProtocol = "http://";
   location.replace(targetProtocol + host + ":" + targetPort + "/");
+  }}
 </script></body></html>
 '''
 
 
-def write_launcher_file(public_port: int | None = None) -> None:
+def write_launcher_file(public_port: int | None = None, public_url: str | None = None) -> None:
     if LAUNCHER_FILE is None:
         return
     port = LAUNCHER_PORT if public_port is None else normalize_launcher_port(public_port)
+    url = LAUNCHER_PUBLIC_URL if public_url is None else normalize_launcher_public_url(public_url)
     temporary = LAUNCHER_FILE.with_suffix(".tmp")
-    temporary.write_text(render_launcher_html(port), encoding="utf-8")
+    temporary.write_text(render_launcher_html(port, url), encoding="utf-8")
     temporary.chmod(0o644)
     temporary.replace(LAUNCHER_FILE)
 
@@ -616,6 +682,10 @@ class GofileCooldownError(ValueError):
 
 class PasswordRequiredError(ValueError):
     """Raised when an encrypted archive needs a new password without redownloading."""
+
+
+class MissingArchiveVolumeError(ValueError):
+    """Raised when 7-Zip needs another split-archive volume."""
 
 
 class GigaFileDownloadKeyRequiredError(ValueError):
@@ -849,6 +919,9 @@ class Job:
     transfer_mode: str = ""
     inspection_pending: bool = False
     delete_requested: bool = False
+    multipart_group: str = ""
+    multipart_entry: bool = False
+    multipart_name: str = ""
 
 
 ARCHIVE_SUFFIXES = (
@@ -858,8 +931,116 @@ ARCHIVE_SUFFIXES = (
 )
 
 
+def split_archive_groups(names: list[str], destinations: list[str]) -> list[dict | None]:
+    """Identify complete, contiguous multi-volume archive sets in one inspected batch."""
+    result: list[dict | None] = [None] * len(names)
+    consumed: set[int] = set()
+
+    def assign(indices: list[int], entry: int, output_name: str) -> None:
+        if len(indices) < 2 or any(index in consumed for index in indices):
+            return
+        for index in indices:
+            result[index] = {"entry": index == entry, "name": output_name}
+            consumed.add(index)
+
+    by_destination: dict[str, list[int]] = {}
+    for index, destination in enumerate(destinations):
+        by_destination.setdefault(destination, []).append(index)
+
+    for indices in by_destination.values():
+        # 7-Zip style volumes: name.7z.001, name.zip.001, name.rar.001.
+        numbered: dict[tuple[str, str], list[tuple[int, int]]] = {}
+        for index in indices:
+            match = re.fullmatch(r"(.+)\.(7z|zip|rar)\.(\d{3,})", names[index], re.I)
+            if match:
+                numbered.setdefault((match.group(1).casefold(), match.group(2).casefold()), []).append((int(match.group(3)), index))
+        for (base_key, _kind), parts in numbered.items():
+            parts.sort()
+            numbers = [number for number, _ in parts]
+            if numbers == list(range(1, len(parts) + 1)):
+                assign([index for _, index in parts], parts[0][1], names[parts[0][1]].rsplit(".", 2)[0])
+
+        # Modern RAR volumes: name.part1.rar, name.part01.rar, ...
+        rar_parts: dict[str, list[tuple[int, int]]] = {}
+        for index in indices:
+            match = re.fullmatch(r"(.+)\.part(\d+)\.rar", names[index], re.I)
+            if match:
+                rar_parts.setdefault(match.group(1).casefold(), []).append((int(match.group(2)), index))
+        for _base_key, parts in rar_parts.items():
+            parts.sort()
+            numbers = [number for number, _ in parts]
+            if numbers == list(range(1, len(parts) + 1)):
+                assign([index for _, index in parts], parts[0][1], re.sub(r"\.part\d+\.rar$", "", names[parts[0][1]], flags=re.I))
+
+        # Classic split ZIP: name.z01, name.z02, ... plus name.zip.
+        zip_parts: dict[str, list[tuple[int, int]]] = {}
+        zip_entries: dict[str, int] = {}
+        for index in indices:
+            match = re.fullmatch(r"(.+)\.z(\d{2,})", names[index], re.I)
+            if match:
+                zip_parts.setdefault(match.group(1).casefold(), []).append((int(match.group(2)), index))
+            elif names[index].lower().endswith(".zip"):
+                zip_entries[names[index][:-4].casefold()] = index
+        for base_key, parts in zip_parts.items():
+            parts.sort()
+            entry = zip_entries.get(base_key)
+            if entry is not None and [number for number, _ in parts] == list(range(1, len(parts) + 1)):
+                assign([index for _, index in parts] + [entry], entry, names[entry][:-4])
+
+        # Legacy RAR: name.rar plus name.r00, name.r01, ...
+        old_rar_parts: dict[str, list[tuple[int, int]]] = {}
+        rar_entries: dict[str, int] = {}
+        for index in indices:
+            match = re.fullmatch(r"(.+)\.r(\d{2,})", names[index], re.I)
+            if match:
+                old_rar_parts.setdefault(match.group(1).casefold(), []).append((int(match.group(2)), index))
+            elif names[index].lower().endswith(".rar") and not re.search(r"\.part\d+\.rar$", names[index], re.I):
+                rar_entries[names[index][:-4].casefold()] = index
+        for base_key, parts in old_rar_parts.items():
+            parts.sort()
+            entry = rar_entries.get(base_key)
+            if entry is not None and [number for number, _ in parts] == list(range(0, len(parts))):
+                assign([entry] + [index for _, index in parts], entry, names[entry][:-4])
+    return result
+
+
+def split_archive_member(name: str) -> dict | None:
+    """Describe an unmistakable numbered archive volume, including incomplete sets."""
+    match = re.fullmatch(r"(.+)\.(7z|zip|rar)\.(\d{3,})", name, re.I)
+    if match:
+        return {
+            "family": f"numbered:{match.group(2).casefold()}:{match.group(1).casefold()}",
+            "number": int(match.group(3)), "entry": int(match.group(3)) == 1,
+            "name": match.group(1), "entry_name": "",
+        }
+    match = re.fullmatch(r"(.+)\.part(\d+)\.rar", name, re.I)
+    if match:
+        return {
+            "family": f"part-rar:{match.group(1).casefold()}",
+            "number": int(match.group(2)), "entry": int(match.group(2)) == 1,
+            "name": match.group(1), "entry_name": "",
+        }
+    match = re.fullmatch(r"(.+)\.z(\d{2,})", name, re.I)
+    if match:
+        return {
+            "family": f"split-zip:{match.group(1).casefold()}",
+            "number": int(match.group(2)), "entry": False,
+            "name": match.group(1), "entry_name": f"{match.group(1)}.zip",
+        }
+    match = re.fullmatch(r"(.+)\.r(\d{2,})", name, re.I)
+    if match:
+        return {
+            "family": f"legacy-rar:{match.group(1).casefold()}",
+            "number": int(match.group(2)), "entry": False,
+            "name": match.group(1), "entry_name": f"{match.group(1)}.rar",
+        }
+    return None
+
+
 def archive_kind(name: str) -> str:
     lowered = name.lower()
+    if re.search(r"\.part\d+\.rar$", lowered):
+        return ""
     return next((kind for suffix, kind in ARCHIVE_SUFFIXES if lowered.endswith(suffix)), "")
 
 
@@ -896,6 +1077,14 @@ def _password_failure(message: str) -> bool:
     return any(fragment in lowered for fragment in (
         "wrong password", "password is incorrect", "password required", "enter password",
         "can not open encrypted archive", "data error in encrypted file",
+    ))
+
+
+def _missing_archive_volume_failure(message: str) -> bool:
+    lowered = message.lower()
+    return any(fragment in lowered for fragment in (
+        "missing volume", "can't open volume", "cannot open volume",
+        "unexpected end of archive", "unexpected end of data",
     ))
 
 
@@ -942,6 +1131,8 @@ def _run_seven_zip(arguments: list[str], password: str, timeout: float | None = 
     if result.returncode != 0:
         if _password_failure(message) or not password and "encrypted" in message.lower():
             raise PasswordRequiredError("압축 암호가 필요하거나 입력한 암호가 올바르지 않습니다.")
+        if _missing_archive_volume_failure(message):
+            raise MissingArchiveVolumeError("분할 압축의 다음 파일을 기다리고 있습니다.")
         raise ValueError((message or "7-Zip 압축 해제 엔진이 작업을 완료하지 못했습니다.")[-400:])
     return result
 
@@ -1260,6 +1451,22 @@ def promote_download(artifact: Path, target_dir: str, auto_extract: bool, passwo
     return output, False
 
 
+def publish_extracted(extracted: Path, target_dir: str, base_name: str, *, cancelled=None, publication_lock=None) -> Path:
+    """Publish one already validated extraction tree with the normal collision rules."""
+    target = Path(target_dir).resolve()
+    children = list(extracted.iterdir())
+    with publication_lock or threading.RLock():
+        if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+            raise InterruptedError("Publication stopped")
+        output = unique_destination(target / fit_download_name(base_name))
+        if len(children) == 1 and children[0].is_dir() and children[0].name.casefold() == base_name.casefold():
+            children[0].rename(output)
+            extracted.rmdir()
+        else:
+            extracted.rename(output)
+    return output
+
+
 STATE_SAVE_RETRY_DELAYS = (0.05, 0.2, 1.0, 2.0, 5.0)
 
 
@@ -1344,23 +1551,42 @@ class Controller:
     def start(self, file: dict, target: str = "", extract: bool | None = None, password: str = "") -> Job:
         return self.start_many([file], target, extract, password)[0]
 
-    def enqueue_gigafile(self, url: str, target: str = "", extract: bool | None = None, password: str = "", download_key: str = "") -> Job:
+    def enqueue_link(self, url: str, target: str = "", extract: bool | None = None, password: str = "", download_key: str = "") -> Job:
         parsed = urlparse(url.strip())
         host = (parsed.hostname or "").lower()
-        if parsed.scheme != "https" or not GIGAFILE_HOST.fullmatch(host) or parsed.username or parsed.password or parsed.port not in {None, 443}:
-            raise ValueError("정식 GigaFile HTTPS 링크가 아닙니다.")
-        file_id = service_path_id(parsed)
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("다운로드 링크의 포트가 올바르지 않습니다.") from exc
+        if parsed.scheme != "https" or parsed.username or parsed.password or port not in {None, 443}:
+            raise ValueError("비동기 등록을 지원하는 정식 HTTPS 링크가 아닙니다.")
+        if GIGAFILE_HOST.fullmatch(host):
+            provider = "gigafile"
+            file_id = service_path_id(parsed)
+            canonical = f"https://{host}/{file_id}"
+            placeholder_name = f"GigaFile {file_id}"
+        elif host in {"gofile.io", "www.gofile.io"}:
+            if parsed.query or parsed.fragment:
+                raise ValueError("정식 GoFile HTTPS 공유 링크가 아닙니다.")
+            provider = "gofile"
+            file_id = service_path_id(parsed, "d")
+            canonical = f"https://gofile.io/d/{file_id}"
+            placeholder_name = f"GoFile {file_id}"
+        else:
+            raise ValueError("비동기 등록을 지원하는 다운로드 링크가 아닙니다.")
         if extract is not None and not isinstance(extract, bool):
             raise ValueError("압축 해제 선택값이 올바르지 않습니다.")
         secret = _validate_job_password(password)
         source_key = _validate_gigafile_download_key(download_key)
+        if provider != "gigafile" and source_key:
+            raise ValueError("GigaFile 다운로드 키는 GigaFile 링크에만 사용할 수 있습니다.")
         destination = normalize_target(target or NAS_TARGET)
         with self.condition:
             if self.stopping:
                 raise ValueError("서비스가 종료 중입니다.")
             if sum(j.inspection_pending for j in self.jobs.values()) >= 100:
                 raise ValueError("정보 확인 대기 작업이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
-            job = Job(secrets.token_hex(6), f"GigaFile {file_id}", f"https://{host}/{file_id}",
+            job = Job(secrets.token_hex(6), placeholder_name, canonical,
                       0, 0, "inspecting", now(), target=destination,
                       extract=AUTO_EXTRACT_ARCHIVES if extract is None else extract, inspection_pending=True)
             if job.extract and secret:
@@ -1377,12 +1603,24 @@ class Controller:
             self.condition.notify_all()
             return job
 
+    def enqueue_gigafile(self, url: str, target: str = "", extract: bool | None = None, password: str = "", download_key: str = "") -> Job:
+        parsed = urlparse(url.strip())
+        if not GIGAFILE_HOST.fullmatch((parsed.hostname or "").lower()):
+            raise ValueError("정식 GigaFile HTTPS 링크가 아닙니다.")
+        return self.enqueue_link(url, target, extract, password, download_key)
+
     def _resolve_queued_link(self, job_id: str) -> None:
         with self.lock:
             job = self.jobs[job_id]
             source = job.source
-        download_key = load_job_download_key(job_id)
-        inspected = inspect_gigafile(source, download_key) if download_key else inspect_gigafile(source)
+        provider = self._provider_for_job(job)
+        download_key = load_job_download_key(job_id) if provider == "gigafile" else ""
+        if provider == "gigafile":
+            inspected = inspect_gigafile(source, download_key) if download_key else inspect_gigafile(source)
+        elif provider == "gofile":
+            inspected = inspect_gofile(source)
+        else:
+            raise ValueError("비동기 정보 확인을 지원하지 않는 서비스입니다.")
         files = inspected.get("files") if inspected.get("batch") else [inspected]
         with self.condition:
             if self.stopping or SHUTDOWN_EVENT.is_set() or self.jobs.get(job_id) is not job or job.status != "inspecting":
@@ -1410,6 +1648,7 @@ class Controller:
         normalized_source_password = _validate_1fichier_password(source_password)
         base_destination = normalize_target(target or NAS_TARGET)
         destinations = [prepare_batch_target(base_destination, str(file.get("relative_path", ""))) for file in files]
+        multipart = split_archive_groups([str(file.get("name", "")) for file in files], destinations)
         jobs = []
         provider_positions: dict[str, int] = {}
         queued_at = time.time()
@@ -1442,6 +1681,22 @@ class Controller:
                 if provider == "1fichier" and normalized_source_password:
                     save_job_source_password(job.id, normalized_source_password)
                 jobs.append(job)
+            grouped: dict[tuple[str, str], list[int]] = {}
+            for index, descriptor in enumerate(multipart):
+                if descriptor:
+                    grouped.setdefault((destinations[index], str(descriptor["name"]).casefold()), []).append(index)
+            for member_indices in grouped.values():
+                group_id = jobs[member_indices[0]].id
+                for index in member_indices:
+                    descriptor = multipart[index]
+                    jobs[index].multipart_group = group_id
+                    jobs[index].multipart_entry = bool(descriptor and descriptor["entry"])
+                    jobs[index].multipart_name = str(descriptor["name"]) if descriptor else ""
+            multipart_before = {
+                candidate.id: (candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name)
+                for candidate in self.jobs.values()
+            }
+            self._reconcile_split_archive_jobs()
             replaced = self.jobs.pop(replace_id, None) if replace_id else None
             try:
                 self.save()
@@ -1451,6 +1706,10 @@ class Controller:
                     self.private_downloads.pop(added.id, None)
                 if replaced:
                     self.jobs[replaced.id] = replaced
+                for candidate in self.jobs.values():
+                    previous = multipart_before.get(candidate.id)
+                    if previous:
+                        candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name = previous
                 raise
             if replaced:
                 try:
@@ -1463,6 +1722,60 @@ class Controller:
     def _provider_for_job(self, job: Job) -> str:
         private = self.private_downloads.get(job.id, {})
         return private.get("provider") or provider_for_url(job.source)
+
+    def _reconcile_split_archive_jobs(self) -> bool:
+        """Join numbered volumes from separate registrations without publishing early parts."""
+        eligible = {
+            "inspecting", "queued", "ready", "downloading", "waiting_processing",
+            "verifying", "paused", "extracting",
+        }
+        candidates = [
+            job for job in self.jobs.values()
+            if job.extract and not job.output and job.status in eligible
+        ]
+        plain: dict[tuple[str, str, str], list[Job]] = {}
+        families: dict[tuple[str, str, str], list[tuple[Job, dict]]] = {}
+        for candidate in candidates:
+            provider = self._provider_for_job(candidate)
+            target = candidate.target or NAS_TARGET
+            plain.setdefault((provider, target, candidate.name.casefold()), []).append(candidate)
+            descriptor = split_archive_member(candidate.name)
+            if descriptor:
+                families.setdefault((provider, target, str(descriptor["family"])), []).append((candidate, descriptor))
+
+        changed = False
+        for (provider, target, _family), described in families.items():
+            number_counts: dict[int, int] = {}
+            for _candidate, descriptor in described:
+                number = int(descriptor["number"])
+                number_counts[number] = number_counts.get(number, 0) + 1
+            if any(count > 1 for count in number_counts.values()):
+                # Ambiguous duplicate volume numbers must never be combined.
+                for candidate, descriptor in described:
+                    values = (candidate.id, bool(descriptor["entry"]), str(descriptor["name"]))
+                    if (candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name) != values:
+                        candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name = values
+                        changed = True
+                continue
+
+            members = list(described)
+            entry_name = str(described[0][1].get("entry_name", ""))
+            if entry_name:
+                entries = plain.get((provider, target, entry_name.casefold()), [])
+                if len(entries) == 1:
+                    members.append((entries[0], {
+                        "entry": True, "name": described[0][1]["name"],
+                    }))
+
+            existing_groups = [candidate.multipart_group for candidate, _descriptor in members if candidate.multipart_group]
+            group_id = existing_groups[0] if existing_groups else members[0][0].id
+            output_name = str(described[0][1]["name"])
+            for candidate, descriptor in members:
+                values = (group_id, bool(descriptor.get("entry")), output_name)
+                if (candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name) != values:
+                    candidate.multipart_group, candidate.multipart_entry, candidate.multipart_name = values
+                    changed = True
+        return changed
 
     def _provider_limit(self) -> int:
         return SAME_PROVIDER_LIMIT if ALLOW_SAME_PROVIDER_PARALLEL else 1
@@ -1485,8 +1798,9 @@ class Controller:
             return False
         provider = self._provider_for_job(job)
         if job.inspection_pending and any(
-            self.jobs.get(running_id) and self.jobs[running_id].inspection_pending
+            running_job and running_job.inspection_pending and self._provider_for_job(running_job) == provider
             for ids in self.running_providers.values() for running_id in ids
+            for running_job in (self.jobs.get(running_id),)
         ):
             return False
         if provider == "gofile" and _gofile_cooldown_status()["active"]:
@@ -1741,6 +2055,113 @@ class Controller:
                 self.processes[job_id] = process
             self.condition.notify_all()
 
+    def _multipart_members(self, group_id: str) -> list[Job]:
+        return [candidate for candidate in self.jobs.values() if candidate.multipart_group == group_id]
+
+    def _multipart_artifact(self, job: Job) -> Path:
+        return job_workspace(job.target or NAS_TARGET, job.id) / job.name
+
+    def _postprocess_multipart(self, job: Job, workspace: Path) -> bool:
+        """Stage and extract a complete split archive. Return True when handled."""
+        if not job.extract or not job.multipart_group:
+            return False
+        with self.lock:
+            members = self._multipart_members(job.multipart_group)
+            structure = split_archive_groups(
+                [member.name for member in members],
+                [member.target or NAS_TARGET for member in members],
+            )
+            complete_set = len(members) >= 2 and all(structure)
+            ready = complete_set and all(
+                member.sha256 and self._multipart_artifact(member).is_file() for member in members
+            )
+            if not ready:
+                job.status = "waiting_processing"
+                job.error = "분할 압축의 나머지 조각을 기다리고 있습니다."
+                self.save()
+                return True
+            entry = next((member for member in members if member.multipart_entry), None)
+            if entry is None:
+                raise ValueError("분할 압축의 시작 파일을 찾을 수 없습니다.")
+            for member in members:
+                member.status = "extracting"
+                member.error = ""
+            self.save()
+
+        input_dir = workspace / "multipart-input"
+        extracted = workspace / "multipart-extracted"
+        shutil.rmtree(input_dir, ignore_errors=True)
+        shutil.rmtree(extracted, ignore_errors=True)
+        input_dir.mkdir(mode=0o700)
+        extracted.mkdir(mode=0o700)
+        try:
+            entry_path = None
+            for member in members:
+                source = self._multipart_artifact(member)
+                destination = input_dir / member.name
+                if destination.exists():
+                    raise ValueError("분할 압축 조각 이름이 중복됩니다.")
+                try:
+                    os.link(source, destination)
+                except OSError:
+                    with source.open("rb") as reader, destination.open("xb") as writer:
+                        _copy_checked(reader, writer, length=4 * 1024 * 1024,
+                                      cancelled=lambda: any(item.status in {"paused", "cancelled", "stopping"} for item in members))
+                if member.id == entry.id:
+                    entry_path = destination
+            if entry_path is None:
+                raise ValueError("분할 압축의 시작 파일을 준비하지 못했습니다.")
+            _extract_with_seven_zip(
+                entry_path, extracted, load_job_password(entry.id),
+                cancelled=lambda: any(item.delete_requested or item.status in {"paused", "cancelled", "stopping"} for item in members),
+                process_callback=lambda process: self._track_processing_process(job.id, process),
+            )
+            output = publish_extracted(
+                extracted, job.target or NAS_TARGET, entry.multipart_name or archive_output_name(entry.name),
+                cancelled=lambda: any(item.delete_requested or item.status in {"paused", "cancelled", "stopping"} for item in members),
+                publication_lock=self.lock,
+            )
+        except PasswordRequiredError as exc:
+            for member in members:
+                delete_job_password(member.id)
+            with self.lock:
+                for member in members:
+                    member.status = "password_required" if member.id == entry.id else "waiting_processing"
+                    member.error = str(exc) if member.id == entry.id else "분할 압축 암호 입력을 기다리고 있습니다."
+                self.save()
+            return True
+        except MissingArchiveVolumeError as exc:
+            with self.lock:
+                for member in members:
+                    member.status = "waiting_processing"
+                    member.error = str(exc)
+                self.save()
+            return True
+        except Exception as exc:
+            with self.lock:
+                for member in members:
+                    if member.status not in {"paused", "cancelled", "stopping"}:
+                        member.status = "failed"
+                        member.error = (str(exc) or "분할 압축을 처리하지 못했습니다.")[-400:]
+                self.save()
+            raise
+        finally:
+            shutil.rmtree(input_dir, ignore_errors=True)
+            shutil.rmtree(extracted, ignore_errors=True)
+
+        for member in members:
+            shutil.rmtree(job_workspace(member.target or NAS_TARGET, member.id), ignore_errors=True)
+            delete_job_secrets(member.id)
+        with self.lock:
+            for member in members:
+                member.status = "stopping" if member.delete_requested else "completed"
+                member.output = str(output)
+                member.extracted = True
+                member.error = ""
+                self.private_downloads.pop(member.id, None)
+            self.save()
+        return True
+
     def _postprocess(self, job_id: str, workspace: Path, artifact: Path, target_dir: str, verify_artifact: bool = False) -> None:
         if not self._enter_postprocessing(job_id):
             return
@@ -1764,9 +2185,14 @@ class Controller:
                     job.sha256 = ""
                     raise ValueError("임시 완성 파일이 손상되어 삭제했습니다. 작업을 재개하면 처음부터 다시 다운로드합니다.")
             artifact = self._apply_response_filename(job, workspace, artifact, private)
+            with self.lock:
+                if self._reconcile_split_archive_jobs():
+                    self.save()
             # The provider key is no longer needed once the complete artifact is
             # verified locally. Do not retain it during extraction or publishing.
             delete_job_download_key(job_id)
+            if self._postprocess_multipart(job, workspace):
+                return
             with self.lock:
                 if job.status in {"paused", "cancelled", "stopping"}:
                     return
@@ -1786,6 +2212,16 @@ class Controller:
                     job.status = "stopping" if job.delete_requested else "password_required"
                     job.error = str(exc)
                     self.private_downloads.pop(job_id, None)
+                    self.save()
+                return
+            except MissingArchiveVolumeError as exc:
+                with self.lock:
+                    job = self.jobs[job_id]
+                    job.multipart_group = job.multipart_group or job.id
+                    job.multipart_entry = True
+                    job.multipart_name = job.multipart_name or archive_output_name(job.name)
+                    job.status = "waiting_processing"
+                    job.error = str(exc)
                     self.save()
                 return
             shutil.rmtree(workspace, ignore_errors=True)
@@ -2460,7 +2896,11 @@ printf 'SEGMENTS_READY=1\\n'
         with self.condition:
             if self.stopping:
                 raise ValueError("서비스가 종료 중입니다.")
-            ids = list(dict.fromkeys(job_ids))
+            selected_groups = {self.jobs[job_id].multipart_group for job_id in job_ids
+                               if job_id in self.jobs and self.jobs[job_id].multipart_group}
+            ids = list(dict.fromkeys([*job_ids, *[
+                candidate.id for candidate in self.jobs.values() if candidate.multipart_group in selected_groups
+            ]]))
             for job_id in ids:
                 if job_id not in self.jobs:
                     raise KeyError(job_id)
@@ -2507,7 +2947,11 @@ printf 'SEGMENTS_READY=1\\n'
         with self.condition:
             if self.stopping or SHUTDOWN_EVENT.is_set():
                 return
-            while any(job_id in ids for ids in self.running_providers.values()) or self.processing_job == job_id:
+            original = self.jobs.get(job_id)
+            group_ids = {candidate.id for candidate in self.jobs.values()
+                         if original and original.multipart_group and candidate.multipart_group == original.multipart_group} or {job_id}
+            while (any(group_ids.intersection(ids) for ids in self.running_providers.values())
+                   or self.processing_job in group_ids):
                 if self.stopping or SHUTDOWN_EVENT.is_set():
                     return  # Restart preserves the record and requires a fresh request.
                 self.condition.wait(timeout=0.25)
@@ -2522,16 +2966,23 @@ printf 'SEGMENTS_READY=1\\n'
                 job.status = "paused"
                 self.delete([job_id], _pending=True)
             except Exception:
-                job.delete_requested = False
-                job.status = "failed"
-                job.error = "임시 다운로드 파일을 삭제하지 못해 작업 기록을 보존했습니다. 폴더 권한을 확인한 뒤 다시 삭제해 주세요."
+                for member_id in group_ids:
+                    member = self.jobs.get(member_id)
+                    if member:
+                        member.delete_requested = False
+                        member.status = "failed"
+                        member.error = "임시 다운로드 파일을 삭제하지 못해 작업 기록을 보존했습니다. 폴더 권한을 확인한 뒤 다시 삭제해 주세요."
                 self.save()
             finally:
                 self.condition.notify_all()
 
     def delete(self, job_ids: list[str], *, _pending: bool = False) -> int:
         with self.lock:
-            job_ids = list(dict.fromkeys(job_ids))
+            selected_groups = {self.jobs[job_id].multipart_group for job_id in job_ids
+                               if job_id in self.jobs and self.jobs[job_id].multipart_group}
+            job_ids = list(dict.fromkeys([*job_ids, *[
+                candidate.id for candidate in self.jobs.values() if candidate.multipart_group in selected_groups
+            ]]))
             for job_id in job_ids:
                 job = self.jobs.get(job_id)
                 if not job:
@@ -2932,6 +3383,15 @@ HANDOFF_FILE_HOSTS = {
 # arbitrary Cloudflare tenants or nested/lookalike domains.
 VIKING_R2_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.04b3d96d52475741e6b10f97f0a84a16\.r2\.cloudflarestorage\.com\Z")
 VIKING_FILE_HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.vikingfile\.com\Z")
+# VikingFile also uses OVH Object Storage. Pin its signing credential while
+# allowing the provider to rotate a single bucket label or OVH region. A valid
+# AWS V4 signature for this credential cannot be produced by an unrelated OVH
+# tenant, so this remains provider-specific instead of allowing arbitrary S3.
+VIKING_OVH_CREDENTIAL = "12d9e8c00a5148b180664101e49eca30"
+VIKING_OVH_HOST = re.compile(
+    r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.s3\."
+    r"(?P<region>[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)\.io\.cloud\.ovh\.net\Z"
+)
 
 
 def _validate_handoff_transfer_url(value: str, provider: str) -> str:
@@ -2958,7 +3418,10 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
                 raise HandoffError("Send.now 공유 페이지는 직접 다운로드 주소가 아닙니다.")
             return value
         regional = provider == "vikingfile" and bool(VIKING_FILE_HOST.fullmatch(parsed.hostname or ""))
-        if parsed.hostname not in HANDOFF_FILE_HOSTS.get(provider, set()) and not (provider == "vikingfile" and (regional or VIKING_R2_HOST.fullmatch(parsed.hostname or ""))):
+        ovh = VIKING_OVH_HOST.fullmatch(parsed.hostname or "") if provider == "vikingfile" else None
+        if parsed.hostname not in HANDOFF_FILE_HOSTS.get(provider, set()) and not (
+            provider == "vikingfile" and (regional or VIKING_R2_HOST.fullmatch(parsed.hostname or "") or ovh)
+        ):
             raise HandoffError("허용 목록에 없는 다운로드 서버입니다.")
         if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
             raise ValueError(error)
@@ -2987,6 +3450,16 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
                 raise ValueError(error)
             if signed_at + lifetime <= time.time():
                 raise HandoffError("다운로드 링크가 만료됐습니다.")
+            if ovh:
+                date = query["X-Amz-Date"][0][:8]
+                credential = query.get("X-Amz-Credential", [""])[0]
+                expected_credential = f"{VIKING_OVH_CREDENTIAL}/{date}/{ovh.group('region')}/s3/aws4_request"
+                if (query.get("X-Amz-Algorithm") != ["AWS4-HMAC-SHA256"]
+                        or query.get("X-Amz-Content-Sha256") != ["UNSIGNED-PAYLOAD"]
+                        or query.get("X-Amz-SignedHeaders") != ["host"]
+                        or credential != expected_credential
+                        or not re.fullmatch(r"[a-fA-F0-9]{64}", query["X-Amz-Signature"][0])):
+                    raise ValueError(error)
     except HandoffError:
         raise
     except (ValueError, KeyError, OverflowError):
@@ -3977,11 +4450,17 @@ def set_parallel_settings(enabled: object, limit: object) -> dict:
 
 
 def set_launcher_port(raw_port: object) -> int:
-    global LAUNCHER_PORT, CONFIG
+    return set_launcher_settings(raw_port, LAUNCHER_PUBLIC_URL)["launcher_port"]
+
+
+def set_launcher_settings(raw_port: object, raw_public_url: object) -> dict:
+    global LAUNCHER_PORT, LAUNCHER_PUBLIC_URL, CONFIG
     normalized = normalize_launcher_port(raw_port)
+    normalized_url = normalize_launcher_public_url(raw_public_url)
     with CONFIG_LOCK:
         updated = dict(CONFIG)
         updated["NAS_PORTAL_LAUNCHER_PORT"] = normalized
+        updated["NAS_PORTAL_LAUNCHER_PUBLIC_URL"] = normalized_url
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         temp = CONFIG_FILE.with_suffix(".tmp")
         temp.write_text(json.dumps(updated, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -3989,8 +4468,9 @@ def set_launcher_port(raw_port: object) -> int:
         temp.replace(CONFIG_FILE)
         CONFIG = updated
         LAUNCHER_PORT = normalized
-        write_launcher_file(public_port=normalized)
-    return normalized
+        LAUNCHER_PUBLIC_URL = normalized_url
+        write_launcher_file(public_port=normalized, public_url=normalized_url)
+    return {"launcher_port": normalized, "launcher_public_url": normalized_url}
 
 
 def set_download_mode(raw_mode: object) -> str:
@@ -4187,12 +4667,14 @@ class Handler(BaseHTTPRequestHandler):
                 "same_provider_limit": SAME_PROVIDER_LIMIT,
                 "download_mode": DOWNLOAD_MODE,
                 "launcher_port": LAUNCHER_PORT,
+                "launcher_public_url": LAUNCHER_PUBLIC_URL,
                 "max_parallel_downloads": MAX_PARALLEL_DOWNLOADS,
                 "auto_extract_archives": AUTO_EXTRACT_ARCHIVES,
                 "password_change_required": password_change_required(),
                 "job_processing_options": True,
                 "job_safe_delete": True,
                 "gigafile_download_key": True,
+                "async_enqueue_providers": ["gigafile", "gofile"],
                 "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow", "xshare"],
                 "disk_protection": DISK_PROTECTION,
                 "temporary_folder": ".nasdrop-tmp",
@@ -4277,9 +4759,9 @@ class Handler(BaseHTTPRequestHandler):
                 inspected = inspect_payload(payload)
                 return self.send_json(HTTPStatus.OK, {"file": cache_inspection(inspected)})
             if path == "/api/enqueue":
-                job = CONTROLLER.enqueue_gigafile(str(payload.get("url", "")), str(payload.get("target", "")),
-                                                  payload.get("extract"), str(payload.get("password", "")),
-                                                  str(payload.get("download_key", "")))
+                job = CONTROLLER.enqueue_link(str(payload.get("url", "")), str(payload.get("target", "")),
+                                              payload.get("extract"), str(payload.get("password", "")),
+                                              str(payload.get("download_key", "")))
                 return self.send_json(HTTPStatus.ACCEPTED, {"job": asdict(job), "count": 1})
             if path == "/api/start":
                 inspected = consume_inspection(payload)
@@ -4302,8 +4784,11 @@ class Handler(BaseHTTPRequestHandler):
                     result["target"] = set_default_target(str(payload.get("target", "")))
                 if "same_provider_parallel" in payload or "same_provider_limit" in payload:
                     result.update(set_parallel_settings(payload.get("same_provider_parallel"), payload.get("same_provider_limit")))
-                if "launcher_port" in payload:
-                    result["launcher_port"] = set_launcher_port(payload.get("launcher_port"))
+                if "launcher_port" in payload or "launcher_public_url" in payload:
+                    result.update(set_launcher_settings(
+                        payload.get("launcher_port", LAUNCHER_PORT),
+                        payload.get("launcher_public_url", LAUNCHER_PUBLIC_URL),
+                    ))
                 if "download_mode" in payload:
                     result["download_mode"] = set_download_mode(payload.get("download_mode"))
                 if "auto_extract_archives" in payload or "disk_protection" in payload:

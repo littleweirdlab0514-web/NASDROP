@@ -100,8 +100,9 @@
     $("#service-user").textContent = s.service_user || t("dedicatedAccount");
     $("#service-url").textContent = location.origin;
     const launcherPort = Number(s.launcher_port || 8791);
+    $("#launcher-public-url").value = s.launcher_public_url || "";
     $("#launcher-port").value = String(launcherPort);
-    renderConnectionRoute(launcherPort);
+    renderConnectionRoute(launcherPort, s.launcher_public_url || "");
     $("#reverse-proxy-mode").checked = Boolean(s.reverse_proxy_mode);
     $("#proxy-detected-warning").classList.toggle("hidden", !s.untrusted_forwarded_header_seen || s.reverse_proxy_mode);
     $("#proxy-enabled-warning").classList.toggle("hidden", !s.reverse_proxy_mode);
@@ -166,23 +167,34 @@
       if (selection[0] !== null) focused.setSelectionRange(...selection);
     }
   }
+  function jobMarkup(job) {
+    const pct = job.size ? Math.min(100, Math.round(job.downloaded / job.size * 100)) : 0;
+    const statusLabel = job.multipart_group && job.status === "waiting_processing"
+      ? t("statusWaitingArchiveParts")
+      : (job.status === "queued" && job.not_before > Date.now() / 1000 ? t("scheduled") : (statusKeys[job.status] ? t(statusKeys[job.status]) : esc(job.status)));
+    const waitUntil = oneFichierWaitUntil(job);
+    const errorMarkup = waitUntil ? `<p class="error" data-onefichier-wait-until="${waitUntil}">${esc(oneFichierWaitText(waitUntil))}</p>` : (job.error ? `<p class="error">${esc(serverError(job.error_code, job.error))}</p>` : "");
+    const passwordForm = job.status === "password_required" ? `<form class="job-password" data-id="${job.id}"><input type="password" name="password" autocomplete="new-password" maxlength="256" required placeholder="${esc(t("archivePassword"))}"><button type="submit" class="ghost">${esc(t("retryExtraction"))}</button></form>` : "";
+    const downloadKeyForm = job.status === "download_key_required" ? `<form class="job-password job-secret" data-id="${job.id}" data-secret="download-key"><input type="password" name="download_key" autocomplete="off" maxlength="4" required placeholder="${esc(t("gigafileDownloadKey"))}"><button type="submit" class="ghost">${esc(t("submitDownloadKey"))}</button></form>` : "";
+    const archivePasswordForm = passwordForm ? passwordForm.replace('class="job-password"', 'class="job-password job-secret"') : "";
+    return `<article data-job-id="${job.id}" class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${errorMarkup}${archivePasswordForm}${downloadKeyForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
+  }
   function renderJobs() {
     const active = state.jobs.filter(j => ["inspecting","queued","ready","downloading","waiting_processing","verifying","extracting","publishing","stopping"].includes(j.status));
+    const archiveJobs = state.jobs.filter(job => job.multipart_group && !["completed","failed","cancelled"].includes(job.status));
+    const archiveIds = new Set(archiveJobs.map(job => job.id));
+    const regularJobs = state.jobs.filter(job => !archiveIds.has(job.id));
     const existing = new Set(state.jobs.map(job => job.id));
     state.selected.forEach(id => { if (!existing.has(id)) state.selected.delete(id); });
     $("#queue-summary").textContent = active.length ? t("processing", {count:active.length}) : t("noQueuedJobs");
     $("#clear-completed").disabled = !state.jobs.some(job => job.status === "completed");
-    if (!state.jobs.length) { $("#jobs").innerHTML = `<div class="empty"><b>${esc(t("noJobsTitle"))}</b><span>${esc(t("noJobsHint"))}</span></div>`; renderSelectionToolbar(); return; }
-    replaceJobList($("#jobs"), state.jobs.map(job => {
-      const pct = job.size ? Math.min(100, Math.round(job.downloaded / job.size * 100)) : 0;
-      const statusLabel = job.status === "queued" && job.not_before > Date.now() / 1000 ? t("scheduled") : (statusKeys[job.status] ? t(statusKeys[job.status]) : esc(job.status));
-      const waitUntil = oneFichierWaitUntil(job);
-      const errorMarkup = waitUntil ? `<p class="error" data-onefichier-wait-until="${waitUntil}">${esc(oneFichierWaitText(waitUntil))}</p>` : (job.error ? `<p class="error">${esc(serverError(job.error_code, job.error))}</p>` : "");
-      const passwordForm = job.status === "password_required" ? `<form class="job-password" data-id="${job.id}"><input type="password" name="password" autocomplete="new-password" maxlength="256" required placeholder="${esc(t("archivePassword"))}"><button type="submit" class="ghost">${esc(t("retryExtraction"))}</button></form>` : "";
-      const downloadKeyForm = job.status === "download_key_required" ? `<form class="job-password job-secret" data-id="${job.id}" data-secret="download-key"><input type="password" name="download_key" autocomplete="off" maxlength="4" required placeholder="${esc(t("gigafileDownloadKey"))}"><button type="submit" class="ghost">${esc(t("submitDownloadKey"))}</button></form>` : "";
-      const archivePasswordForm = passwordForm ? passwordForm.replace('class="job-password"', 'class="job-password job-secret"') : "";
-      return `<article data-job-id="${job.id}" class="job ${state.selected.has(job.id) ? "selected" : ""}"><label class="job-check"><input type="checkbox" data-id="${job.id}" ${state.selected.has(job.id) ? "checked" : ""}><span></span></label><div class="status-dot ${job.status}"></div><div class="job-main"><div class="job-title"><strong>${esc(job.name)}</strong><span class="job-status">${statusLabel}</span></div><div class="progress"><i style="width:${pct}%"></i></div><div class="job-meta"><span>${bytes(job.downloaded)} / ${bytes(job.size)}</span><span>${pct}%</span><span class="job-target">${esc(job.output || job.target || state.status?.target || "")}</span></div>${job.extracted ? `<p class="job-result">${esc(t("archiveExtracted"))}</p>` : ""}${errorMarkup}${archivePasswordForm}${downloadKeyForm}${job.sha256 ? `<details><summary>${esc(t("integrity"))}</summary><code>SHA-256 ${esc(job.sha256)}</code></details>` : ""}</div></article>`;
-    }).join(""));
+    $("#archive-waiting-section").classList.toggle("hidden", !archiveJobs.length);
+    const archiveGroups = new Set(archiveJobs.map(job => job.multipart_group));
+    $("#archive-waiting-summary").textContent = archiveJobs.length ? t("archiveWaitingSummary", {groups:archiveGroups.size, count:archiveJobs.length}) : "";
+    replaceJobList($("#archive-waiting-jobs"), archiveJobs.map(jobMarkup).join(""));
+    const emptyTitle = state.jobs.length ? t("noRegularJobsTitle") : t("noJobsTitle");
+    const emptyHint = state.jobs.length ? t("noRegularJobsHint") : t("noJobsHint");
+    replaceJobList($("#jobs"), regularJobs.length ? regularJobs.map(jobMarkup).join("") : `<div class="empty"><b>${esc(emptyTitle)}</b><span>${esc(emptyHint)}</span></div>`);
     renderSelectionToolbar();
   }
   function selectedJobs() { return state.jobs.filter(job => state.selected.has(job.id)); }
@@ -237,7 +249,12 @@
     $("#notice").textContent = t("inspectLink");
     try {
       const parsedUrl = new URL(url);
-      if (parsedUrl.protocol === "https:" && /^[a-z0-9-]+\.gigafile\.nu$/i.test(parsedUrl.hostname)) {
+      const hostname = parsedUrl.hostname.toLowerCase();
+      const asyncProvider = /^[a-z0-9-]+\.gigafile\.nu$/i.test(hostname) ? "gigafile" :
+        (["gofile.io", "www.gofile.io"].includes(hostname) ? "gofile" : "");
+      const asyncProviders = Array.isArray(state.status?.async_enqueue_providers) ? state.status.async_enqueue_providers : [];
+      const canEnqueueAsync = asyncProvider === "gigafile" || asyncProviders.includes(asyncProvider);
+      if (parsedUrl.protocol === "https:" && asyncProvider && canEnqueueAsync) {
         await api("/api/enqueue", {method:"POST",body:JSON.stringify({url,target:state.selectedTarget,extract,password,download_key})});
         $("#download-url").value = ""; $("#archive-password").value = "";
         if (downloadKeyInput) downloadKeyInput.value = "";
@@ -254,8 +271,11 @@
     } catch (error) { $("#notice").textContent = error.message; } finally { button.disabled = false; }
   });
   $("#extract-download").addEventListener("change", event => { $("#archive-password-wrap").classList.toggle("hidden", !event.target.checked); if (!event.target.checked) $("#archive-password").value = ""; });
-  $("#jobs").addEventListener("change", event => { const checkbox = event.target.closest("input[data-id]"); if (!checkbox) return; checkbox.checked ? state.selected.add(checkbox.dataset.id) : state.selected.delete(checkbox.dataset.id); renderJobs(); });
-  $("#jobs").addEventListener("submit", async event => { const form = event.target.closest(".job-secret"); if (!form) return; event.preventDefault(); const button = form.querySelector("button"); button.disabled = true; try { if (form.dataset.secret === "download-key") { await api(`/api/jobs/${form.dataset.id}/download-key`, {method:"POST",body:JSON.stringify({download_key:form.elements.download_key.value})}); } else { await api(`/api/jobs/${form.dataset.id}/password`, {method:"POST",body:JSON.stringify({password:form.elements.password.value})}); } form.reset(); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; button.disabled = false; } });
+  function bindJobList(container) {
+    container.addEventListener("change", event => { const checkbox = event.target.closest("input[data-id]"); if (!checkbox) return; checkbox.checked ? state.selected.add(checkbox.dataset.id) : state.selected.delete(checkbox.dataset.id); renderJobs(); });
+    container.addEventListener("submit", async event => { const form = event.target.closest(".job-secret"); if (!form) return; event.preventDefault(); const button = form.querySelector("button"); button.disabled = true; try { if (form.dataset.secret === "download-key") { await api(`/api/jobs/${form.dataset.id}/download-key`, {method:"POST",body:JSON.stringify({download_key:form.elements.download_key.value})}); } else { await api(`/api/jobs/${form.dataset.id}/password`, {method:"POST",body:JSON.stringify({password:form.elements.password.value})}); } form.reset(); await refreshJobs(); } catch (error) { $("#notice").textContent = error.message; button.disabled = false; } });
+  }
+  [$("#jobs"), $("#archive-waiting-jobs")].forEach(bindJobList);
   $("#select-all").addEventListener("click", () => { if (state.selected.size === state.jobs.length) state.selected.clear(); else state.jobs.forEach(job => state.selected.add(job.id)); renderJobs(); });
   $("#pause-selected").addEventListener("click", () => runSelected("pause"));
   $("#resume-selected").addEventListener("click", () => runSelected("resume"));
@@ -279,11 +299,14 @@
   $("#reverse-proxy-mode").addEventListener("change", event => {
     $("#proxy-enabled-warning").classList.toggle("hidden", !event.target.checked);
   });
-  function renderConnectionRoute(port) {
+  function renderConnectionRoute(port, publicUrl = $("#launcher-public-url").value.trim()) {
     const host = location.hostname.includes(":") ? `[${location.hostname}]` : location.hostname;
-    $("#launcher-url").textContent = `${location.protocol}//${host}:${port}`;
+    $("#launcher-url").textContent = publicUrl || `${location.protocol}//${host}:${port}`;
     $("#connection-route").textContent = t("connectionRoute", {publicPort:port, appPort:8791});
   }
+  $("#launcher-public-url").addEventListener("input", event => {
+    renderConnectionRoute(Number($("#launcher-port").value) || 8791, event.target.value.trim());
+  });
   $("#launcher-port").addEventListener("input", event => {
     const port = Number(event.target.value);
     if (Number.isInteger(port) && port >= 1 && port <= 65535) renderConnectionRoute(port);
@@ -291,13 +314,14 @@
   $("#save-service-settings").addEventListener("click", async () => {
     const rawPort = $("#launcher-port").value.trim();
     const port = rawPort ? Number(rawPort) : 8791;
+    const launcherPublicUrl = $("#launcher-public-url").value.trim();
     const reverseProxyMode = $("#reverse-proxy-mode").checked;
     if (reverseProxyMode && !confirm(t("confirmReverseProxy"))) return;
     const button = $("#save-service-settings"); button.disabled = true; $("#service-settings-message").textContent = t("saving");
     try {
-      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({launcher_port:port,reverse_proxy_mode:reverseProxyMode})});
+      const result = await api("/api/settings", {method:"POST",body:JSON.stringify({launcher_port:port,launcher_public_url:launcherPublicUrl,reverse_proxy_mode:reverseProxyMode})});
       state.status = await api("/api/status"); renderStatus();
-      $("#service-settings-message").textContent = t("connectionSettingsSaved", {port:result.launcher_port});
+      $("#service-settings-message").textContent = result.launcher_public_url ? t("connectionSettingsSavedUrl", {url:result.launcher_public_url}) : t("connectionSettingsSaved", {port:result.launcher_port});
     } catch (error) { $("#service-settings-message").textContent = error.message; }
     finally { button.disabled = false; }
   });

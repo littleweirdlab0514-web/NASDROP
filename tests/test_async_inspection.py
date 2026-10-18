@@ -37,9 +37,13 @@ class AsyncInspectionTests(unittest.TestCase):
         c.processing_job, c.postprocess_waiting = None, []
         self.c = c
         self.url = 'https://123.gigafile.nu/1231-abcdef'
+        self.gofile_url = 'https://gofile.io/d/share-one'
 
     def enqueue(self):
         return self.c.enqueue_gigafile(self.url, '/downloads', True, 'synthetic-secret')
+
+    def enqueue_gofile(self, url=None):
+        return self.c.enqueue_link(url or self.gofile_url, '/downloads', True, 'synthetic-secret')
 
     def files(self):
         return [{'provider': 'gigafile', 'url': self.url + str(i), 'name': name,
@@ -55,6 +59,79 @@ class AsyncInspectionTests(unittest.TestCase):
         state = backend.STATE_FILE.read_text()
         self.assertNotIn('synthetic-secret', state)
         self.assertEqual(json.loads(state)[0]['id'], job.id)
+
+    def test_two_gofile_links_are_persisted_immediately_without_provider_requests(self):
+        with mock.patch.object(backend, 'inspect_gofile') as inspect:
+            first = self.enqueue_gofile()
+            second = self.enqueue_gofile('https://www.gofile.io/d/share-two')
+            inspect.assert_not_called()
+        self.assertEqual([first.status, second.status], ['inspecting', 'inspecting'])
+        self.assertTrue(first.inspection_pending)
+        self.assertTrue(second.inspection_pending)
+        self.assertEqual([item['source'] for item in json.loads(backend.STATE_FILE.read_text())], [
+            'https://gofile.io/d/share-one', 'https://gofile.io/d/share-two',
+        ])
+
+    def test_gofile_inspection_is_serial_even_when_parallel_downloads_are_enabled(self):
+        first = self.enqueue_gofile()
+        second = self.enqueue_gofile('https://gofile.io/d/share-two')
+        self.c.running_providers = {'gofile': {first.id}}
+        with mock.patch.object(backend, 'ALLOW_SAME_PROVIDER_PARALLEL', True), \
+             mock.patch.object(backend, 'SAME_PROVIDER_LIMIT', 2):
+            self.assertFalse(self.c._can_start(second))
+
+    def test_pending_inspections_for_different_providers_can_run_together(self):
+        gofile = self.enqueue_gofile()
+        gigafile = self.enqueue()
+        self.c.running_providers = {'gofile': {gofile.id}}
+        self.assertTrue(self.c._can_start(gigafile))
+
+    def test_failed_gofile_inspection_is_preserved_and_does_not_block_next(self):
+        first = self.enqueue_gofile()
+        second = self.enqueue_gofile('https://gofile.io/d/share-two')
+        inspected = {
+            'provider': 'gofile', 'url': second.source, 'name': 'second.bin', 'size': 8,
+            'download_url': 'https://store1.gofile.io/download/second.bin', 'download_token': 'guest-token',
+        }
+        with mock.patch.object(backend, 'inspect_gofile', side_effect=[ValueError('synthetic failure'), inspected]):
+            self.c.running_providers = {'gofile': {first.id}}
+            self.c._run_guarded(first.id, 'gofile')
+            self.assertEqual(first.status, 'failed')
+            self.assertEqual(self.c.running_providers, {})
+            self.c.running_providers = {'gofile': {second.id}}
+            self.c._run_guarded(second.id, 'gofile')
+        self.assertIn(first.id, self.c.jobs)
+        self.assertNotIn(second.id, self.c.jobs)
+        self.assertEqual([job.name for job in self.c.jobs.values()], ['GoFile share-one', 'second.bin'])
+
+    def test_gofile_cooldown_defers_inspection_without_network_access(self):
+        job = self.enqueue_gofile()
+        cooldown_until = 2_000_000_000.0
+        with mock.patch.object(backend, '_gofile_cooldown_status', return_value={
+            'active': True, 'until': cooldown_until, 'remaining': 60, 'reason': 'test',
+        }), mock.patch.object(backend, 'inspect_gofile') as inspect:
+            self.assertFalse(self.c._can_start(job))
+            inspect.assert_not_called()
+
+    def test_gofile_cooldown_error_requeues_persisted_inspection(self):
+        job = self.enqueue_gofile()
+        cooldown_until = 2_000_000_000.0
+        self.c.running_providers = {'gofile': {job.id}}
+        with mock.patch.object(backend, '_gofile_cooldown_status', return_value={
+            'active': True, 'until': cooldown_until, 'remaining': 60, 'reason': 'test',
+        }), mock.patch.object(backend, 'inspect_gofile', side_effect=backend.GofileCooldownError('cooldown')):
+            self.c._run_guarded(job.id, 'gofile')
+        self.assertEqual(job.status, 'queued')
+        self.assertEqual(job.not_before, cooldown_until)
+        self.assertTrue(job.inspection_pending)
+
+    def test_rejects_noncanonical_gofile_urls_before_network(self):
+        for url in ('http://gofile.io/d/example', 'https://gofile.io.evil/d/example',
+                    'https://user:pass@gofile.io/d/example', 'https://gofile.io:8443/d/example',
+                    'https://gofile.io/d/example?token=secret', 'https://gofile.io/example'):
+            with self.subTest(url=url), mock.patch.object(backend, 'inspect_gofile') as inspect, self.assertRaises(ValueError):
+                self.c.enqueue_link(url, '/downloads')
+            inspect.assert_not_called()
 
     def test_batch_replaces_placeholder_once_preserving_destination_and_options(self):
         job = self.enqueue()

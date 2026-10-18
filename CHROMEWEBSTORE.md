@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — NASDrop for Chrome
 
-> Last Updated: 2026-09-30
+> Last Updated: 2026-10-18
 
 ## Store Listing
 
@@ -18,6 +18,8 @@ NASDrop for Chrome sends supported file-host downloads to a NASDrop server that 
 
 FEATURES
 • Recognizes official download controls on supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share pages
+• Preserves distinct GoFile file clicks in page order and avoids duplicate submissions while an earlier registration is pending
+• Includes an optional Buy Me a Coffee banner that opens the project's external support page
 • Sends downloads to your NAS instead of saving them through the browser
 • Shows current progress and lets you pause, resume or delete individual jobs
 • Supports automatic archive extraction and optional archive passwords
@@ -40,7 +42,7 @@ Access to supported provider pages is used only to recognize their official down
 SUPPORT
 Report sanitized issues at https://github.com/littleweirdlab0514-web/NASDROP/issues or email littleweirdlab0514@gmail.com. Never include passwords, session tokens, private download links or an unredacted NAS address in a public report.
 
-Version 0.5.9 — Recognizes Pixeldrain's classless official no-preview Download button, including the transfer-limit page, while continuing to ignore upgrade, share and advertisement controls.
+Version 0.5.11 — Retains the GoFile FIFO and capability-gated enqueue, shortens the connected-site guidance and adds an optional Buy Me a Coffee banner.
 
 Minimum browser: Chrome 111, required by the statically declared MAIN-world X-Share content script.
 
@@ -70,7 +72,7 @@ English
 ### Screenshot Notes
 
 - Use only synthetic filenames and a private test NAS address that has been fully redacted.
-- Show the current 0.5.9 popup, including collapsed controls by default and one expanded secret-entry form.
+- Show the current 0.5.11 popup, including the sponsor banner, collapsed controls by default and one expanded secret-entry form.
 - Capture each image at an accepted exact size; do not scale a mobile screenshot into the store frame.
 - Do not show credentials, session tokens, signed provider URLs, cookies or real private hostnames.
 
@@ -147,6 +149,8 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 0.5.11 | 2026-10-18 | Shorter connected-site guidance and a bundled official Buy Me a Coffee banner linking to the project support page | GitHub release |
+| 0.5.10 | 2026-10-06 | Bounded, duplicate-safe GoFile click FIFO plus capability-gated asynchronous server enqueue with legacy fallback | Candidate |
 | 0.5.9 | 2026-09-30 | Recognizes Pixeldrain's classless official no-preview Download button on transfer-limit pages without broad text matching | GitHub release |
 | 0.5.8 | 2026-09-29 | Strict support for AkiraBox's current four-field prepared URL while preserving 0.5.7 X-Share behavior | Candidate |
 | 0.5.7 | 2026-09-26 | Capability-gated X-Share official-button handoff; same-ID one-time URL captured before local transfer without reading Turnstile tokens or cookies | Candidate |
@@ -161,10 +165,10 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 ### Submission Readiness
 
-- [x] Manifest V3 and extension version 0.5.9
+- [x] Manifest V3 and extension version 0.5.11
 - [x] English default with Korean, Simplified Chinese and Japanese locales
 - [x] Automated Chrome extension tests pass
-- [x] Publish `NASDrop-Chrome-0.5.9.zip` in the GitHub v0.9.27-7 release after live NAS verification
+- [x] Publish `NASDrop-Chrome-0.5.11.zip` as the signed-checksum GitHub developer-mode package
 - [ ] Publish the Chrome-specific privacy policy on the public default branch
 - [ ] Create the exact 128×128 store icon
 - [ ] Capture at least one exact-size store screenshot with synthetic/redacted data
@@ -181,6 +185,7 @@ https://github.com/littleweirdlab0514-web/NASDROP
 - Send.now may require the user to complete security verification and press Continue before the final Download button appears. The extension neither solves nor bypasses those steps and does not intercept Continue; it watches for a browser download only after the later final Download button is clicked.
 - The first connection requests host access for the entered NASDrop origin. After approval, the popup closes and the user may need to reopen it and sign in again.
 - The optional host-permission patterns are broad because a self-hosted server can use any private IP or hostname, but the extension requests only the origin entered by the user.
+- The optional Buy Me a Coffee banner opens `buymeacoffee.com` in a new tab. The extension does not send NASDrop credentials, tokens, job data or provider links to that site; the external site's own privacy terms apply after navigation.
 - The current public distribution is a GitHub prerelease for developer-mode installation, not yet a Chrome Web Store listing.
 
 ### Rejection History

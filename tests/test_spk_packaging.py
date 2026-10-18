@@ -117,10 +117,12 @@ class SpkPackagingTests(unittest.TestCase):
         backend = (ROOT / "backend.py").read_text(encoding="utf-8")
 
         self.assertIn('"NAS_PORTAL_LAUNCHER_PORT": "8791"', postinst)
+        self.assertIn('"NAS_PORTAL_LAUNCHER_PUBLIC_URL": ""', postinst)
         self.assertIn('"NAS_PORTAL_LAUNCHER_PORT" not in data', postupgrade)
+        self.assertIn('"NAS_PORTAL_LAUNCHER_PUBLIC_URL" not in data', postupgrade)
         self.assertIn('NAS_PORTAL_LAUNCHER_FILE="${SYNOPKG_PKGDEST}/ui/launcher.html"', start_script)
-        self.assertIn('result["launcher_port"] = set_launcher_port', backend)
-        self.assertIn('write_launcher_file(public_port=normalized)', backend)
+        self.assertIn('result.update(set_launcher_settings(', backend)
+        self.assertIn('write_launcher_file(public_port=normalized, public_url=normalized_url)', backend)
 
     def test_dsm_launcher_brand_is_literal_and_description_is_preloaded(self):
         config = json.loads((ROOT / "synology" / "package-inner" / "ui" / "config").read_text(encoding="utf-8"))
@@ -152,6 +154,8 @@ class SpkPackagingTests(unittest.TestCase):
         self.assertIn('data["NAS_PORTAL_NAS_TARGET"] = ""', postupgrade)
         self.assertIn('Path(NAS_TARGET) if NAS_TARGET else None', backend)
         self.assertNotIn('state.status?.target || "/volume2/downloads"', app)
+        self.assertIn('state.status?.async_enqueue_providers', app)
+        self.assertIn('["gofile.io", "www.gofile.io"].includes(hostname)', app)
 
     def test_official_seven_zip_runtime_is_pinned_and_packaged(self):
         build_script = (ROOT / "synology" / "build-spk.ps1").read_text(encoding="utf-8")
