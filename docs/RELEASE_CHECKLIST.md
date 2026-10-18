@@ -1,4 +1,11 @@
-# NASDrop 0.9.28 release checklist
+# NASDrop 0.9.29 release checklist
+
+## 0.9.29-1 split-archive candidate
+
+- [x] Detect complete contiguous `.7z.001`, `.zip.001`, `.rar.001`, `.z01`/`.zip`, `.partNN.rar`, and legacy `.rar`/`.rNN` sets within one inspected multi-file batch.
+- [x] Keep every verified volume private until the full set is ready, then run one bounded 7-Zip validation/extraction and publish only the completed output.
+- [x] Preserve archive-password retry, restart recovery, collision handling, path validation, cancellation, and group-wide safe deletion.
+- [x] Never guess group membership for incomplete, non-contiguous, or separately submitted volumes; retain normal single-file handling.
 
 ## 0.9.28-3 Buy Me a Coffee candidate
 

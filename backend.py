@@ -79,7 +79,7 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.28")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.29")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
 MAX_ARCHIVE_ENTRIES = 100_000
@@ -849,6 +849,9 @@ class Job:
     transfer_mode: str = ""
     inspection_pending: bool = False
     delete_requested: bool = False
+    multipart_group: str = ""
+    multipart_entry: bool = False
+    multipart_name: str = ""
 
 
 ARCHIVE_SUFFIXES = (
@@ -858,8 +861,83 @@ ARCHIVE_SUFFIXES = (
 )
 
 
+def split_archive_groups(names: list[str], destinations: list[str]) -> list[dict | None]:
+    """Identify complete, contiguous multi-volume archive sets in one inspected batch."""
+    result: list[dict | None] = [None] * len(names)
+    consumed: set[int] = set()
+
+    def assign(indices: list[int], entry: int, output_name: str) -> None:
+        if len(indices) < 2 or any(index in consumed for index in indices):
+            return
+        for index in indices:
+            result[index] = {"entry": index == entry, "name": output_name}
+            consumed.add(index)
+
+    by_destination: dict[str, list[int]] = {}
+    for index, destination in enumerate(destinations):
+        by_destination.setdefault(destination, []).append(index)
+
+    for indices in by_destination.values():
+        # 7-Zip style volumes: name.7z.001, name.zip.001, name.rar.001.
+        numbered: dict[tuple[str, str], list[tuple[int, int]]] = {}
+        for index in indices:
+            match = re.fullmatch(r"(.+)\.(7z|zip|rar)\.(\d{3,})", names[index], re.I)
+            if match:
+                numbered.setdefault((match.group(1).casefold(), match.group(2).casefold()), []).append((int(match.group(3)), index))
+        for (base_key, _kind), parts in numbered.items():
+            parts.sort()
+            numbers = [number for number, _ in parts]
+            if numbers == list(range(1, len(parts) + 1)):
+                assign([index for _, index in parts], parts[0][1], names[parts[0][1]].rsplit(".", 2)[0])
+
+        # Modern RAR volumes: name.part1.rar, name.part01.rar, ...
+        rar_parts: dict[str, list[tuple[int, int]]] = {}
+        for index in indices:
+            match = re.fullmatch(r"(.+)\.part(\d+)\.rar", names[index], re.I)
+            if match:
+                rar_parts.setdefault(match.group(1).casefold(), []).append((int(match.group(2)), index))
+        for _base_key, parts in rar_parts.items():
+            parts.sort()
+            numbers = [number for number, _ in parts]
+            if numbers == list(range(1, len(parts) + 1)):
+                assign([index for _, index in parts], parts[0][1], re.sub(r"\.part\d+\.rar$", "", names[parts[0][1]], flags=re.I))
+
+        # Classic split ZIP: name.z01, name.z02, ... plus name.zip.
+        zip_parts: dict[str, list[tuple[int, int]]] = {}
+        zip_entries: dict[str, int] = {}
+        for index in indices:
+            match = re.fullmatch(r"(.+)\.z(\d{2,})", names[index], re.I)
+            if match:
+                zip_parts.setdefault(match.group(1).casefold(), []).append((int(match.group(2)), index))
+            elif names[index].lower().endswith(".zip"):
+                zip_entries[names[index][:-4].casefold()] = index
+        for base_key, parts in zip_parts.items():
+            parts.sort()
+            entry = zip_entries.get(base_key)
+            if entry is not None and [number for number, _ in parts] == list(range(1, len(parts) + 1)):
+                assign([index for _, index in parts] + [entry], entry, names[entry][:-4])
+
+        # Legacy RAR: name.rar plus name.r00, name.r01, ...
+        old_rar_parts: dict[str, list[tuple[int, int]]] = {}
+        rar_entries: dict[str, int] = {}
+        for index in indices:
+            match = re.fullmatch(r"(.+)\.r(\d{2,})", names[index], re.I)
+            if match:
+                old_rar_parts.setdefault(match.group(1).casefold(), []).append((int(match.group(2)), index))
+            elif names[index].lower().endswith(".rar") and not re.search(r"\.part\d+\.rar$", names[index], re.I):
+                rar_entries[names[index][:-4].casefold()] = index
+        for base_key, parts in old_rar_parts.items():
+            parts.sort()
+            entry = rar_entries.get(base_key)
+            if entry is not None and [number for number, _ in parts] == list(range(0, len(parts))):
+                assign([entry] + [index for _, index in parts], entry, names[entry][:-4])
+    return result
+
+
 def archive_kind(name: str) -> str:
     lowered = name.lower()
+    if re.search(r"\.part\d+\.rar$", lowered):
+        return ""
     return next((kind for suffix, kind in ARCHIVE_SUFFIXES if lowered.endswith(suffix)), "")
 
 
@@ -1260,6 +1338,22 @@ def promote_download(artifact: Path, target_dir: str, auto_extract: bool, passwo
     return output, False
 
 
+def publish_extracted(extracted: Path, target_dir: str, base_name: str, *, cancelled=None, publication_lock=None) -> Path:
+    """Publish one already validated extraction tree with the normal collision rules."""
+    target = Path(target_dir).resolve()
+    children = list(extracted.iterdir())
+    with publication_lock or threading.RLock():
+        if SHUTDOWN_EVENT.is_set() or (cancelled and cancelled()):
+            raise InterruptedError("Publication stopped")
+        output = unique_destination(target / fit_download_name(base_name))
+        if len(children) == 1 and children[0].is_dir() and children[0].name.casefold() == base_name.casefold():
+            children[0].rename(output)
+            extracted.rmdir()
+        else:
+            extracted.rename(output)
+    return output
+
+
 STATE_SAVE_RETRY_DELAYS = (0.05, 0.2, 1.0, 2.0, 5.0)
 
 
@@ -1441,6 +1535,7 @@ class Controller:
         normalized_source_password = _validate_1fichier_password(source_password)
         base_destination = normalize_target(target or NAS_TARGET)
         destinations = [prepare_batch_target(base_destination, str(file.get("relative_path", ""))) for file in files]
+        multipart = split_archive_groups([str(file.get("name", "")) for file in files], destinations)
         jobs = []
         provider_positions: dict[str, int] = {}
         queued_at = time.time()
@@ -1473,6 +1568,17 @@ class Controller:
                 if provider == "1fichier" and normalized_source_password:
                     save_job_source_password(job.id, normalized_source_password)
                 jobs.append(job)
+            grouped: dict[tuple[str, str], list[int]] = {}
+            for index, descriptor in enumerate(multipart):
+                if descriptor:
+                    grouped.setdefault((destinations[index], str(descriptor["name"]).casefold()), []).append(index)
+            for member_indices in grouped.values():
+                group_id = jobs[member_indices[0]].id
+                for index in member_indices:
+                    descriptor = multipart[index]
+                    jobs[index].multipart_group = group_id
+                    jobs[index].multipart_entry = bool(descriptor and descriptor["entry"])
+                    jobs[index].multipart_name = str(descriptor["name"]) if descriptor else ""
             replaced = self.jobs.pop(replace_id, None) if replace_id else None
             try:
                 self.save()
@@ -1773,6 +1879,99 @@ class Controller:
                 self.processes[job_id] = process
             self.condition.notify_all()
 
+    def _multipart_members(self, group_id: str) -> list[Job]:
+        return [candidate for candidate in self.jobs.values() if candidate.multipart_group == group_id]
+
+    def _multipart_artifact(self, job: Job) -> Path:
+        return job_workspace(job.target or NAS_TARGET, job.id) / job.name
+
+    def _postprocess_multipart(self, job: Job, workspace: Path) -> bool:
+        """Stage and extract a complete split archive. Return True when handled."""
+        if not job.extract or not job.multipart_group:
+            return False
+        with self.lock:
+            members = self._multipart_members(job.multipart_group)
+            ready = bool(members) and all(member.sha256 and self._multipart_artifact(member).is_file() for member in members)
+            if not ready:
+                job.status = "waiting_processing"
+                job.error = "분할 압축의 나머지 조각을 기다리고 있습니다."
+                self.save()
+                return True
+            entry = next((member for member in members if member.multipart_entry), None)
+            if entry is None:
+                raise ValueError("분할 압축의 시작 파일을 찾을 수 없습니다.")
+            for member in members:
+                member.status = "extracting"
+                member.error = ""
+            self.save()
+
+        input_dir = workspace / "multipart-input"
+        extracted = workspace / "multipart-extracted"
+        shutil.rmtree(input_dir, ignore_errors=True)
+        shutil.rmtree(extracted, ignore_errors=True)
+        input_dir.mkdir(mode=0o700)
+        extracted.mkdir(mode=0o700)
+        try:
+            entry_path = None
+            for member in members:
+                source = self._multipart_artifact(member)
+                destination = input_dir / member.name
+                if destination.exists():
+                    raise ValueError("분할 압축 조각 이름이 중복됩니다.")
+                try:
+                    os.link(source, destination)
+                except OSError:
+                    with source.open("rb") as reader, destination.open("xb") as writer:
+                        _copy_checked(reader, writer, length=4 * 1024 * 1024,
+                                      cancelled=lambda: any(item.status in {"paused", "cancelled", "stopping"} for item in members))
+                if member.id == entry.id:
+                    entry_path = destination
+            if entry_path is None:
+                raise ValueError("분할 압축의 시작 파일을 준비하지 못했습니다.")
+            _extract_with_seven_zip(
+                entry_path, extracted, load_job_password(entry.id),
+                cancelled=lambda: any(item.delete_requested or item.status in {"paused", "cancelled", "stopping"} for item in members),
+                process_callback=lambda process: self._track_processing_process(job.id, process),
+            )
+            output = publish_extracted(
+                extracted, job.target or NAS_TARGET, entry.multipart_name or archive_output_name(entry.name),
+                cancelled=lambda: any(item.delete_requested or item.status in {"paused", "cancelled", "stopping"} for item in members),
+                publication_lock=self.lock,
+            )
+        except PasswordRequiredError as exc:
+            for member in members:
+                delete_job_password(member.id)
+            with self.lock:
+                for member in members:
+                    member.status = "password_required" if member.id == entry.id else "waiting_processing"
+                    member.error = str(exc) if member.id == entry.id else "분할 압축 암호 입력을 기다리고 있습니다."
+                self.save()
+            return True
+        except Exception as exc:
+            with self.lock:
+                for member in members:
+                    if member.status not in {"paused", "cancelled", "stopping"}:
+                        member.status = "failed"
+                        member.error = (str(exc) or "분할 압축을 처리하지 못했습니다.")[-400:]
+                self.save()
+            raise
+        finally:
+            shutil.rmtree(input_dir, ignore_errors=True)
+            shutil.rmtree(extracted, ignore_errors=True)
+
+        for member in members:
+            shutil.rmtree(job_workspace(member.target or NAS_TARGET, member.id), ignore_errors=True)
+            delete_job_secrets(member.id)
+        with self.lock:
+            for member in members:
+                member.status = "stopping" if member.delete_requested else "completed"
+                member.output = str(output)
+                member.extracted = True
+                member.error = ""
+                self.private_downloads.pop(member.id, None)
+            self.save()
+        return True
+
     def _postprocess(self, job_id: str, workspace: Path, artifact: Path, target_dir: str, verify_artifact: bool = False) -> None:
         if not self._enter_postprocessing(job_id):
             return
@@ -1799,6 +1998,8 @@ class Controller:
             # The provider key is no longer needed once the complete artifact is
             # verified locally. Do not retain it during extraction or publishing.
             delete_job_download_key(job_id)
+            if self._postprocess_multipart(job, workspace):
+                return
             with self.lock:
                 if job.status in {"paused", "cancelled", "stopping"}:
                     return
@@ -2492,7 +2693,11 @@ printf 'SEGMENTS_READY=1\\n'
         with self.condition:
             if self.stopping:
                 raise ValueError("서비스가 종료 중입니다.")
-            ids = list(dict.fromkeys(job_ids))
+            selected_groups = {self.jobs[job_id].multipart_group for job_id in job_ids
+                               if job_id in self.jobs and self.jobs[job_id].multipart_group}
+            ids = list(dict.fromkeys([*job_ids, *[
+                candidate.id for candidate in self.jobs.values() if candidate.multipart_group in selected_groups
+            ]]))
             for job_id in ids:
                 if job_id not in self.jobs:
                     raise KeyError(job_id)
@@ -2539,7 +2744,11 @@ printf 'SEGMENTS_READY=1\\n'
         with self.condition:
             if self.stopping or SHUTDOWN_EVENT.is_set():
                 return
-            while any(job_id in ids for ids in self.running_providers.values()) or self.processing_job == job_id:
+            original = self.jobs.get(job_id)
+            group_ids = {candidate.id for candidate in self.jobs.values()
+                         if original and original.multipart_group and candidate.multipart_group == original.multipart_group} or {job_id}
+            while (any(group_ids.intersection(ids) for ids in self.running_providers.values())
+                   or self.processing_job in group_ids):
                 if self.stopping or SHUTDOWN_EVENT.is_set():
                     return  # Restart preserves the record and requires a fresh request.
                 self.condition.wait(timeout=0.25)
@@ -2554,16 +2763,23 @@ printf 'SEGMENTS_READY=1\\n'
                 job.status = "paused"
                 self.delete([job_id], _pending=True)
             except Exception:
-                job.delete_requested = False
-                job.status = "failed"
-                job.error = "임시 다운로드 파일을 삭제하지 못해 작업 기록을 보존했습니다. 폴더 권한을 확인한 뒤 다시 삭제해 주세요."
+                for member_id in group_ids:
+                    member = self.jobs.get(member_id)
+                    if member:
+                        member.delete_requested = False
+                        member.status = "failed"
+                        member.error = "임시 다운로드 파일을 삭제하지 못해 작업 기록을 보존했습니다. 폴더 권한을 확인한 뒤 다시 삭제해 주세요."
                 self.save()
             finally:
                 self.condition.notify_all()
 
     def delete(self, job_ids: list[str], *, _pending: bool = False) -> int:
         with self.lock:
-            job_ids = list(dict.fromkeys(job_ids))
+            selected_groups = {self.jobs[job_id].multipart_group for job_id in job_ids
+                               if job_id in self.jobs and self.jobs[job_id].multipart_group}
+            job_ids = list(dict.fromkeys([*job_ids, *[
+                candidate.id for candidate in self.jobs.values() if candidate.multipart_group in selected_groups
+            ]]))
             for job_id in job_ids:
                 job = self.jobs.get(job_id)
                 if not job:

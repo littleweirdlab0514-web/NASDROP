@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
-Last updated: 2026-10-06
-Applies to: NASDrop Server 0.9.28-3 candidate
+Last updated: 2026-10-18
+Applies to: NASDrop Server 0.9.29-1 candidate
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -16,6 +16,7 @@ Provider websites are external systems and may change without notice. “Support
 - At most three jobs run globally. Same-provider work defaults to one job at a time. The optional same-provider setting permits the configured limit, normally two; provider-specific connection and cooldown rules still take precedence.
 - Files discovered from one folder or multi-file share become separate jobs. Their start times are staggered by 20 seconds so bulk registration does not immediately burst every request.
 - ZIP, AES ZIP, 7z, RAR, and TAR-family archives may be extracted in the private workspace. EGG is downloaded unchanged and is not extracted. Passwords are stored separately from public job state and supplied to 7-Zip through standard input, not the command line.
+- Complete split sets discovered together in one provider batch are grouped only when their volume numbers are contiguous. `.7z.001`, `.zip.001`, `.rar.001`, `.z01`/`.zip`, `.partNN.rar`, and `.rar`/`.rNN` sets remain in per-job private workspaces until every volume is verified. Extraction uses hard links where available or private copies otherwise, validates the whole 7-Zip listing, and publishes one completed result. Never combine unrelated single-link jobs by filename alone.
 - Provider tokens, cookies, signed URLs, download keys, archive passwords, authorization headers, and response-header captures must never appear in public job objects or user-facing errors.
 
 ## Provider matrix

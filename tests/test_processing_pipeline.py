@@ -151,6 +151,102 @@ class ProcessingPipelineTests(unittest.TestCase):
         self.assertEqual(backend.archive_kind("BACKUP.RAR"), "7zip")
         self.assertEqual(backend.archive_output_name("BACKUP.RAR"), "BACKUP")
 
+    def test_split_archive_naming_rules_are_grouped(self):
+        cases = [
+            (["movie.7z.001", "movie.7z.002"], 0, "movie"),
+            (["photos.zip.001", "photos.zip.002"], 0, "photos"),
+            (["backup.z01", "backup.z02", "backup.zip"], 2, "backup"),
+            (["show.part01.rar", "show.part02.rar"], 0, "show"),
+            (["legacy.rar", "legacy.r00", "legacy.r01"], 0, "legacy"),
+        ]
+        for names, entry, output_name in cases:
+            with self.subTest(names=names):
+                grouped = backend.split_archive_groups(names, ["/downloads"] * len(names))
+                self.assertTrue(all(grouped))
+                self.assertEqual([index for index, item in enumerate(grouped) if item["entry"]], [entry])
+                self.assertEqual({item["name"] for item in grouped}, {output_name})
+
+    def test_incomplete_split_archive_is_not_grouped(self):
+        grouped = backend.split_archive_groups(
+            ["movie.7z.001", "movie.7z.003", "ordinary.zip"], ["/downloads"] * 3,
+        )
+        self.assertEqual(grouped, [None, None, None])
+        self.assertEqual(backend.archive_kind("movie.part01.rar"), "")
+
+    def test_split_archive_waits_for_every_part_then_extracts_once(self):
+        with tempfile.TemporaryDirectory() as target_value:
+            target = Path(target_value)
+            first = backend.Job(
+                "111111111111", "movie.7z.001", "https://example/1", 3, 3, "verifying", "now",
+                target=target_value, sha256="a" * 64, multipart_group="111111111111",
+                multipart_entry=True, multipart_name="movie",
+            )
+            second = backend.Job(
+                "222222222222", "movie.7z.002", "https://example/2", 3, 3, "verifying", "now",
+                target=target_value, multipart_group="111111111111", multipart_name="movie",
+            )
+            for job in (first, second):
+                workspace = backend.job_workspace(target_value, job.id)
+                workspace.mkdir(parents=True)
+                (workspace / job.name).write_bytes(b"one" if job is first else b"two")
+            controller = backend.Controller.__new__(backend.Controller)
+            controller.lock = backend.threading.RLock()
+            controller.condition = backend.threading.Condition(controller.lock)
+            controller.jobs = {first.id: first, second.id: second}
+            controller.private_downloads = {}
+            controller.processes = {}
+            controller.save = mock.Mock()
+
+            handled = controller._postprocess_multipart(first, backend.job_workspace(target_value, first.id))
+            self.assertTrue(handled)
+            self.assertEqual(first.status, "waiting_processing")
+
+            second.sha256 = "b" * 64
+            def fake_extract(_archive, destination, _password, **_kwargs):
+                (destination / "video.mkv").write_bytes(b"video")
+
+            with mock.patch.object(backend, "_extract_with_seven_zip", side_effect=fake_extract) as extract:
+                handled = controller._postprocess_multipart(second, backend.job_workspace(target_value, second.id))
+
+            self.assertTrue(handled)
+            extract.assert_called_once()
+            self.assertEqual(first.status, "completed")
+            self.assertEqual(second.status, "completed")
+            self.assertEqual(first.output, second.output)
+            self.assertEqual((target / "movie" / "video.mkv").read_bytes(), b"video")
+            self.assertFalse(backend.job_workspace(target_value, first.id).exists())
+            self.assertFalse(backend.job_workspace(target_value, second.id).exists())
+
+    def test_deleting_one_split_volume_removes_the_private_group(self):
+        with tempfile.TemporaryDirectory() as target_value:
+            first = backend.Job(
+                "333333333333", "set.7z.001", "https://example/1", 1, 1, "paused", "now",
+                target=target_value, multipart_group="333333333333", multipart_entry=True, multipart_name="set",
+            )
+            second = backend.Job(
+                "444444444444", "set.7z.002", "https://example/2", 1, 1, "paused", "now",
+                target=target_value, multipart_group="333333333333", multipart_name="set",
+            )
+            for job in (first, second):
+                workspace = backend.job_workspace(target_value, job.id)
+                workspace.mkdir(parents=True)
+                (workspace / job.name).write_bytes(b"x")
+            controller = backend.Controller.__new__(backend.Controller)
+            controller.lock = backend.threading.RLock()
+            controller.jobs = {first.id: first, second.id: second}
+            controller.private_downloads = {}
+            controller.processes = {}
+            controller.running_providers = {}
+            controller.processing_job = None
+            controller.save = mock.Mock()
+
+            deleted = controller.delete([first.id])
+
+            self.assertEqual(deleted, 2)
+            self.assertEqual(controller.jobs, {})
+            self.assertFalse(backend.job_workspace(target_value, first.id).exists())
+            self.assertFalse(backend.job_workspace(target_value, second.id).exists())
+
     def test_password_is_stored_separately_and_removed(self):
         job_id = "0123456789ab"
         backend.save_job_password(job_id, "secret value")
