@@ -4,6 +4,7 @@ const translatedError=async error=>NASDropI18n.error(await currentLanguage(),err
 const storageReady = chrome.storage.local.setAccessLevel({accessLevel: 'TRUSTED_CONTEXTS'});
 const pageTransfers = new Map();
 const SENDNOW_ARM_MS = 60000;
+const XSHARE_REFRESH_ARM_MS = 10 * 60 * 1000;
 const MENU_LINK = "nasdrop-send-link";
 const MENU_PAGE = "nasdrop-send-page";
 const ACTIVE_STATUSES = new Set([
@@ -39,6 +40,22 @@ async function getJobs(force = false) {
         announced.push(job.id);
       }
       await chrome.storage.session.set({passwordJobs:announced});
+      const previousReauth = (await chrome.storage.session.get({reauthJobs:[]})).reauthJobs;
+      const reauthWaiting = result.jobs.filter(job => job.status === 'reauthentication_required');
+      const announcedReauth = [];
+      for (const job of reauthWaiting) {
+        if (!previousReauth.includes(job.id)) {
+          try {
+            const language=await currentLanguage();
+            await chrome.notifications.create(`nasdrop-reauth-${job.id}`, {
+              type:'basic', iconUrl:'icons/nasdrop-256.png', title:NASDropI18n.t(language,'reauthTitle'),
+              message:`${job.name}\n${NASDropI18n.t(language,'reauthMessage')}`,
+            });
+          } catch { continue; }
+        }
+        announcedReauth.push(job.id);
+      }
+      await chrome.storage.session.set({reauthJobs:announcedReauth});
       if (result.jobs.some(job => ACTIVE_STATUSES.has(job.status))) await chrome.alarms.create(JOB_ALARM,{delayInMinutes:1});
       else await chrome.alarms.clear(JOB_ALARM);
       return result;
@@ -122,7 +139,7 @@ async function login({ baseUrl, username, password }) {
   const previous = await settings();
   if (previous.baseUrl !== normalized) await chrome.storage.local.remove(['token', 'username']);
   jobsCache = null;
-  await chrome.storage.session.remove('passwordJobs');
+  await chrome.storage.session.remove(['passwordJobs','reauthJobs','xshareRefresh']);
   await chrome.storage.session.remove('sendNowArm');
   await chrome.storage.local.set({ baseUrl: normalized });
   const result = await api('/api/login', {
@@ -141,7 +158,7 @@ async function logout() {
   await chrome.storage.local.remove(['token', 'username']);
   jobsCache = null;
   await chrome.alarms.clear(JOB_ALARM);
-  await chrome.storage.session.remove('passwordJobs');
+  await chrome.storage.session.remove(['passwordJobs','reauthJobs','xshareRefresh']);
   await chrome.storage.session.remove('sendNowArm');
   await updateBadge([]);
   return { ok: true };
@@ -247,6 +264,29 @@ async function activeSendNowArm() {
   return arm;
 }
 
+async function activeXShareRefresh(source = '') {
+  const refresh = (await chrome.storage.session.get({xshareRefresh:null})).xshareRefresh;
+  if (!refresh || refresh.expiresAt <= Date.now() || !/^[a-f0-9]{12}$/.test(refresh.jobId || '')
+      || !refresh.source || (source && refresh.source !== source)) {
+    if (refresh) await chrome.storage.session.remove('xshareRefresh');
+    return null;
+  }
+  return refresh;
+}
+
+async function refreshXShareJob(refresh, source, resolvedUrl) {
+  if (!refresh || refresh.source !== source || !NASDropProviders.allowedSubmission(source,resolvedUrl)) {
+    throw new Error('Invalid download request.');
+  }
+  await chrome.storage.session.remove('xshareRefresh');
+  const result=await api(`/api/jobs/${refresh.jobId}/browser-handoff`,{
+    method:'POST',body:JSON.stringify({provider:'xshare',resolved_url:resolvedUrl}),
+  });
+  jobsCache=null;
+  await chrome.alarms.create(JOB_ALARM,{delayInMinutes:1});
+  return {count:1,refreshed:true,accepted:result?.accepted !== false};
+}
+
 async function sendNowResult(tabId, result) {
   await chrome.tabs.sendMessage(tabId,{type:'sendNowResult',...result}).catch(() => {});
 }
@@ -305,13 +345,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     else if (message?.type === 'pageReady') {
       operation = pageReadiness(page);
     } else if (message?.type === 'pageSubmit' && NASDropProviders.allowedSubmission(page, message.url)) {
-      const key = `${sender.tab.id}:${message.url}`;
-      if (pageTransfers.has(key)) operation = pageTransfers.get(key);
-      else {
-        operation = submitFromPage(page, message.url, {downloadKey:message.downloadKey}).then(result => ({count: result.count}));
-        pageTransfers.set(key, operation);
-        operation.finally(() => pageTransfers.delete(key)).catch(() => {});
-      }
+      operation=(async()=>{
+        const source=NASDropProviders.share(page);
+        const refresh=NASDropProviders.provider(source)==='xshare' ? await activeXShareRefresh(source) : null;
+        const key=refresh ? `${sender.tab.id}:xshare-refresh:${refresh.jobId}` : `${sender.tab.id}:${message.url}`;
+        if(pageTransfers.has(key))return pageTransfers.get(key);
+        const transfer=(async()=>{
+          try {
+            if(refresh)return await refreshXShareJob(refresh,source,message.url);
+            const result=await submitFromPage(page,message.url,{downloadKey:message.downloadKey});
+            return {count:result.count};
+          } finally {pageTransfers.delete(key);}
+        })();
+        pageTransfers.set(key,transfer);
+        return transfer;
+      })();
     } else return false;
     operation.then(result => sendResponse({ok:true, result})).catch(async error => sendResponse({ok:false, error:await translatedError(error), code:error.code}));
     return true;
@@ -330,6 +378,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     jobPause: () => controlJob(message, 'pause'),
     jobResume: () => controlJob(message, 'resume'),
     jobDelete: () => controlJob(message, 'delete'),
+    jobHandoffOpen: () => openXShareRefresh(message),
     jobProcessing: () => updateJob(message, 'processing'),
     login: () => login(message),
     logout,
@@ -361,6 +410,20 @@ async function controlJob(message, action) {
   jobsCache=null;
   await chrome.alarms.create(JOB_ALARM,{delayInMinutes:1});
   return result;
+}
+
+async function openXShareRefresh(message) {
+  if(!/^[a-f0-9]{12}$/.test(message.id||''))throw new Error('Invalid job ID.');
+  const [status,result]=await Promise.all([api('/api/status'),getJobs(true)]);
+  const supported=Array.isArray(status.browser_handoff_refresh_providers)
+    && status.browser_handoff_refresh_providers.includes('xshare');
+  if(!supported)throw Object.assign(new Error('This NASDrop server does not support refreshing X-Share jobs yet.'),{code:'serverUnsupported'});
+  const job=result.jobs.find(item=>item.id===message.id);
+  const source=job ? NASDropProviders.share(job.url) : '';
+  if(!job||job.status!=='reauthentication_required'||NASDropProviders.provider(source)!=='xshare')throw new Error('This job no longer needs X-Share verification.');
+  await chrome.storage.session.set({xshareRefresh:{jobId:job.id,source,expiresAt:Date.now()+XSHARE_REFRESH_ARM_MS}});
+  await chrome.tabs.create({url:source});
+  return {opened:true};
 }
 
 async function updateJob(message, action) {

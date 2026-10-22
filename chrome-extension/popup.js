@@ -19,11 +19,15 @@ Object.assign(messages.en,{pauseJob:'Pause',resumeJob:'Resume',deleteJob:'Delete
 Object.assign(messages.ko,{pauseJob:'멈추기',resumeJob:'다시 시작',deleteJob:'삭제',deleteRecord:'기록 삭제',deleteHint:'미완료 작업은 멈춘 뒤 삭제하면 받던 임시 파일도 삭제됩니다. 완료 파일은 유지됩니다.',stoppingHint:'중지 중… 작업이 완전히 멈추면 삭제할 수 있습니다.',deletePartialConfirm:'이 미완료 작업과 받던 임시 파일을 삭제할까요? 되돌릴 수 없습니다. 이미 완료된 출력 파일은 유지됩니다.',deleteRecordConfirm:'완료된 작업의 기록을 삭제할까요? NAS에 저장된 파일은 유지됩니다.',jobActionDone:'요청을 접수했습니다.',jobDeleted:'작업을 삭제했습니다.'});
 Object.assign(messages.ja,{pauseJob:'停止',resumeJob:'再開',deleteJob:'削除',deleteRecord:'履歴削除',deleteHint:'停止後に削除すると一時ファイルも削除されます。完了ファイルは保持されます。',stoppingHint:'停止処理中です。終了後に削除できます。',deletePartialConfirm:'未完了のジョブと一時ファイルを削除しますか？元に戻せません。完了ファイルは保持されます。',deleteRecordConfirm:'履歴を削除しますか？NASのファイルは保持されます。',jobActionDone:'リクエストを受け付けました。',jobDeleted:'ジョブを削除しました。'});
 Object.assign(messages.zh,{pauseJob:'暂停',resumeJob:'继续',deleteJob:'删除',deleteRecord:'删除记录',deleteHint:'暂停后删除会清除临时文件。已完成的文件将保留。',stoppingHint:'正在停止，结束后可以删除。',deletePartialConfirm:'删除此未完成任务及临时文件？无法撤销，已完成文件将保留。',deleteRecordConfirm:'删除记录？NAS 文件将保留。',jobActionDone:'请求已接受。',jobDeleted:'任务已删除。'});
+Object.assign(messages.en,{xshareReauthHint:'The X-Share link expired after NASDrop retried it. Open X-Share, complete its security check, then press the official Download button.',xshareReauthOpen:'Continue on X-Share',xshareReauthUnsupported:'Update the NASDrop server before refreshing this X-Share job.',xshareReauthOpened:'X-Share opened. Complete verification and press its official Download button.'});
+Object.assign(messages.ko,{xshareReauthHint:'NASDrop이 재시도한 뒤에도 X-Share 링크가 만료되었습니다. X-Share를 열어 보안 검증을 마친 후 공식 다운로드 버튼을 누르세요.',xshareReauthOpen:'X-Share에서 재인증',xshareReauthUnsupported:'이 X-Share 작업을 갱신하려면 NASDrop 서버를 업데이트하세요.',xshareReauthOpened:'X-Share를 열었습니다. 보안 검증을 마친 후 공식 다운로드 버튼을 누르세요.'});
+Object.assign(messages.ja,{xshareReauthHint:'NASDropで再試行してもX-Shareリンクの期限が切れました。X-Shareを開いてセキュリティ確認を完了し、公式のダウンロードボタンを押してください。',xshareReauthOpen:'X-Shareで再認証',xshareReauthUnsupported:'このX-Shareジョブを更新するにはNASDropサーバーを更新してください。',xshareReauthOpened:'X-Shareを開きました。認証後、公式のダウンロードボタンを押してください。'});
+Object.assign(messages.zh,{xshareReauthHint:'NASDrop 重试后 X-Share 链接仍已过期。请打开 X-Share，完成安全验证，然后点击官方的下载按钮。',xshareReauthOpen:'在 X-Share 上重新验证',xshareReauthUnsupported:'请先更新 NASDrop 服务，再刷新此 X-Share 任务。',xshareReauthOpened:'已打开 X-Share。完成验证后，请点击官方的下载按钮。'});
 let uiState = {connected:false,jobs:[]}, selectedJob = '', optionsDirty = false, mutationBusy = false, loginBusy = false;
 const jobCards=new Map(), jobDetail=$('#job-detail');
 const pausableStates=new Set(['inspecting','queued','ready','downloading','waiting_processing','verifying']);
 const resumableStates=new Set(['paused','failed','cancelled']);
-const deletableStates=new Set(['paused','failed','cancelled','password_required','download_key_required','completed']);
+const deletableStates=new Set(['paused','failed','cancelled','password_required','download_key_required','reauthentication_required','completed']);
 const editableStates = new Set(['queued','ready','inspecting','paused','downloading','password_required']);
 const popupPort = chrome.runtime.connect({name:'nasdrop-popup'});
 const polling = NASDropPolling.create({
@@ -110,7 +114,7 @@ function renderJobs(jobs) {
       card={item,summary,name,status,fill,meta,controls,buttons}; jobCards.set(job.id,card);
     }
     const expanded=selectedJob===job.id;
-    card.item.className='job'+(expanded?' selected':'')+(job.status==='password_required'?' password-required':'');
+    card.item.className='job'+(expanded?' selected':'')+(job.status==='password_required'?' password-required':'')+(job.status==='reauthentication_required'?' reauthentication-required':'');
     card.summary.setAttribute('aria-expanded',String(expanded));
     card.name.textContent=job.name;
     card.status.textContent=NASDropI18n.t(language,job.status==='failed'?'failedStatus':job.status)+' · '+percent(job)+'%';
@@ -143,8 +147,15 @@ function syncJobDetail() {
   $('#job-delete-hint').textContent=t(job.status==='stopping'?'stoppingHint':'deleteHint');
   const modern=Boolean(uiState.status?.job_processing_options), editable=editableStates.has(job.status);
   const downloadKeyRequired=job.status==='download_key_required';
-  $('#job-options-form').classList.toggle('hidden',downloadKeyRequired);
+  const reauthRequired=job.status==='reauthentication_required';
+  const reauthProviders=uiState.status?.browser_handoff_refresh_providers;
+  const reauthSupported=Array.isArray(reauthProviders) && reauthProviders.includes('xshare');
+  $('#job-options-form').classList.toggle('hidden',downloadKeyRequired||reauthRequired);
   $('#job-download-key-form').classList.toggle('hidden',!downloadKeyRequired);
+  $('#job-handoff-refresh').classList.toggle('hidden',!reauthRequired);
+  $('#job-handoff-refresh-hint').textContent=t(reauthSupported?'xshareReauthHint':'xshareReauthUnsupported');
+  $('#open-xshare-refresh').textContent=t('xshareReauthOpen');
+  $('#open-xshare-refresh').disabled=mutationBusy||!reauthSupported;
   $('#job-download-key').disabled=mutationBusy || !downloadKeyRequired || uiState.status?.gigafile_download_key !== true;
   $('#save-job-download-key').disabled=$('#job-download-key').disabled;
   $('#job-password').disabled=mutationBusy || !job.extract || !(modern && editable || job.status==='password_required');
@@ -284,6 +295,13 @@ $('#job-download-key-form').addEventListener('submit',async event=>{
     notice(t('jobActionDone'),true);
   } catch(error) { notice(error.message); }
   finally {mutationBusy=false; await polling.start(); syncJobDetail();}
+});
+$('#open-xshare-refresh').addEventListener('click',async()=>{
+  if(mutationBusy||$('#open-xshare-refresh').disabled||!selectedJob)return;
+  mutationBusy=true;polling.stop();syncJobDetail();renderJobs(uiState.jobs);
+  try{await send({type:'jobHandoffOpen',id:selectedJob});notice(t('xshareReauthOpened'),true);}
+  catch(error){notice(error.message);}
+  finally{mutationBusy=false;renderJobs(uiState.jobs);syncJobDetail();await polling.start();}
 });
 document.addEventListener('visibilitychange',()=>polling.visibilityChanged());
 window.addEventListener('pagehide',()=>{polling.stop(); popupPort.disconnect(); $('#job-password').value=''; $('#archive-password').value=''; $('#gigafile-download-key').value=''; $('#job-download-key').value='';});

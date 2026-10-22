@@ -232,24 +232,24 @@ test('server rejection stays visible and does not fall through to a browser down
   assert.equal(h.requests.length, 1);
 });
 
-function workerHarness({refreshFails = false, capabilities = [], asyncEnqueueProviders = [], gigafileDownloadKey = false, jobs = [], autoExtract = true, count = 1, inspectFailures = 0} = {}) {
+function workerHarness({refreshFails = false, capabilities = [], refreshProviders = [], asyncEnqueueProviders = [], gigafileDownloadKey = false, jobs = [], autoExtract = true, count = 1, inspectFailures = 0} = {}) {
   let listener, downloadCreated;
   const calls = [];
-  const session = {}, notices = [], alarms = [], cancelled = [], erased = [], tabMessages = [];
+  const session = {}, notices = [], alarms = [], cancelled = [], erased = [], tabMessages = [], openedTabs=[];
   const saved = {baseUrl:'https://nas.example', token:'private-session', autoExtract};
   const c = vm.createContext({URL, AbortSignal, importScripts(){},
     chrome:{runtime:{id:'extension-id', getURL:p => `chrome-extension://extension-id/${p}`, onConnect:{addListener(){}}, onInstalled:{addListener(){}}, onMessage:{addListener(fn){listener=fn;}}},
       alarms:{create:async(...args)=>alarms.push(args),clear:async()=>{},onAlarm:{addListener(){}}},
       notifications:{create:async(...args)=>notices.push(args)},i18n:{getUILanguage:()=> 'en'},
       downloads:{onCreated:{addListener(fn){downloadCreated=fn;}},cancel:async id=>cancelled.push(id),erase:async query=>erased.push(query)},
-      tabs:{sendMessage:async(id,message)=>tabMessages.push({id,message})},
-      storage:{session:{get:async defaults=>({...defaults,...session}),set:async values=>Object.assign(session,values),remove:async key=>delete session[key]},local:{setAccessLevel:async()=>{}, get:async defaults=>({...defaults,...saved}), set:async values=>Object.assign(saved,values), remove:async keys=>{for (const key of Array.isArray(keys)?keys:[keys])delete saved[key];}}},
+      tabs:{sendMessage:async(id,message)=>tabMessages.push({id,message}),create:async options=>openedTabs.push(options)},
+      storage:{session:{get:async defaults=>({...defaults,...session}),set:async values=>Object.assign(session,values),remove:async keys=>{for(const key of Array.isArray(keys)?keys:[keys])delete session[key];}},local:{setAccessLevel:async()=>{}, get:async defaults=>({...defaults,...saved}), set:async values=>Object.assign(saved,values), remove:async keys=>{for (const key of Array.isArray(keys)?keys:[keys])delete saved[key];}}},
       action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}}, contextMenus:{removeAll:fn=>fn(),create(){},onClicked:{addListener(){}}}},
     fetch:async (url, options) => {
       calls.push({url, options});
       if (url.endsWith('/api/inspect') && inspectFailures-- > 0) return {ok:false,status:400,json:async()=>({error:'Synthetic inspection rejected'})};
       if (url.endsWith('/api/jobs') && refreshFails) throw new Error('offline');
-      const payload = url.endsWith('/api/login') ? {token:'private-session'} : url.endsWith('/api/status') ? {browser_handoff_providers:capabilities,async_enqueue_providers:asyncEnqueueProviders,gigafile_download_key:gigafileDownloadKey} : url.endsWith('/api/inspect') ? {file:{url:signed, name:'synthetic.txt', size:100, inspection_id:'id'}} : url.endsWith('/api/start') ? {count, job:{id:'job'}} : url.endsWith('/api/enqueue') ? {count,job:{id:'job',name:'giga.bin'}} : {jobs};
+      const payload = url.endsWith('/api/login') ? {token:'private-session'} : url.endsWith('/api/status') ? {browser_handoff_providers:capabilities,browser_handoff_refresh_providers:refreshProviders,async_enqueue_providers:asyncEnqueueProviders,gigafile_download_key:gigafileDownloadKey} : url.endsWith('/api/inspect') ? {file:{url:signed, name:'synthetic.txt', size:100, inspection_id:'id'}} : url.endsWith('/api/start') ? {count, job:{id:'job'}} : url.endsWith('/api/enqueue') ? {count,job:{id:'job',name:'giga.bin'}} : url.includes('/browser-handoff') ? {accepted:true} : {jobs};
       return {ok:true,json:async()=>payload};
     },
   });
@@ -258,12 +258,12 @@ function workerHarness({refreshFails = false, capabilities = [], asyncEnqueuePro
   const dispatch = (message, from = sender) => new Promise(resolve => {
     if (!listener(message, from, resolve)) resolve(null);
   });
-  return {dispatch,calls,sender,notices,alarms,saved,cancelled,erased,tabMessages,createDownload:item=>downloadCreated(item)};
+  return {dispatch,calls,sender,notices,alarms,saved,session,cancelled,erased,tabMessages,openedTabs,createDownload:item=>downloadCreated(item)};
 }
 
 test('provider messages cannot read tokens or call login/settings APIs', async () => {
   const h = workerHarness();
-  for (const type of ['getState','getJobs','clearCompleted','jobPassword','jobProcessing','jobPause','jobResume','jobDelete','login','logout','submit','savePreferences']) assert.equal(await h.dispatch({type,url:signed}),null);
+  for (const type of ['getState','getJobs','clearCompleted','jobPassword','jobProcessing','jobPause','jobResume','jobDelete','jobHandoffOpen','login','logout','submit','savePreferences']) assert.equal(await h.dispatch({type,url:signed}),null);
   const ready = await h.dispatch({type:'pageReady'});
   assert.equal(JSON.stringify(ready), '{"ok":true,"result":{"ready":true,"language":"en"}}');
   assert.equal(await h.dispatch({type:'pageSubmit',url:'https://evil.example'}),null);
@@ -283,6 +283,10 @@ test('four-language page notices and background password alerts use saved choice
     assert.equal((await worker.dispatch({type:'pageReady'})).result.language,language);
     await worker.dispatch({type:'getJobs'},popup);
     assert.equal(worker.notices[0][1].title,c.NASDropI18n.t(language,'passwordTitle'));
+    const reauth=workerHarness({jobs:[{id:'abcdef012345',name:'test.zip',url:xsharePage,status:'reauthentication_required'}]});
+    assert.equal((await reauth.dispatch({type:'savePreferences',language},popup)).ok,true);
+    await reauth.dispatch({type:'getJobs'},popup);
+    assert.equal(reauth.notices[0][1].title,c.NASDropI18n.t(language,'reauthTitle'));
   }
   const h=contentHarness({browserLanguage:'unknown'});h.click();await flush();
   assert.ok(h.nodes.some(n=>n.textContent==='Added to NASDrop.'));
@@ -565,6 +569,29 @@ test('X-Share worker gates arming and forwards the agreed inspect payload',async
   const body=JSON.parse(h.calls.find(call=>call.url.endsWith('/api/inspect')).options.body);
   assert.deepEqual(body,{url:xsharePage,resolved_url:xshareUrl,provider:'xshare'});
   assert.equal(JSON.stringify(h.saved).includes('synthetic+opaque/key='),false);
+});
+
+test('X-Share refresh targets one waiting job and never persists or echoes the new key',async()=>{
+  const popup={id:'extension-id',url:'chrome-extension://extension-id/popup.html'};
+  const job={id:'abcdef012345',name:'example.bin',status:'reauthentication_required',url:xsharePage};
+  const unsupported=workerHarness({capabilities:['xshare'],jobs:[job]});
+  assert.equal((await unsupported.dispatch({type:'jobHandoffOpen',id:job.id},popup)).ok,false);
+  assert.equal(unsupported.openedTabs.length,0);
+
+  const h=workerHarness({capabilities:['xshare'],refreshProviders:['xshare'],jobs:[job]});
+  assert.equal((await h.dispatch({type:'jobHandoffOpen',id:job.id},popup)).ok,true);
+  assert.equal(JSON.stringify(h.openedTabs),JSON.stringify([{url:xsharePage}]));
+  assert.deepEqual({jobId:h.session.xshareRefresh.jobId,source:h.session.xshareRefresh.source},{jobId:job.id,source:xsharePage});
+  const sender={id:'extension-id',url:xsharePage,tab:{id:7},frameId:0};
+  assert.equal((await h.dispatch({type:'pageArmXShare',source:xsharePage},sender)).ok,true);
+  const refreshed=await h.dispatch({type:'pageSubmit',url:xshareUrl},sender);
+  assert.equal(refreshed.ok,true);assert.equal(refreshed.result.refreshed,true);
+  const call=h.calls.find(item=>item.url.endsWith(`/api/jobs/${job.id}/browser-handoff`));
+  assert.deepEqual(JSON.parse(call.options.body),{provider:'xshare',resolved_url:xshareUrl});
+  assert.equal(h.calls.some(item=>item.url.endsWith('/api/inspect')),false);
+  assert.equal('xshareRefresh' in h.session,false);
+  assert.equal(JSON.stringify(h.session).includes('synthetic+opaque'),false);
+  assert.equal(JSON.stringify(refreshed).includes('synthetic+opaque'),false);
 });
 
 test('protected and unprotected GigaFile jobs use enqueue; keys are capability-gated and separate',async()=>{
