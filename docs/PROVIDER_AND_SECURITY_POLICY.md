@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
-Last updated: 2026-10-18
-Applies to: NASDrop Server 0.9.29-1 candidate
+Last updated: 2026-10-23
+Applies to: NASDrop Server 0.9.29-2 and the next X-Share reauthentication candidate
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -31,7 +31,7 @@ Provider websites are external systems and may change without notice. “Support
 | AkiraBox | Official `https://akirabox.to/<id>/file` share plus the prepared signed file URL | Chrome browser handoff only | Forced single connection; browser identity headers; bounded transient resume retries | Complete the page wait yourself, prepare a fresh official Download button, then submit again |
 | VikingFile | Official share plus its prepared file URL | Chrome browser handoff only | Forced single connection; strict redirect/account allowlist and Range validation | Use a fresh official button/link; do not broaden the host allowlist to make one sample pass |
 | Send.now | Official share plus the final browser-created download URL | Chrome user-assisted handoff only | Forced single connection; DNS validation and IP pinning | Complete verification and Continue yourself, then click the final `Download [size]` button again |
-| X-Share (candidate) | Official `https://x-share.net/s/<id>` plus its same-file `/api/download/<id>?key=...` URL | Chrome 0.5.8 user-assisted handoff; matching `xshare` capability required | One full GET; no keyed preflight, ranges, replay, or automatic retries; DNS/IP pinning | Complete verification yourself and use a fresh official Download click; real NAS transfer is pending |
+| X-Share | Official `https://x-share.net/s/<id>` plus its same-file `/api/download/<id>?key=...` URL | Chrome user-assisted handoff; matching `xshare` capability required | One full GET per attempt; no keyed preflight or ranges; initial request plus three bounded retries after 10/20/30 seconds; DNS/IP pinning | After retry exhaustion, use the extension's reauthentication action and complete the official verification/download click again; the same job is resumed with the fresh private URL |
 
 ## 1fichier
 
@@ -176,15 +176,17 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 - CAPTCHA automation, challenge bypass, copied browser cookies, and unrestricted remote-browser control are outside the supported design.
 - A new provider must define its canonical share form, official user action, final host/redirect rules, expiration evidence, size/name/range validation, concurrency policy, safe error behavior, and live test gate before capability advertisement.
 
-## X-Share candidate
+## X-Share
 
 - The official page enables `button#dl-btn` only after Turnstile and the site's wait have completed. A real user click asks `/api/download-token` for an opaque key and triggers a hidden download anchor at `/api/download/<same-id>?key=<key>`.
 - The Chrome companion must capture only that same-file anchor after an armed official user click, before the local GET starts. It must leave unsupported, signed-out, unarmed, advertisement, and unrelated downloads untouched. CAPTCHA, advertisements, browser cookies, and challenge tokens are not handed to the NAS.
-- The authenticated server contract is the existing inspect/start flow with `provider: "xshare"`, a canonical share `url`, and a private `resolved_url`. Clients require `xshare` in `/api/status.browser_handoff_providers`; older clients/servers keep their normal fallback.
+- Initial registration uses the authenticated inspect/start flow with `provider: "xshare"`, a canonical share `url`, and a private `resolved_url`. Clients require `xshare` in `/api/status.browser_handoff_providers`; older clients/servers keep their normal fallback.
 - Inspection requests only the fixed public `/api/file/<id>` metadata endpoint. It does not HEAD or Range-probe the keyed URL, because a one-use key could be consumed before the actual transfer. Only the matching ID, filename, positive bounded size, and expiry are retained; unrelated metadata such as `archivePassword` is ignored.
-- The first candidate sends one full GET to the exact HTTPS/default-port `x-share.net/api/download/<same-id>` endpoint, without browser cookies, Referer, Range, or automatic retries. Ambient proxies are disabled and a freshly validated public IP is pinned. Redirects are disabled; unrelated CDN hosts are not guessed or made generic.
-- Final HTTP status, non-error file response, byte size, response filename, SHA-256 calculation, and normal archive checks are required before publication. The issued key stays in restricted secret state and is removed after an attempted transfer. A pause/interruption needs a fresh official browser click and a new registration, not replay of the old key.
-- The public sample metadata and official page code were observed on 2026-09-26. The key's reuse/IP-binding behavior and the real browser-to-NAS GET have **not** been verified. This is an installation-test candidate, not confirmed production support. Any observed official redirect or resume behavior needs separate evidence and tests before changing these rules.
+- NASDrop sends a full GET to the exact HTTPS/default-port `x-share.net/api/download/<same-id>` endpoint without browser cookies, Referer, or Range. Ambient proxies are disabled and a freshly validated public IP is pinned. Redirects are disabled; unrelated CDN hosts are not guessed or made generic. If the full response fails, NASDrop discards that attempt and retries the same issued URL at most three times after 10, 20, and 30 seconds. It never appends an unverified partial response.
+- Final HTTP status, non-error file response, byte size, response filename, SHA-256 calculation, and normal archive checks are required before publication. The issued key stays in restricted secret state and is removed when the bounded transfer cycle ends.
+- After retry exhaustion, the job becomes `reauthentication_required` with the fixed `error_code` of the same name. `/api/status.browser_handoff_refresh_providers` advertises `xshare` only to clients that can refresh the same job. `POST /api/jobs/<id>/browser-handoff` accepts `provider: "xshare"` and a fresh private `resolved_url` only while that exact job is waiting, validates the same share ID and file size again, replaces only the restricted secret, and returns HTTP 202 without echoing it. The job ID, destination, extraction options, and workspace are preserved.
+- Chrome stores only a short-lived job ID and canonical share while the user completes X-Share verification. The keyed URL is validated and sent once, then discarded from extension session state. Older clients without the refresh capability may still create a new job through the original inspect/start flow.
+- The public sample metadata and official page code were observed on 2026-09-26. A real X-Share NAS transfer completed after the 0.9.27-7 user-agent fix. The user later observed that an issued link becomes unusable after enough time, motivating the bounded retry and explicit same-job reauthentication flow. Any observed redirect or range behavior still needs separate evidence and tests before changing these rules.
 
 ## Security policy introduced in 0.9.26
 

@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -76,7 +77,7 @@ class XShareTests(unittest.TestCase):
             self.assertNotIn("must-not-be-copied", str(result))
             response.read.assert_called_once_with(128 * 1024 + 1)
 
-    def test_keyed_transfer_is_one_body_request_without_preflight_or_referer(self):
+    def test_keyed_transfer_retries_three_times_without_preflight_or_referer(self):
         c = backend.Controller.__new__(backend.Controller)
         with mock.patch.object(backend.socket, "getaddrinfo", return_value=PUBLIC_DNS):
             script = c._download_script_xshare(DIRECT, "123456abcdef", 100, "/tmp/fixture", "x-share.net", "93.184.216.34")
@@ -91,6 +92,30 @@ class XShareTests(unittest.TestCase):
         self.assertIn('header = "Accept-Encoding: identity"', script)
         self.assertIn('--max-redirs 0', script)
         self.assertIn('[ "$actual" -eq 100 ]', script)
+        self.assertIn('while [ "$attempt" -le 3 ]', script)
+        self.assertIn('1) sleep 10', script)
+        self.assertIn('2) sleep 20', script)
+        self.assertIn('3) sleep 30', script)
+
+    def test_keyed_transfer_real_shell_stops_after_three_retries(self):
+        c = backend.Controller.__new__(backend.Controller)
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(
+            backend, "_resolve_public_addresses", return_value=["93.184.216.34"]
+        ):
+            script = c._download_script_xshare(
+                DIRECT, "123456abcdef", 100, temp, "x-share.net", "93.184.216.34"
+            )
+            calls = (Path(temp) / "calls").as_posix()
+            delays = (Path(temp) / "delays").as_posix()
+            fake = f'''curl() {{ printf x >> {calls!r}; return 22; }}
+sleep() {{ printf '%s\\n' "$1" >> {delays!r}; }}
+'''
+            script = script.replace("set -eu\n", "set -eu\n" + fake, 1)
+            result = subprocess.run(["sh", "-s"], input=script, text=True, capture_output=True, timeout=20)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual((Path(temp) / "calls").read_text(), "xxxx")
+            self.assertEqual((Path(temp) / "delays").read_text().splitlines(), ["10", "20", "30"])
+            self.assertIn("attempt=3", result.stderr)
 
     def test_redirects_remain_first_party_and_secret_free(self):
         opener = mock.Mock()
@@ -189,6 +214,66 @@ class XShareTests(unittest.TestCase):
             backend.save_job_download_url("123456abcdef", "")
             self.assertEqual(backend.load_job_download_url("123456abcdef"), "")
             self.assertEqual(backend.load_job_password("123456abcdef"), "synthetic-archive-password")
+
+    def test_reauthentication_replaces_only_private_url_and_requeues_same_job(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(backend, "SECRET_DIR", Path(temp) / "secrets"):
+            c = backend.Controller.__new__(backend.Controller)
+            c.lock = threading.RLock()
+            c.condition = threading.Condition(c.lock)
+            c.running_providers = {}
+            c.private_downloads = {}
+            c.save = mock.Mock()
+            job = backend.Job(
+                "123456abcdef", "old.zip", SHARE, 100, 0, "reauthentication_required", "now",
+                target=temp, error="retry exhausted", error_code="reauthentication_required",
+            )
+            c.jobs = {job.id: job}
+            refreshed = {"name": "새 이름.zip", "size": 100, "download_url": DIRECT}
+            with mock.patch.object(backend, "inspect_browser_handoff", return_value=refreshed) as inspect:
+                c.submit_browser_handoff_refresh(job.id, "xshare", DIRECT)
+            inspect.assert_called_once_with(SHARE, DIRECT, "xshare")
+            self.assertEqual(job.id, "123456abcdef")
+            self.assertEqual(job.status, "queued")
+            self.assertEqual(job.error_code, "")
+            self.assertEqual(job.name, "새 이름.zip")
+            self.assertEqual(backend.load_job_download_url(job.id), DIRECT)
+            self.assertNotIn("synthetic-private-key", str(backend.asdict(job)))
+            c.save.assert_called_once()
+
+    def test_public_job_preserves_reauthentication_error_code_without_secret(self):
+        c = backend.Controller.__new__(backend.Controller)
+        c.lock = threading.RLock()
+        c.running_providers = {}
+        c.private_downloads = {}
+        job = backend.Job(
+            "123456abcdef", "old.zip", SHARE, 100, 0, "reauthentication_required", "now",
+            error="fixed public guidance", error_code="reauthentication_required",
+        )
+        c.jobs = {job.id: job}
+        [public] = c.public_jobs()
+        self.assertEqual(public["status"], "reauthentication_required")
+        self.assertEqual(public["error_code"], "reauthentication_required")
+        self.assertNotIn("key=", str(public))
+
+    def test_reauthentication_rejects_wrong_state_provider_or_size(self):
+        with tempfile.TemporaryDirectory() as temp, mock.patch.object(backend, "SECRET_DIR", Path(temp) / "secrets"):
+            c = backend.Controller.__new__(backend.Controller)
+            c.lock = threading.RLock()
+            c.condition = threading.Condition(c.lock)
+            c.running_providers = {}
+            c.private_downloads = {}
+            c.save = mock.Mock()
+            job = backend.Job("123456abcdef", "old.zip", SHARE, 100, 0, "failed", "now", target=temp)
+            c.jobs = {job.id: job}
+            with self.assertRaises(ValueError):
+                c.submit_browser_handoff_refresh(job.id, "xshare", DIRECT)
+            job.status = "reauthentication_required"
+            with self.assertRaises(ValueError):
+                c.submit_browser_handoff_refresh(job.id, "vikingfile", DIRECT)
+            with mock.patch.object(
+                backend, "inspect_browser_handoff", return_value={"name": "old.zip", "size": 99, "download_url": DIRECT}
+            ), self.assertRaisesRegex(ValueError, "일치"):
+                c.submit_browser_handoff_refresh(job.id, "xshare", DIRECT)
 
 
 if __name__ == "__main__":

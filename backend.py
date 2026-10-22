@@ -922,6 +922,7 @@ class Job:
     multipart_group: str = ""
     multipart_entry: bool = False
     multipart_name: str = ""
+    error_code: str = ""
 
 
 ARCHIVE_SUFFIXES = (
@@ -1541,7 +1542,10 @@ class Controller:
                         and onefichier_head and job.id != onefichier_head):
                     item["not_before"] = 0
                     item["error"] = "1fichier는 목록 아래 작업이 끝난 뒤 순차적으로 시작합니다."
-                item["error_code"] = public_error_code(item["error"]) if item["error"] else ""
+                explicit_code = str(item.get("error_code", ""))
+                item["error_code"] = explicit_code if explicit_code in {"reauthentication_required"} else (
+                    public_error_code(item["error"]) if item["error"] else ""
+                )
                 jobs.append(item)
             return jobs
 
@@ -1907,7 +1911,13 @@ class Controller:
                         self.running_providers.pop(provider, None)
                 job = self.jobs.get(job_id)
                 if job and job.status == "stopping" and not job.delete_requested:
-                    job.status = "paused"
+                    if provider == "xshare":
+                        job.status = "reauthentication_required"
+                        job.downloaded = 0
+                        job.error_code = "reauthentication_required"
+                        job.error = "X-Share 전송을 중지했습니다. 브라우저에서 보안 검증을 마친 뒤 공식 다운로드 버튼을 다시 눌러 주세요."
+                    else:
+                        job.status = "paused"
                     self.save()
                 self.condition.notify_all()
 
@@ -2421,8 +2431,8 @@ class Controller:
         stderr = process.stderr.read() if process.stderr else ""
         process.wait()
         if provider == "xshare":
-            # A provider-issued key may be one-use. Never replay it after an
-            # attempted transfer, including a user pause or service shutdown.
+            # The keyed URL is never persisted after a transfer cycle. A later
+            # retry must come from a fresh, user-authorized browser handoff.
             save_job_download_url(job_id, "")
         self._recover_fragments(job, workspace, download_mode, file_response=provider == "xshare")
         with self.lock:
@@ -2439,7 +2449,10 @@ class Controller:
                 elif provider == "1fichier":
                     current_job.error = "1fichier 다운로드가 중단됐습니다. 무료 연결은 이어받기를 지원하지 않아 재개 시 처음부터 다시 받습니다."
                 elif provider == "xshare":
-                    current_job.error = "X-Share 다운로드가 중단됐습니다. 브라우저에서 보안 검증을 마친 뒤 새 다운로드 버튼으로 다시 등록해 주세요."
+                    current_job.status = "reauthentication_required"
+                    current_job.downloaded = 0
+                    current_job.error_code = "reauthentication_required"
+                    current_job.error = "X-Share 다운로드를 세 번 다시 시도했지만 완료하지 못했습니다. 브라우저에서 보안 검증을 마친 뒤 공식 다운로드 버튼을 다시 눌러 주세요."
                 elif provider in {"akirabox", "vikingfile", "sendnow"}:
                     current_job.error = handoff_transfer_error(stderr)
                 elif provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
@@ -2721,13 +2734,29 @@ NASDROP_CURL_CONFIG
 cleanup() {{ rm -f "$CURL_CONFIG"; }}
 trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
-# Do not preflight, range, retry or replay an opaque provider-issued key.
-rm -f "$PART" "$PART.more" "$PART.headers"
-curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --dump-header "$PART.headers" -o "$PART.more"
-actual=$(wc -c < "$PART.more" | tr -d ' ')
-[ "$actual" -eq {total} ] || exit 1
-{merger} "$PART" 0 {total - 1} {total} --file-response
-printf 'SEGMENTS_READY=1\n'
+# Do not preflight or range-probe an opaque provider-issued key. Retry the full
+# response only three times, with bounded delays, then require a fresh browser
+# handoff. Every attempt discards its incomplete body and response headers.
+attempt=0
+while [ "$attempt" -le 3 ]; do
+  rm -f "$PART" "$PART.more" "$PART.headers"
+  rc=0
+  curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --dump-header "$PART.headers" -o "$PART.more" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    actual=$(wc -c < "$PART.more" | tr -d ' ')
+    if [ "$actual" -eq {total} ] && {merger} "$PART" 0 {total - 1} {total} --file-response; then
+      printf 'SEGMENTS_READY=1\n'
+      exit 0
+    fi
+    rc=18
+  fi
+  if [ "$attempt" -ge 3 ]; then
+    printf 'NASDROP_TRANSFER curl=%s merge=0 attempt=%s\n' "$rc" "$attempt" >&2
+    exit "$rc"
+  fi
+  attempt=$((attempt + 1))
+  case "$attempt" in 1) sleep 10;; 2) sleep 20;; 3) sleep 30;; esac
+done
 '''
 
 
@@ -2849,6 +2878,58 @@ printf 'SEGMENTS_READY=1\\n'
             job.status = "inspecting" if job.inspection_pending else "queued"
             job.error = ""
             job.not_before = 0
+            self.save()
+            self.condition.notify_all()
+
+    def submit_browser_handoff_refresh(self, job_id: str, provider: object, resolved_url: object) -> None:
+        if provider != "xshare":
+            raise ValueError("지원하지 않는 브라우저 재인증 서비스입니다.")
+        direct = str(resolved_url or "").strip()
+        with self.condition:
+            job = self.jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+            if (
+                job.delete_requested
+                or job.status != "reauthentication_required"
+                or self._provider_for_job(job) != "xshare"
+                or any(job_id in ids for ids in self.running_providers.values())
+            ):
+                raise ValueError("현재 X-Share 재인증이 필요한 작업이 아닙니다.")
+            source = job.source
+            expected_size = job.size
+        inspected = inspect_browser_handoff(source, direct, "xshare")
+        if int(inspected["size"]) != expected_size:
+            raise ValueError("X-Share 파일 정보가 기존 작업과 일치하지 않습니다.")
+        with self.condition:
+            job = self.jobs.get(job_id)
+            if (
+                not job
+                or job.delete_requested
+                or job.status != "reauthentication_required"
+                or self._provider_for_job(job) != "xshare"
+                or job.source != source
+                or job.size != expected_size
+                or any(job_id in ids for ids in self.running_providers.values())
+            ):
+                raise ValueError("현재 X-Share 재인증이 필요한 작업이 아닙니다.")
+            if int(inspected["size"]) != job.size:
+                raise ValueError("X-Share 파일 정보가 기존 작업과 일치하지 않습니다.")
+            job.name = _clean_download_name(str(inspected["name"]))
+            job.downloaded = 0
+            job.status = "queued"
+            job.error = ""
+            job.error_code = ""
+            job.output = ""
+            job.sha256 = ""
+            job.extracted = False
+            job.not_before = 0
+            save_job_download_url(job_id, str(inspected["download_url"]))
+            self.private_downloads[job_id] = {
+                "provider": "xshare",
+                "download_url": str(inspected["download_url"]),
+                "target": job.target or NAS_TARGET,
+            }
             self.save()
             self.condition.notify_all()
 
@@ -4674,6 +4755,7 @@ class Handler(BaseHTTPRequestHandler):
                 "job_processing_options": True,
                 "job_safe_delete": True,
                 "gigafile_download_key": True,
+                "browser_handoff_refresh_providers": ["xshare"],
                 "async_enqueue_providers": ["gigafile", "gofile"],
                 "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow", "xshare"],
                 "disk_protection": DISK_PROTECTION,
@@ -4825,6 +4907,13 @@ class Handler(BaseHTTPRequestHandler):
             if download_key_match:
                 CONTROLLER.submit_download_key(download_key_match.group(1), payload.get("download_key", ""))
                 return self.send_json(HTTPStatus.OK, {"ok": True})
+            handoff_refresh_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/browser-handoff", path)
+            if handoff_refresh_match:
+                job_id = handoff_refresh_match.group(1)
+                CONTROLLER.submit_browser_handoff_refresh(
+                    job_id, payload.get("provider"), payload.get("resolved_url", "")
+                )
+                return self.send_json(HTTPStatus.ACCEPTED, {"accepted": True, "job_id": job_id})
             if path == "/api/jobs/delete":
                 ids = payload.get("ids", [])
                 if not isinstance(ids, list) or not ids or any(not re.fullmatch(r"[a-f0-9]{12}", str(item)) for item in ids):
