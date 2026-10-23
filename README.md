@@ -26,6 +26,8 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 **0.9.29-2:** recognizes split-archive volumes even when each part arrives through a separate supported-service link. NASDrop keeps unmistakably numbered volumes in the private work queue, combines only matching provider/destination/name families, and retries extraction when another volume arrives. If 7-Zip reports that a later volume is still missing, the whole set returns to waiting instead of publishing raw archives or failing. Supported layouts are `.7z.001`, `.zip.001`, `.rar.001`, `.z01` plus `.zip`, `.part01.rar`, and legacy `.rar` plus `.r00`. Synology administrators can also set the DSM icon to open a complete HTTPS reverse-proxy address.
 
+**0.9.30-1 candidate:** retries an interrupted X-Share transfer three times, then preserves the same job in a reauthentication-waiting state. Chrome 0.5.12 or Android 0.8.22 can submit a fresh official same-file URL to that job after the user completes X-Share verification again.
+
 1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot/daily limits, run one connection at a time, and restart from zero after interruption. On 2026-09-28, four sequential NAS transfers completed, including the deferred owner and the following job after the daily limit reset. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
 
 **0.9.27-7:** fixes X-Share transfers rejected by the provider when NASDrop redeemed the one-time URL with curl's default user agent. X-Share requires the separate Chrome 0.5.9 companion and a real user-completed verification/Download click; pasting its share URL alone is not supported.
@@ -376,7 +378,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.29-2-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.30-1-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 

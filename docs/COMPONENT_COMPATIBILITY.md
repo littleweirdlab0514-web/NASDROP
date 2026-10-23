@@ -6,7 +6,7 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.29-2 release | x86_64 SPK built from the canonical server source with split-archive waiting and a configurable DSM launcher URL |
+| Synology package | 0.9.30-1 candidate | x86_64 SPK adds bounded X-Share retry and capability-gated reauthentication of the same waiting job |
 | Docker image | 0.9.29-2 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
 | Android app | 0.8.22 candidate | Retains existing job controls and adds capability-gated X-Share refresh for the same reauthentication-waiting job |
 | Chrome extension | 0.5.12 candidate | Retains 0.5.11 behavior and adds capability-gated X-Share refresh for the same reauthentication-waiting job |
@@ -15,7 +15,7 @@ The version numbers document tested combinations. Runtime feature decisions must
 
 NASDrop Server 0.9.29-2 recognizes split-archive volumes discovered in one multi-file share or through separate supported-service links. Matching is limited to the same provider, destination, and exact numbered filename family. A numbered volume remains private while the set is incomplete; if 7-Zip identifies another missing volume, all members return to waiting and extraction retries when that volume arrives. This is automatic server behavior and does not require an Android or Chrome API change.
 
-The next server candidate adds bounded X-Share recovery. A failed keyed transfer starts from zero and retries three times after 10, 20, and 30 seconds. Exhaustion preserves the existing job as `reauthentication_required`; capability-aware Chrome 0.5.12 and Android 0.8.22 clients use `browser_handoff_refresh_providers: ["xshare"]` and `POST /api/jobs/<id>/browser-handoff` to replace only the private issued URL after a fresh official user click. Older clients keep the original inspect/start fallback.
+NASDrop Server 0.9.30-1 adds bounded X-Share recovery. A failed keyed transfer starts from zero and retries three times after 10, 20, and 30 seconds. Exhaustion preserves the existing job as `reauthentication_required`; capability-aware Chrome 0.5.12 and Android 0.8.22 clients use `browser_handoff_refresh_providers: ["xshare"]` and `POST /api/jobs/<id>/browser-handoff` to replace only the private issued URL after a fresh official user click. Older clients keep the original inspect/start fallback.
 
 The same Synology candidate adds an optional `NAS_PORTAL_LAUNCHER_PUBLIC_URL` setting for the DSM desktop icon. It affects only the Synology launcher file and does not change the server API used by Android, Chrome, or Docker clients. An empty value keeps the established adaptive hostname and port behavior.
 

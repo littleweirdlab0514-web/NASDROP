@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        NASDROP_VERSION: "0.9.29"
+        NASDROP_VERSION: "0.9.30"
     container_name: nasdrop
     restart: unless-stopped
     init: true

@@ -1,4 +1,13 @@
-# NASDrop 0.9.29 release checklist
+# NASDrop 0.9.30 release checklist
+
+## 0.9.30-1 X-Share reauthentication candidate
+
+- [x] Retry an interrupted X-Share keyed transfer three times with bounded 10, 20, and 30 second delays.
+- [x] Preserve the existing job and enter `reauthentication_required` after retry exhaustion.
+- [x] Accept a fresh same-file keyed URL only for the selected waiting job through the capability-gated browser handoff endpoint.
+- [x] Keep issued URLs, keys, headers, and cookies out of public job data, persistent browser storage, and logs.
+- [x] Coordinate Chrome 0.5.12 and Android 0.8.22 with the additive server capability.
+- [ ] Install the candidate SPK on real DSM hardware and verify X-Share retry and reauthentication.
 
 ## 0.9.29-2 release
 
