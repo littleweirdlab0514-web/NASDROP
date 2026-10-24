@@ -97,6 +97,11 @@
     $("#setting-target").textContent = s.target || t("notSelected");
     $("#setting-write").textContent = s.target ? (s.target_writable ? t("packageWritable") : t("permissionRequired")) : t("notSelected");
     $("#setting-write").className = `badge ${s.target && s.target_writable ? "ok" : "bad"}`;
+    const storageText = s.storage_available
+      ? t("storageRemaining", {free:bytes(Number(s.storage_free_bytes)), total:bytes(Number(s.storage_total_bytes))})
+      : t("storageUnavailable");
+    $("#storage-capacity").textContent = storageText;
+    $("#setting-storage-capacity").textContent = storageText;
     $("#service-user").textContent = s.service_user || t("dedicatedAccount");
     $("#service-url").textContent = location.origin;
     const launcherPort = Number(s.launcher_port || 8791);

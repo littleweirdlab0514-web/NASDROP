@@ -17,6 +17,7 @@ import hashlib
 import html
 import ipaddress
 import json
+import errno
 import logging
 from logging.handlers import RotatingFileHandler
 import mimetypes
@@ -82,6 +83,7 @@ LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING e
 PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.30")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
+STORAGE_RESERVE_BYTES = 512 * 1024**2
 MAX_ARCHIVE_ENTRIES = 100_000
 MAX_EXTRACTED_BYTES = 1024**4
 MAX_PARALLEL_DOWNLOADS = 3
@@ -273,6 +275,7 @@ def public_error_code(message: object) -> str:
         (("현재 비밀번호",), "current_password_invalid"),
         (("DSM 아이콘 연결",), "launcher_expired"),
         (("권한", "쓰기 권한", "볼 권한"), "permission_denied"),
+        (("저장 공간", "남은 용량", "No space left on device"), "insufficient_storage"),
         (("GigaFile 다운로드 키",), "download_key_required"),
         (("암호가 필요", "암호를 입력", "Wrong password", "password"), "password_required"),
         (("Gofile 요청이 몰려", "429", "제한되었"), "rate_limited"),
@@ -694,6 +697,10 @@ class GigaFileDownloadKeyRequiredError(ValueError):
 
 class GigaFileDownloadKeyInvalidError(GigaFileDownloadKeyRequiredError):
     """Raised only after the user supplied a key and GigaFile rejected it."""
+
+
+class InsufficientStorageError(ValueError):
+    """Raised before transfer when the target volume cannot hold the safe minimum."""
 
 
 def _load_gofile_cooldown() -> tuple[float, str]:
@@ -1400,6 +1407,85 @@ def job_workspace(target_dir: str, job_id: str) -> Path:
     return workspace
 
 
+def target_storage_status(target_dir: str) -> dict[str, int | bool]:
+    """Return capacity for the filesystem containing the selected destination."""
+    result: dict[str, int | bool] = {
+        "available": False,
+        "total_bytes": 0,
+        "used_bytes": 0,
+        "free_bytes": 0,
+        "reserve_bytes": STORAGE_RESERVE_BYTES,
+    }
+    if not target_dir:
+        return result
+    try:
+        target = Path(target_dir).resolve()
+        if not target.is_dir():
+            return result
+        usage = shutil.disk_usage(target)
+    except OSError:
+        return result
+    result.update(
+        available=True,
+        total_bytes=int(usage.total),
+        used_bytes=int(usage.used),
+        free_bytes=int(usage.free),
+    )
+    return result
+
+
+def minimum_storage_required(file_size: int, downloaded: int = 0) -> int:
+    """Estimate safe peak bytes for remaining transfer plus final assembly.
+
+    NASDrop keeps verified parts while creating the final assembled artifact, so
+    a new job needs roughly twice its file size. Archive extraction may require
+    additional provider-dependent space that cannot be known in advance.
+    """
+    size = max(0, int(file_size))
+    present = min(size, max(0, int(downloaded)))
+    return max(0, size - present) + size + STORAGE_RESERVE_BYTES
+
+
+def prior_storage_reservation(jobs: list[Job], current_id: str, target_dir: str) -> int:
+    """Reserve peak bytes for older active jobs on the same filesystem."""
+    try:
+        target_device = os.stat(Path(target_dir).resolve()).st_dev
+    except OSError:
+        return 0
+    active = {"inspecting", "ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing"}
+    reserved = 0
+    for candidate in jobs:
+        if candidate.id == current_id:
+            break
+        if candidate.status not in active:
+            continue
+        candidate_target = candidate.target or NAS_TARGET
+        try:
+            same_device = os.stat(Path(candidate_target).resolve()).st_dev == target_device
+        except OSError:
+            continue
+        if same_device:
+            reserved += minimum_storage_required(candidate.size, candidate.downloaded)
+    return reserved
+
+
+def ensure_storage_capacity(
+    target_dir: str,
+    file_size: int,
+    downloaded: int = 0,
+    reserved_bytes: int = 0,
+) -> dict[str, int | bool]:
+    storage = target_storage_status(target_dir)
+    if not storage["available"]:
+        return storage
+    required = minimum_storage_required(file_size, downloaded) + max(0, int(reserved_bytes))
+    if int(storage["free_bytes"]) < required:
+        raise InsufficientStorageError(
+            "NAS 저장 공간이 부족합니다. 남은 용량을 확보한 뒤 작업을 다시 시작해 주세요."
+        )
+    return storage
+
+
 def migrate_legacy_workspace(target_dir: str, name: str, job_id: str, workspace: Path) -> int:
     target = Path(target_dir).resolve()
     prefix = f".{name}.{job_id}."
@@ -1543,7 +1629,7 @@ class Controller:
                     item["not_before"] = 0
                     item["error"] = "1fichier는 목록 아래 작업이 끝난 뒤 순차적으로 시작합니다."
                 explicit_code = str(item.get("error_code", ""))
-                item["error_code"] = explicit_code if explicit_code in {"reauthentication_required"} else (
+                item["error_code"] = explicit_code if explicit_code in {"reauthentication_required", "insufficient_storage"} else (
                     public_error_code(item["error"]) if item["error"] else ""
                 )
                 jobs.append(item)
@@ -1886,9 +1972,15 @@ class Controller:
                             delete_job_download_key(job_id)
                         job.status = "download_key_required"
                         job.not_before = 0
+                    elif isinstance(exc, InsufficientStorageError) or (
+                        isinstance(exc, OSError) and exc.errno == errno.ENOSPC
+                    ):
+                        job.status = "failed"
+                        job.error_code = "insufficient_storage"
+                        job.error = "NAS 저장 공간이 부족합니다. 남은 용량을 확보한 뒤 작업을 다시 시작해 주세요."
                     else:
                         job.status = "paused" if SHUTDOWN_EVENT.is_set() else "failed"
-                    job.error = (str(exc) or "다운로드 준비 중 오류가 발생했습니다.")[-400:]
+                        job.error = (str(exc) or "다운로드 준비 중 오류가 발생했습니다.")[-400:]
                 self.processes.pop(job_id, None)
                 self.private_downloads.pop(job_id, None)
                 self.save()
@@ -2257,6 +2349,7 @@ class Controller:
             if job.status in {"paused", "cancelled", "stopping"}:
                 return
             job.status = "downloading"
+            job.error_code = ""
             self.save()
         private = self.private_downloads.get(job_id, {})
         private.pop("rate_limited", None)
@@ -2355,6 +2448,16 @@ class Controller:
         self.private_downloads[job_id] = private
         workspace_dir = str(workspace)
         prefix = f"{workspace_dir}/.{job.id}.segment."
+        current_bytes = self._local_size(
+            prefix,
+            job.size,
+            "single" if private.get("download_mode") == "gigafile_zip" else download_mode,
+        )
+        with self.lock:
+            job.downloaded = min(job.size, current_bytes)
+            reserved_bytes = prior_storage_reservation(list(self.jobs.values()), job.id, target_dir)
+            self.save()
+        ensure_storage_capacity(target_dir, job.size, current_bytes, reserved_bytes)
         if provider == "gigafile" and private.get("download_mode") == "gigafile_zip":
             script = self._download_script_gigafile_zip(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
@@ -2453,6 +2556,9 @@ class Controller:
                     current_job.downloaded = 0
                     current_job.error_code = "reauthentication_required"
                     current_job.error = "X-Share 다운로드를 세 번 다시 시도했지만 완료하지 못했습니다. 브라우저에서 보안 검증을 마친 뒤 공식 다운로드 버튼을 다시 눌러 주세요."
+                elif re.search(r"no space left on device|disk full", stderr, re.I):
+                    current_job.error_code = "insufficient_storage"
+                    current_job.error = "NAS 저장 공간이 부족합니다. 남은 용량을 확보한 뒤 작업을 다시 시작해 주세요."
                 elif provider in {"akirabox", "vikingfile", "sendnow"}:
                     current_job.error = handoff_transfer_error(stderr)
                 elif provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
@@ -2841,6 +2947,7 @@ printf 'SEGMENTS_READY=1\\n'
                 raise ValueError("다시 시작할 수 있는 작업이 아닙니다.")
             job.status = "inspecting" if job.inspection_pending else "queued"
             job.error = ""
+            job.error_code = ""
             job.output = ""
             job.extracted = False
             job.not_before = 0
@@ -4738,11 +4845,17 @@ class Handler(BaseHTTPRequestHandler):
                 })
             target = Path(NAS_TARGET) if NAS_TARGET else None
             target_exists = bool(target and target.is_dir())
+            storage = target_storage_status(NAS_TARGET)
             return self.send_json(HTTPStatus.OK, {
                 "version": PACKAGE_VERSION,
                 "target": NAS_TARGET,
                 "target_exists": target_exists,
                 "target_writable": target_exists and os.access(str(target), os.W_OK | os.X_OK),
+                "storage_available": storage["available"],
+                "storage_total_bytes": storage["total_bytes"],
+                "storage_used_bytes": storage["used_bytes"],
+                "storage_free_bytes": storage["free_bytes"],
+                "storage_reserve_bytes": storage["reserve_bytes"],
                 "service_user": os.environ.get("NAS_PORTAL_SERVICE_USER") or os.environ.get("USER", ""),
                 "same_provider_parallel": ALLOW_SAME_PROVIDER_PARALLEL,
                 "same_provider_limit": SAME_PROVIDER_LIMIT,
