@@ -23,6 +23,8 @@ GigaFile download keys use a separate capability and request field. When `/api/s
 
 `GET /api/status` must advertise `browser_handoff_providers`. If absent, the extension displays an unsupported-server notice and does not call inspect/start for these providers. Capability advertisement is not evidence of a completed live-NAS transfer.
 
+X-Share refresh is a separate optional contract. `GET /api/status` must list `xshare` in `browser_handoff_refresh_providers`. After server retries are exhausted, the existing job remains visible with `status` and `error_code` set to `reauthentication_required`; its public `url` remains the canonical `https://x-share.net/s/SHARE_ID` page and never exposes the keyed URL. The popup's explicit refresh action stores only `{jobId, source, expiresAt}` in `chrome.storage.session` and opens that public page. After the user completes verification and clicks the official button, the same strict same-ID URL validator runs before `POST /api/jobs/JOB_ID/browser-handoff` sends `{provider:"xshare",resolved_url:"..."}`. The pending session record is removed before the request, and the response is not allowed to echo the URL. Missing capability leaves the action disabled and older servers remain compatible.
+
 `POST /api/inspect` retains Bearer authentication and accepts:
 
 ```json

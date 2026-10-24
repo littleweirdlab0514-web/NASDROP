@@ -6,14 +6,18 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.29-2 release | x86_64 SPK built from the canonical server source with split-archive waiting and a configurable DSM launcher URL |
+| Synology package | 0.9.30-2 candidate | x86_64 SPK adds destination-volume capacity reporting and transfer preflight while retaining bounded X-Share recovery |
 | Docker image | 0.9.29-2 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
-| Android app | 0.8.16+ | Uses `job_safe_delete`; older servers keep strict stopped-job deletion |
-| Chrome extension | 0.5.11 release | Retains 0.5.10's GoFile FIFO and capability-gated enqueue, with shorter site-button guidance and an optional Buy Me a Coffee banner |
+| Android app | 0.8.23 candidate | Shows server-reported NAS free/total capacity and localized low-space errors while retaining X-Share refresh |
+| Chrome extension | 0.5.12 candidate | Retains 0.5.11 behavior and adds capability-gated X-Share refresh for the same reauthentication-waiting job |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
 NASDrop Server 0.9.29-2 recognizes split-archive volumes discovered in one multi-file share or through separate supported-service links. Matching is limited to the same provider, destination, and exact numbered filename family. A numbered volume remains private while the set is incomplete; if 7-Zip identifies another missing volume, all members return to waiting and extraction retries when that volume arrives. This is automatic server behavior and does not require an Android or Chrome API change.
+
+NASDrop Server 0.9.30-1 adds bounded X-Share recovery. A failed keyed transfer starts from zero and retries three times after 10, 20, and 30 seconds. Exhaustion preserves the existing job as `reauthentication_required`; capability-aware Chrome 0.5.12 and Android 0.8.23 clients use `browser_handoff_refresh_providers: ["xshare"]` and `POST /api/jobs/<id>/browser-handoff` to replace only the private issued URL after a fresh official user click. Older clients keep the original inspect/start fallback.
+
+NASDrop Server 0.9.30-2 reports free and total bytes for the selected destination filesystem. Before a transfer starts, it reserves the remaining transfer bytes, one complete output-file copy, a fixed safety margin, and the same estimate for older active jobs on that filesystem. A failed preflight or operating-system `ENOSPC` condition becomes `insufficient_storage`, so web and Android clients can explain the required user action.
 
 The same Synology candidate adds an optional `NAS_PORTAL_LAUNCHER_PUBLIC_URL` setting for the DSM desktop icon. It affects only the Synology launcher file and does not change the server API used by Android, Chrome, or Docker clients. An empty value keeps the established adaptive hostname and port behavior.
 
@@ -28,6 +32,10 @@ Revision 0.9.27-5 gives the bottom visible 1fichier job exclusive retry ownershi
 Revision 0.9.27-6 classifies 1fichier's form-less daily free-download-limit page as a 24-hour persisted wait. The API remains unchanged. Four real NAS downloads completed: two before the limit, then the deferred 429,020,440-byte owner and the following 12,567,188-byte job after reset. This verifies both automatic retry and sequential ownership transfer.
 
 Revision 0.9.27-7 fixes X-Share's first real transfer failure. From the NAS Docker network, X-Share's public API returned HTTP 403 to curl's default user agent and HTTP 200 when the explicit NASDrop user agent was supplied. The keyed transfer now supplies that same user agent and identity encoding while preserving the one-shot, pinned-address security boundary.
+
+Chrome 0.5.12 recognizes `reauthentication_required` jobs only when `/api/status.browser_handoff_refresh_providers` explicitly includes `xshare`. The user must expand the job and choose the X-Share refresh action, complete the provider's security check, and click the official Download button. The fresh same-file URL is posted to `/api/jobs/{id}/browser-handoff` for that existing job only. The extension stores only the job ID, canonical public share URL and a short expiration in session storage; it never persists or echoes the keyed URL. Older servers keep the action disabled.
+
+Android 0.8.23 recognizes the same state only when both the status and error code are `reauthentication_required` and the capability explicitly lists `xshare`. Its existing isolated WebView reopens the canonical share page for the user's security check and official Download click, then submits the same-file keyed URL once to the existing job ID. The URL and key are not persisted or included in logs or user-facing errors. It also displays the server's destination capacity fields and localizes `insufficient_storage`; older servers simply show capacity as unavailable. Android implementation review is tracked in [NASDROP-ANDROID PR #1](https://github.com/littleweirdlab0514-web/NASDROP-ANDROID/pull/1).
 
 Revision 0.9.27-2 added `xshare` to `browser_handoff_providers`. Chrome 0.5.9 accepts the existing `{provider, url, resolved_url}` contract, validates a same-file first-party keyed endpoint, and obtains metadata without consuming the key. The transfer uses one full GET without resume or automatic replay. Signed-out, unsupported, and older companion installations leave the provider's normal download intact. The user confirmed the real X-Share NAS flow on 2026-09-30.
 
@@ -60,6 +68,8 @@ Current coordinated capabilities include:
 - `job_safe_delete`: permits `POST /api/jobs/delete` with `stop_active: true`; legacy deletion remains strict.
 - `job_processing_options`: permits per-job extraction and password updates.
 - `browser_handoff_providers`: lists the exact browser-assisted providers accepted by the server.
+- `browser_handoff_refresh_providers`: lists providers that may refresh a `reauthentication_required` existing job through `/api/jobs/{id}/browser-handoff`; Chrome 0.5.12 and Android 0.8.23 currently support only `xshare`.
+- `storage_available`, `storage_total_bytes`, `storage_used_bytes`, `storage_free_bytes`, `storage_reserve_bytes`: describe the filesystem holding the selected destination so clients can display its capacity.
 - `gigafile_download_key`: permits a client to submit a GigaFile download key when creating a job and to resume a paused `download_key_required` job through the dedicated key endpoint.
 - `async_enqueue_providers`: lists providers whose canonical share URLs may be persisted immediately through `POST /api/enqueue` before remote inspection. Chrome 0.5.10 and later use this only when the list explicitly contains `gofile`; other clients and older servers retain inspect/start when the provider is absent.
 

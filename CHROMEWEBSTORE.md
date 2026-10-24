@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — NASDrop for Chrome
 
-> Last Updated: 2026-10-18
+> Last Updated: 2026-10-23
 
 ## Store Listing
 
@@ -42,7 +42,7 @@ Access to supported provider pages is used only to recognize their official down
 SUPPORT
 Report sanitized issues at https://github.com/littleweirdlab0514-web/NASDROP/issues or email littleweirdlab0514@gmail.com. Never include passwords, session tokens, private download links or an unredacted NAS address in a public report.
 
-Version 0.5.11 — Retains the GoFile FIFO and capability-gated enqueue, shortens the connected-site guidance and adds an optional Buy Me a Coffee banner.
+Version 0.5.12 — Clearly identifies X-Share jobs that need fresh verification and lets the user reopen X-Share to refresh the same job after completing the site's security check.
 
 Minimum browser: Chrome 111, required by the statically declared MAIN-world X-Share content script.
 
@@ -72,7 +72,7 @@ English
 ### Screenshot Notes
 
 - Use only synthetic filenames and a private test NAS address that has been fully redacted.
-- Show the current 0.5.11 popup, including the sponsor banner, collapsed controls by default and one expanded secret-entry form.
+- Show the current 0.5.12 popup, including the sponsor banner, collapsed controls by default and one expanded X-Share verification action.
 - Capture each image at an accepted exact size; do not scale a mobile screenshot into the store frame.
 - Do not show credentials, session tokens, signed provider URLs, cookies or real private hostnames.
 
@@ -84,8 +84,8 @@ English
 | `activeTab` | permissions | Reads the currently active supported share URL only after the user opens the extension or chooses the current-tab action. |
 | `contextMenus` | permissions | Adds an explicit user-invoked command for sending a supported link to NASDrop. |
 | `downloads` | permissions | After the user clicks Send.now's final `Download [size]` button, observes that tab's resulting Chrome download, cancels it, removes its browser history entry and sends the final HTTPS address to the user's NASDrop server. The one-minute watch is limited to that exact user action and Send.now referrer; unrelated downloads and the earlier verification Continue action are ignored. |
-| `notifications` | permissions | Alerts the user when an archive is waiting for a password and reports download submissions or errors. |
-| `storage` | permissions | Stores the chosen NASDrop address, access token, username, language and extraction preference locally. It also holds only the short-lived pending Send.now handoff in session storage. Passwords, GigaFile download keys and signed handoff URLs, including X-Share keys, are not stored. |
+| `notifications` | permissions | Alerts the user when an archive is waiting for a password, when an X-Share job needs fresh verification, and reports download submissions or errors. |
+| `storage` | permissions | Stores the chosen NASDrop address, access token, username, language and extraction preference locally. Session storage holds the short-lived pending Send.now handoff and, after an explicit refresh action, only the X-Share job ID and canonical public share URL. Passwords, GigaFile download keys and signed handoff URLs, including X-Share keys, are not stored. |
 | `http://*/*` | optional_host_permissions | Allows the user to grant access at sign-in to a self-hosted NASDrop server on a private HTTP address. The extension requests only the entered server origin at runtime. |
 | `https://*/*` | optional_host_permissions | Allows the user to grant access at sign-in to a self-hosted NASDrop server on an arbitrary HTTPS hostname. The extension requests only the entered server origin at runtime. |
 | Listed GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share URL patterns | content script matches | Detects only the supported sites' official download controls and forwards a user-clicked download to the user's NASDrop server. On Send.now and X-Share, it does not interact with CAPTCHA, Turnstile or security-challenge controls. X-Share's MAIN-world script is static package code that suppresses only one armed exact same-file anchor before local transfer; it executes no remote code. |
@@ -149,6 +149,7 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 0.5.12 | 2026-10-23 | Capability-gated X-Share reauthentication for the same waiting job after server retries are exhausted; the one-time key is never stored | Candidate |
 | 0.5.11 | 2026-10-18 | Shorter connected-site guidance and a bundled official Buy Me a Coffee banner linking to the project support page | GitHub release |
 | 0.5.10 | 2026-10-06 | Bounded, duplicate-safe GoFile click FIFO plus capability-gated asynchronous server enqueue with legacy fallback | Candidate |
 | 0.5.9 | 2026-09-30 | Recognizes Pixeldrain's classless official no-preview Download button on transfer-limit pages without broad text matching | GitHub release |
@@ -165,10 +166,10 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 ### Submission Readiness
 
-- [x] Manifest V3 and extension version 0.5.11
+- [x] Manifest V3 and extension version 0.5.12
 - [x] English default with Korean, Simplified Chinese and Japanese locales
 - [x] Automated Chrome extension tests pass
-- [x] Publish `NASDrop-Chrome-0.5.11.zip` as the signed-checksum GitHub developer-mode package
+- [ ] Publish `NASDrop-Chrome-0.5.12.zip` as the signed-checksum GitHub developer-mode package after the matching server contract is verified
 - [ ] Publish the Chrome-specific privacy policy on the public default branch
 - [ ] Create the exact 128×128 store icon
 - [ ] Capture at least one exact-size store screenshot with synthetic/redacted data

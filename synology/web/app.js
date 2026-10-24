@@ -3,7 +3,7 @@
   const t = (key, vars) => window.NASDropI18n.t(key, vars);
   const serverError = (code, fallback, vars) => window.NASDropI18n.error(code, fallback, vars);
   const state = { token: localStorage.getItem("nasdrop-session-token") || "", jobs: [], status: null, timer: null, countdownTimer: null, selectedTarget: "", folder: null, folderPurpose: "job", account: null, passwordChangeRequired: false, selected: new Set(), extractionInitialized: false };
-  const statusKeys = { inspecting:"statusInspecting", queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", download_key_required:"statusDownloadKeyRequired", stopping:"statusStopping", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
+  const statusKeys = { inspecting:"statusInspecting", queued:"statusQueued", ready:"statusReady", downloading:"statusDownloading", waiting_processing:"statusWaitingProcessing", verifying:"statusVerifying", extracting:"statusExtracting", publishing:"statusPublishing", password_required:"statusPasswordRequired", download_key_required:"statusDownloadKeyRequired", reauthentication_required:"statusReauthenticationRequired", stopping:"statusStopping", paused:"statusPaused", completed:"statusCompleted", failed:"statusFailed", cancelled:"statusCancelled" };
 
   function isPrivateHost(rawHost) {
     const host = String(rawHost || "").replace(/^\[|\]$/g, "").toLowerCase();
@@ -97,6 +97,11 @@
     $("#setting-target").textContent = s.target || t("notSelected");
     $("#setting-write").textContent = s.target ? (s.target_writable ? t("packageWritable") : t("permissionRequired")) : t("notSelected");
     $("#setting-write").className = `badge ${s.target && s.target_writable ? "ok" : "bad"}`;
+    const storageText = s.storage_available
+      ? t("storageRemaining", {free:bytes(Number(s.storage_free_bytes)), total:bytes(Number(s.storage_total_bytes))})
+      : t("storageUnavailable");
+    $("#storage-capacity").textContent = storageText;
+    $("#setting-storage-capacity").textContent = storageText;
     $("#service-user").textContent = s.service_user || t("dedicatedAccount");
     $("#service-url").textContent = location.origin;
     const launcherPort = Number(s.launcher_port || 8791);

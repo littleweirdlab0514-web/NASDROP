@@ -17,6 +17,7 @@ import hashlib
 import html
 import ipaddress
 import json
+import errno
 import logging
 from logging.handlers import RotatingFileHandler
 import mimetypes
@@ -79,9 +80,10 @@ NAS_TARGET = setting("NAS_PORTAL_NAS_TARGET")
 STATIC_DIR = Path(setting("NAS_PORTAL_STATIC_DIR", str(ROOT / "synology" / "web"))).resolve()
 LAUNCHER_FILE_SETTING = setting("NAS_PORTAL_LAUNCHER_FILE")
 LAUNCHER_FILE = Path(LAUNCHER_FILE_SETTING).resolve() if LAUNCHER_FILE_SETTING else None
-PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.29")
+PACKAGE_VERSION = setting("NAS_PORTAL_VERSION", "0.9.30")
 SEVEN_ZIP = Path(setting("NAS_PORTAL_7ZZ", str(ROOT / "bin" / "7zz"))).resolve()
 MAX_FILE_BYTES = 300 * 1024**3
+STORAGE_RESERVE_BYTES = 512 * 1024**2
 MAX_ARCHIVE_ENTRIES = 100_000
 MAX_EXTRACTED_BYTES = 1024**4
 MAX_PARALLEL_DOWNLOADS = 3
@@ -273,6 +275,7 @@ def public_error_code(message: object) -> str:
         (("현재 비밀번호",), "current_password_invalid"),
         (("DSM 아이콘 연결",), "launcher_expired"),
         (("권한", "쓰기 권한", "볼 권한"), "permission_denied"),
+        (("저장 공간", "남은 용량", "No space left on device"), "insufficient_storage"),
         (("GigaFile 다운로드 키",), "download_key_required"),
         (("암호가 필요", "암호를 입력", "Wrong password", "password"), "password_required"),
         (("Gofile 요청이 몰려", "429", "제한되었"), "rate_limited"),
@@ -696,6 +699,10 @@ class GigaFileDownloadKeyInvalidError(GigaFileDownloadKeyRequiredError):
     """Raised only after the user supplied a key and GigaFile rejected it."""
 
 
+class InsufficientStorageError(ValueError):
+    """Raised before transfer when the target volume cannot hold the safe minimum."""
+
+
 def _load_gofile_cooldown() -> tuple[float, str]:
     if not GOFILE_COOLDOWN_FILE.exists():
         return 0.0, ""
@@ -922,6 +929,7 @@ class Job:
     multipart_group: str = ""
     multipart_entry: bool = False
     multipart_name: str = ""
+    error_code: str = ""
 
 
 ARCHIVE_SUFFIXES = (
@@ -1399,6 +1407,85 @@ def job_workspace(target_dir: str, job_id: str) -> Path:
     return workspace
 
 
+def target_storage_status(target_dir: str) -> dict[str, int | bool]:
+    """Return capacity for the filesystem containing the selected destination."""
+    result: dict[str, int | bool] = {
+        "available": False,
+        "total_bytes": 0,
+        "used_bytes": 0,
+        "free_bytes": 0,
+        "reserve_bytes": STORAGE_RESERVE_BYTES,
+    }
+    if not target_dir:
+        return result
+    try:
+        target = Path(target_dir).resolve()
+        if not target.is_dir():
+            return result
+        usage = shutil.disk_usage(target)
+    except OSError:
+        return result
+    result.update(
+        available=True,
+        total_bytes=int(usage.total),
+        used_bytes=int(usage.used),
+        free_bytes=int(usage.free),
+    )
+    return result
+
+
+def minimum_storage_required(file_size: int, downloaded: int = 0) -> int:
+    """Estimate safe peak bytes for remaining transfer plus final assembly.
+
+    NASDrop keeps verified parts while creating the final assembled artifact, so
+    a new job needs roughly twice its file size. Archive extraction may require
+    additional provider-dependent space that cannot be known in advance.
+    """
+    size = max(0, int(file_size))
+    present = min(size, max(0, int(downloaded)))
+    return max(0, size - present) + size + STORAGE_RESERVE_BYTES
+
+
+def prior_storage_reservation(jobs: list[Job], current_id: str, target_dir: str) -> int:
+    """Reserve peak bytes for older active jobs on the same filesystem."""
+    try:
+        target_device = os.stat(Path(target_dir).resolve()).st_dev
+    except OSError:
+        return 0
+    active = {"inspecting", "ready", "downloading", "waiting_processing", "verifying", "extracting", "publishing"}
+    reserved = 0
+    for candidate in jobs:
+        if candidate.id == current_id:
+            break
+        if candidate.status not in active:
+            continue
+        candidate_target = candidate.target or NAS_TARGET
+        try:
+            same_device = os.stat(Path(candidate_target).resolve()).st_dev == target_device
+        except OSError:
+            continue
+        if same_device:
+            reserved += minimum_storage_required(candidate.size, candidate.downloaded)
+    return reserved
+
+
+def ensure_storage_capacity(
+    target_dir: str,
+    file_size: int,
+    downloaded: int = 0,
+    reserved_bytes: int = 0,
+) -> dict[str, int | bool]:
+    storage = target_storage_status(target_dir)
+    if not storage["available"]:
+        return storage
+    required = minimum_storage_required(file_size, downloaded) + max(0, int(reserved_bytes))
+    if int(storage["free_bytes"]) < required:
+        raise InsufficientStorageError(
+            "NAS 저장 공간이 부족합니다. 남은 용량을 확보한 뒤 작업을 다시 시작해 주세요."
+        )
+    return storage
+
+
 def migrate_legacy_workspace(target_dir: str, name: str, job_id: str, workspace: Path) -> int:
     target = Path(target_dir).resolve()
     prefix = f".{name}.{job_id}."
@@ -1541,7 +1628,10 @@ class Controller:
                         and onefichier_head and job.id != onefichier_head):
                     item["not_before"] = 0
                     item["error"] = "1fichier는 목록 아래 작업이 끝난 뒤 순차적으로 시작합니다."
-                item["error_code"] = public_error_code(item["error"]) if item["error"] else ""
+                explicit_code = str(item.get("error_code", ""))
+                item["error_code"] = explicit_code if explicit_code in {"reauthentication_required", "insufficient_storage"} else (
+                    public_error_code(item["error"]) if item["error"] else ""
+                )
                 jobs.append(item)
             return jobs
 
@@ -1882,9 +1972,15 @@ class Controller:
                             delete_job_download_key(job_id)
                         job.status = "download_key_required"
                         job.not_before = 0
+                    elif isinstance(exc, InsufficientStorageError) or (
+                        isinstance(exc, OSError) and exc.errno == errno.ENOSPC
+                    ):
+                        job.status = "failed"
+                        job.error_code = "insufficient_storage"
+                        job.error = "NAS 저장 공간이 부족합니다. 남은 용량을 확보한 뒤 작업을 다시 시작해 주세요."
                     else:
                         job.status = "paused" if SHUTDOWN_EVENT.is_set() else "failed"
-                    job.error = (str(exc) or "다운로드 준비 중 오류가 발생했습니다.")[-400:]
+                        job.error = (str(exc) or "다운로드 준비 중 오류가 발생했습니다.")[-400:]
                 self.processes.pop(job_id, None)
                 self.private_downloads.pop(job_id, None)
                 self.save()
@@ -1907,7 +2003,13 @@ class Controller:
                         self.running_providers.pop(provider, None)
                 job = self.jobs.get(job_id)
                 if job and job.status == "stopping" and not job.delete_requested:
-                    job.status = "paused"
+                    if provider == "xshare":
+                        job.status = "reauthentication_required"
+                        job.downloaded = 0
+                        job.error_code = "reauthentication_required"
+                        job.error = "X-Share 전송을 중지했습니다. 브라우저에서 보안 검증을 마친 뒤 공식 다운로드 버튼을 다시 눌러 주세요."
+                    else:
+                        job.status = "paused"
                     self.save()
                 self.condition.notify_all()
 
@@ -2247,6 +2349,7 @@ class Controller:
             if job.status in {"paused", "cancelled", "stopping"}:
                 return
             job.status = "downloading"
+            job.error_code = ""
             self.save()
         private = self.private_downloads.get(job_id, {})
         private.pop("rate_limited", None)
@@ -2345,6 +2448,16 @@ class Controller:
         self.private_downloads[job_id] = private
         workspace_dir = str(workspace)
         prefix = f"{workspace_dir}/.{job.id}.segment."
+        current_bytes = self._local_size(
+            prefix,
+            job.size,
+            "single" if private.get("download_mode") == "gigafile_zip" else download_mode,
+        )
+        with self.lock:
+            job.downloaded = min(job.size, current_bytes)
+            reserved_bytes = prior_storage_reservation(list(self.jobs.values()), job.id, target_dir)
+            self.save()
+        ensure_storage_capacity(target_dir, job.size, current_bytes, reserved_bytes)
         if provider == "gigafile" and private.get("download_mode") == "gigafile_zip":
             script = self._download_script_gigafile_zip(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
@@ -2421,8 +2534,8 @@ class Controller:
         stderr = process.stderr.read() if process.stderr else ""
         process.wait()
         if provider == "xshare":
-            # A provider-issued key may be one-use. Never replay it after an
-            # attempted transfer, including a user pause or service shutdown.
+            # The keyed URL is never persisted after a transfer cycle. A later
+            # retry must come from a fresh, user-authorized browser handoff.
             save_job_download_url(job_id, "")
         self._recover_fragments(job, workspace, download_mode, file_response=provider == "xshare")
         with self.lock:
@@ -2439,7 +2552,13 @@ class Controller:
                 elif provider == "1fichier":
                     current_job.error = "1fichier 다운로드가 중단됐습니다. 무료 연결은 이어받기를 지원하지 않아 재개 시 처음부터 다시 받습니다."
                 elif provider == "xshare":
-                    current_job.error = "X-Share 다운로드가 중단됐습니다. 브라우저에서 보안 검증을 마친 뒤 새 다운로드 버튼으로 다시 등록해 주세요."
+                    current_job.status = "reauthentication_required"
+                    current_job.downloaded = 0
+                    current_job.error_code = "reauthentication_required"
+                    current_job.error = "X-Share 다운로드를 세 번 다시 시도했지만 완료하지 못했습니다. 브라우저에서 보안 검증을 마친 뒤 공식 다운로드 버튼을 다시 눌러 주세요."
+                elif re.search(r"no space left on device|disk full", stderr, re.I):
+                    current_job.error_code = "insufficient_storage"
+                    current_job.error = "NAS 저장 공간이 부족합니다. 남은 용량을 확보한 뒤 작업을 다시 시작해 주세요."
                 elif provider in {"akirabox", "vikingfile", "sendnow"}:
                     current_job.error = handoff_transfer_error(stderr)
                 elif provider == "buzzheavier" and re.search(r"(?:error:\s*)?(?:401|403|404)\b", stderr, re.I):
@@ -2721,13 +2840,29 @@ NASDROP_CURL_CONFIG
 cleanup() {{ rm -f "$CURL_CONFIG"; }}
 trap cleanup EXIT
 trap 'exit 143' HUP INT TERM
-# Do not preflight, range, retry or replay an opaque provider-issued key.
-rm -f "$PART" "$PART.more" "$PART.headers"
-curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --dump-header "$PART.headers" -o "$PART.more"
-actual=$(wc -c < "$PART.more" | tr -d ' ')
-[ "$actual" -eq {total} ] || exit 1
-{merger} "$PART" 0 {total - 1} {total} --file-response
-printf 'SEGMENTS_READY=1\n'
+# Do not preflight or range-probe an opaque provider-issued key. Retry the full
+# response only three times, with bounded delays, then require a fresh browser
+# handoff. Every attempt discards its incomplete body and response headers.
+attempt=0
+while [ "$attempt" -le 3 ]; do
+  rm -f "$PART" "$PART.more" "$PART.headers"
+  rc=0
+  curl --config "$CURL_CONFIG" {CURL_STALL_GUARD} {CURL_NO_REDIRECTS} --fail --silent --show-error --dump-header "$PART.headers" -o "$PART.more" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    actual=$(wc -c < "$PART.more" | tr -d ' ')
+    if [ "$actual" -eq {total} ] && {merger} "$PART" 0 {total - 1} {total} --file-response; then
+      printf 'SEGMENTS_READY=1\n'
+      exit 0
+    fi
+    rc=18
+  fi
+  if [ "$attempt" -ge 3 ]; then
+    printf 'NASDROP_TRANSFER curl=%s merge=0 attempt=%s\n' "$rc" "$attempt" >&2
+    exit "$rc"
+  fi
+  attempt=$((attempt + 1))
+  case "$attempt" in 1) sleep 10;; 2) sleep 20;; 3) sleep 30;; esac
+done
 '''
 
 
@@ -2812,6 +2947,7 @@ printf 'SEGMENTS_READY=1\\n'
                 raise ValueError("다시 시작할 수 있는 작업이 아닙니다.")
             job.status = "inspecting" if job.inspection_pending else "queued"
             job.error = ""
+            job.error_code = ""
             job.output = ""
             job.extracted = False
             job.not_before = 0
@@ -2849,6 +2985,58 @@ printf 'SEGMENTS_READY=1\\n'
             job.status = "inspecting" if job.inspection_pending else "queued"
             job.error = ""
             job.not_before = 0
+            self.save()
+            self.condition.notify_all()
+
+    def submit_browser_handoff_refresh(self, job_id: str, provider: object, resolved_url: object) -> None:
+        if provider != "xshare":
+            raise ValueError("지원하지 않는 브라우저 재인증 서비스입니다.")
+        direct = str(resolved_url or "").strip()
+        with self.condition:
+            job = self.jobs.get(job_id)
+            if not job:
+                raise KeyError(job_id)
+            if (
+                job.delete_requested
+                or job.status != "reauthentication_required"
+                or self._provider_for_job(job) != "xshare"
+                or any(job_id in ids for ids in self.running_providers.values())
+            ):
+                raise ValueError("현재 X-Share 재인증이 필요한 작업이 아닙니다.")
+            source = job.source
+            expected_size = job.size
+        inspected = inspect_browser_handoff(source, direct, "xshare")
+        if int(inspected["size"]) != expected_size:
+            raise ValueError("X-Share 파일 정보가 기존 작업과 일치하지 않습니다.")
+        with self.condition:
+            job = self.jobs.get(job_id)
+            if (
+                not job
+                or job.delete_requested
+                or job.status != "reauthentication_required"
+                or self._provider_for_job(job) != "xshare"
+                or job.source != source
+                or job.size != expected_size
+                or any(job_id in ids for ids in self.running_providers.values())
+            ):
+                raise ValueError("현재 X-Share 재인증이 필요한 작업이 아닙니다.")
+            if int(inspected["size"]) != job.size:
+                raise ValueError("X-Share 파일 정보가 기존 작업과 일치하지 않습니다.")
+            job.name = _clean_download_name(str(inspected["name"]))
+            job.downloaded = 0
+            job.status = "queued"
+            job.error = ""
+            job.error_code = ""
+            job.output = ""
+            job.sha256 = ""
+            job.extracted = False
+            job.not_before = 0
+            save_job_download_url(job_id, str(inspected["download_url"]))
+            self.private_downloads[job_id] = {
+                "provider": "xshare",
+                "download_url": str(inspected["download_url"]),
+                "target": job.target or NAS_TARGET,
+            }
             self.save()
             self.condition.notify_all()
 
@@ -4657,11 +4845,17 @@ class Handler(BaseHTTPRequestHandler):
                 })
             target = Path(NAS_TARGET) if NAS_TARGET else None
             target_exists = bool(target and target.is_dir())
+            storage = target_storage_status(NAS_TARGET)
             return self.send_json(HTTPStatus.OK, {
                 "version": PACKAGE_VERSION,
                 "target": NAS_TARGET,
                 "target_exists": target_exists,
                 "target_writable": target_exists and os.access(str(target), os.W_OK | os.X_OK),
+                "storage_available": storage["available"],
+                "storage_total_bytes": storage["total_bytes"],
+                "storage_used_bytes": storage["used_bytes"],
+                "storage_free_bytes": storage["free_bytes"],
+                "storage_reserve_bytes": storage["reserve_bytes"],
                 "service_user": os.environ.get("NAS_PORTAL_SERVICE_USER") or os.environ.get("USER", ""),
                 "same_provider_parallel": ALLOW_SAME_PROVIDER_PARALLEL,
                 "same_provider_limit": SAME_PROVIDER_LIMIT,
@@ -4674,6 +4868,7 @@ class Handler(BaseHTTPRequestHandler):
                 "job_processing_options": True,
                 "job_safe_delete": True,
                 "gigafile_download_key": True,
+                "browser_handoff_refresh_providers": ["xshare"],
                 "async_enqueue_providers": ["gigafile", "gofile"],
                 "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow", "xshare"],
                 "disk_protection": DISK_PROTECTION,
@@ -4825,6 +5020,13 @@ class Handler(BaseHTTPRequestHandler):
             if download_key_match:
                 CONTROLLER.submit_download_key(download_key_match.group(1), payload.get("download_key", ""))
                 return self.send_json(HTTPStatus.OK, {"ok": True})
+            handoff_refresh_match = re.fullmatch(r"/api/jobs/([a-f0-9]{12})/browser-handoff", path)
+            if handoff_refresh_match:
+                job_id = handoff_refresh_match.group(1)
+                CONTROLLER.submit_browser_handoff_refresh(
+                    job_id, payload.get("provider"), payload.get("resolved_url", "")
+                )
+                return self.send_json(HTTPStatus.ACCEPTED, {"accepted": True, "job_id": job_id})
             if path == "/api/jobs/delete":
                 ids = payload.get("ids", [])
                 if not isinstance(ids, list) or not ids or any(not re.fullmatch(r"[a-f0-9]{12}", str(item)) for item in ids):

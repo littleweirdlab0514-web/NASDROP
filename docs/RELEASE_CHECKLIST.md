@@ -1,4 +1,22 @@
-# NASDrop 0.9.29 release checklist
+# NASDrop 0.9.30 release checklist
+
+## 0.9.30-2 storage-capacity candidate
+
+- [x] Expose selected destination filesystem free and total bytes through `/api/status`.
+- [x] Reject transfers that cannot safely retain temporary parts and assemble the final file.
+- [x] Reserve estimated peak space for older active jobs on the same filesystem.
+- [x] Classify preflight and operating-system disk-full failures as `insufficient_storage`.
+- [x] Show capacity and localized storage errors in the Synology web UI and Android 0.8.23.
+- [x] Run server unit tests, web rendering tests, Android unit tests, lint, and debug assembly.
+
+## 0.9.30-1 X-Share reauthentication candidate
+
+- [x] Retry an interrupted X-Share keyed transfer three times with bounded 10, 20, and 30 second delays.
+- [x] Preserve the existing job and enter `reauthentication_required` after retry exhaustion.
+- [x] Accept a fresh same-file keyed URL only for the selected waiting job through the capability-gated browser handoff endpoint.
+- [x] Keep issued URLs, keys, headers, and cookies out of public job data, persistent browser storage, and logs.
+- [x] Coordinate Chrome 0.5.12 and Android 0.8.22 with the additive server capability.
+- [ ] Install the candidate SPK on real DSM hardware and verify X-Share retry and reauthentication.
 
 ## 0.9.29-2 release
 
