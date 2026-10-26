@@ -310,7 +310,22 @@ class AccountAuthTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["version"], backend.PACKAGE_VERSION)
         self.assertEqual(payload["async_enqueue_providers"], ["gigafile", "gofile"])
+        self.assertEqual(payload["browser_handoff_refresh_providers"], ["xshare"])
         self.assertEqual(self.request("/api/missing?cache=1", token=token)[0], 404)
+
+    def test_xshare_browser_handoff_refresh_route_never_echoes_secret(self):
+        backend.replace_credentials("owner", "original password")
+        token = backend.create_session("owner")
+        resolved = "https://x-share.net/api/download/Fixture123?key=synthetic-private-key"
+        with mock.patch.object(backend.CONTROLLER, "submit_browser_handoff_refresh") as refresh:
+            status, payload = self.request(
+                "/api/jobs/123456abcdef/browser-handoff", method="POST", token=token,
+                payload={"provider": "xshare", "resolved_url": resolved},
+            )
+        self.assertEqual(status, 202)
+        self.assertEqual(payload, {"accepted": True, "job_id": "123456abcdef"})
+        self.assertNotIn("synthetic-private-key", str(payload))
+        refresh.assert_called_once_with("123456abcdef", "xshare", resolved)
 
     def test_enqueue_routes_gofile_to_persistent_async_controller(self):
         backend.replace_credentials("owner", "original password")

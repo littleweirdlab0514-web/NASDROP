@@ -2,8 +2,9 @@
 import {createServer} from 'node:http';
 import {readFile} from 'node:fs/promises';
 const root=new URL('../chrome-extension/',import.meta.url);
+const port=Number(process.env.NASDROP_PREVIEW_PORT||18791);
 const mock=`
-let previewJobs=['downloading','paused','completed','stopping'].map((status,i)=>({id:'preview'+i,name:('Example.Long.Multilingual.파일名.1080p.').repeat(3)+'.zip',status,size:356000000,downloaded:1900000,extract:true}));
+let previewJobs=['downloading','paused','completed','stopping','reauthentication_required'].map((status,i)=>({id:'preview'+i,name:('Example.Long.Multilingual.파일名.1080p.').repeat(3)+'.zip',url:i===4?'https://x-share.net/s/Preview123':'https://example.invalid/file',status,size:356000000,downloaded:1900000,extract:true}));
 Object.defineProperty(navigator,'language',{value:new URLSearchParams(location.search).get('lang')||'ko'});
 window.chrome={runtime:{connect:()=>({disconnect(){}}),sendMessage:async m=>{
   if(m.type==='savePreferences')for(const key of ['autoExtract','language'])if(m[key]!==undefined)localStorage.setItem('preview-'+key,JSON.stringify(m[key]));
@@ -11,7 +12,7 @@ window.chrome={runtime:{connect:()=>({disconnect(){}}),sendMessage:async m=>{
   if(m.type==='jobPause'&&job)job.status='paused';
   if(m.type==='jobResume'&&job)job.status='downloading';
   if(m.type==='jobDelete')previewJobs=previewJobs.filter(j=>j.id!==m.id);
-  if(m.type==='getState'||m.type==='login')return {ok:true,result:{connected:!location.search.includes('loggedout'),baseUrl:'https://nas.example',language:JSON.parse(localStorage.getItem('preview-language')||'"auto"'),autoExtract:localStorage.getItem('preview-autoExtract')!=='false',jobs:previewJobs,status:{target:'/downloads',job_processing_options:true}}};
+  if(m.type==='getState'||m.type==='login')return {ok:true,result:{connected:!location.search.includes('loggedout'),baseUrl:'https://nas.example',language:JSON.parse(localStorage.getItem('preview-language')||'"auto"'),autoExtract:localStorage.getItem('preview-autoExtract')!=='false',jobs:previewJobs,status:{target:'/downloads',job_processing_options:true,browser_handoff_refresh_providers:['xshare']}}};
   return {ok:true,result:{jobs:previewJobs}};
 }},tabs:{query:async()=>[]},permissions:{request:async()=>true}};
 `;
@@ -24,4 +25,4 @@ createServer(async(req,res)=>{
   if(name==='popup.html')data=data.toString().replace('<script src="popup-poller.js">','<script src="mock.js"></script><script src="popup-poller.js">');
   res.setHeader('Content-Type',name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.css')?'text/css':name.endsWith('.png')?'image/png':'text/javascript');
   res.end(data);
-}).listen(18791,'127.0.0.1',()=>console.log('Popup fixture: http://127.0.0.1:18791/popup.html'));
+}).listen(port,'127.0.0.1',()=>console.log(`Popup fixture: http://127.0.0.1:${port}/popup.html`));
