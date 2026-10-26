@@ -279,7 +279,7 @@ def public_error_code(message: object) -> str:
         (("GigaFile 다운로드 키",), "download_key_required"),
         (("암호가 필요", "암호를 입력", "Wrong password", "password"), "password_required"),
         (("Gofile 요청이 몰려", "429", "제한되었"), "rate_limited"),
-        (("연결하지 못", "HTTP ", "응답을 반환", "응답이 일정 시간 멈춰"), "network_error"),
+        (("연결하지 못", "주소를 확인하지 못", "HTTP ", "응답을 반환", "응답이 일정 시간 멈춰"), "network_error"),
         (("만료", "링크를 다시", "Copy download link"), "link_expired"),
         (("무결성", "손상", "크기가 예상값"), "integrity_failed"),
         (("분할 압축의 나머지 조각", "분할 압축의 다음 파일"), "archive_parts_waiting"),
@@ -2463,9 +2463,15 @@ class Controller:
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
             )
         elif provider == "gofile":
+            gofile_download = str(private.get("download_url", ""))
+            gofile_host = (urlparse(gofile_download).hostname or "").lower()
+            gofile_addresses = _resolve_gofile_addresses(gofile_host)
+            if not gofile_addresses:
+                raise ValueError("Gofile 다운로드 서버 주소를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.")
             script = self._download_script_gofile(
-                private.get("download_url", ""), private.get("download_token", ""),
+                gofile_download, private.get("download_token", ""),
                 job.source, safe_name, job.id, job.size, workspace_dir, mode=download_mode,
+                resolve_host=gofile_host, resolve_address=gofile_addresses[0],
             )
         elif provider == "pixeldrain":
             script = self._download_script_direct(
@@ -2737,10 +2743,19 @@ curl {CURL_HTTPS_ONLY} {CURL_PAGE_TIMEOUT} {CURL_NO_REDIRECTS} --fail --silent -
         # authoritative fallback, captured by transfer_parts in the workspace.
         return setup + self._transfer_loop(prefix, total, mode, curl)
 
-    def _download_script_gofile(self, download: str, token: str, page: str, name: str, job_id: str, total: int, target_dir: str, mode: str = "segmented2") -> str:
+    def _download_script_gofile(
+        self, download: str, token: str, page: str, name: str, job_id: str,
+        total: int, target_dir: str, mode: str = "segmented2", *,
+        resolve_host: str = "", resolve_address: str = "",
+    ) -> str:
         if not download.startswith("https://") or not token:
             raise ValueError("Gofile 다운로드 인증 정보가 없습니다.")
-        return self._download_script_direct(download, page, name, job_id, total, target_dir, cookie=f"accountToken={token}", mode=mode, max_parallel=2)
+        return self._download_script_direct(
+            download, page, name, job_id, total, target_dir,
+            cookie=f"accountToken={token}", mode=mode, max_parallel=2,
+            resolve_host=resolve_host, resolve_address=resolve_address,
+            user_agent=GOFILE_USER_AGENT,
+        )
 
     def _download_script_direct(self, download: str, page: str, name: str, job_id: str, total: int, target_dir: str, cookie: str = "", expected_sha256: str = "", mode: str = "segmented", capture_headers: bool = False, max_parallel: int = 8, transient_retries: int = 0, resolve_host: str = "", resolve_address: str = "", user_agent: str = "") -> str:
         if not download.startswith("https://"):
@@ -3534,6 +3549,40 @@ def _resolve_public_addresses(host: str) -> tuple[str, ...]:
     return tuple(str(address) for address in sorted(addresses, key=lambda item: (item.version, int(item))))
 
 
+GOFILE_DOWNLOAD_HOST = re.compile(
+    r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+gofile\.io\Z",
+    re.I,
+)
+
+
+def _resolve_gofile_addresses(host: str) -> tuple[str, ...]:
+    """Resolve a verified GoFile delivery host, with DoH fallback for stale ISP DNS."""
+    candidate = host.rstrip(".").lower()
+    if not GOFILE_DOWNLOAD_HOST.fullmatch(candidate):
+        return ()
+    system_addresses = _resolve_public_addresses(candidate)
+    if system_addresses:
+        return system_addresses
+    try:
+        response = _json_request(
+            "https://cloudflare-dns.com/dns-query?" + urlencode({"name": candidate, "type": "A"}),
+            headers={"Accept": "application/dns-json", "User-Agent": f"NASDrop/{PACKAGE_VERSION}"},
+            retry_429=False,
+        )
+        if int(response.get("Status", -1)) != 0:
+            return ()
+        answers = response.get("Answer", [])
+        addresses = {
+            ipaddress.ip_address(str(answer.get("data", "")))
+            for answer in answers if isinstance(answer, dict) and int(answer.get("type", 0)) == 1
+        }
+    except (HTTPError, OSError, TypeError, ValueError):
+        return ()
+    if not addresses or not all(address.is_global for address in addresses):
+        return ()
+    return tuple(str(address) for address in sorted(addresses, key=lambda item: (item.version, int(item))))
+
+
 def _public_download_host(host: str) -> bool:
     return bool(_resolve_public_addresses(host))
 
@@ -4276,15 +4325,24 @@ def _gofile_website_token(account_token: str) -> str:
             GOFILE_NETWORK_COOLDOWN_SECONDS,
             "GoFile 연결이 응답하지 않습니다.",
         ) from exc
+    return _generate_gofile_website_token(script, account_token)
+
+
+def _generate_gofile_website_token(script: str, account_token: str) -> str:
     payload = json.dumps({"script": script, "token": account_token, "userAgent": GOFILE_USER_AGENT, "language": "en-US"})
     helper = (ROOT / "gofile_wt.mjs").resolve()
-    result = subprocess.run(
-        ["node", "--permission", f"--allow-fs-read={helper}", str(helper)],
-        input=payload, text=True, capture_output=True, timeout=10,
-    )
-    if result.returncode != 0 or not re.fullmatch(r"[0-9a-f]{64}", result.stdout.strip()):
-        raise ValueError("Gofile 웹 인증 토큰을 만들지 못했습니다.")
-    return result.stdout.strip()
+    for permission_flag in ("--permission", "--experimental-permission"):
+        result = subprocess.run(
+            ["node", permission_flag, f"--allow-fs-read={helper}", str(helper)],
+            input=payload, text=True, capture_output=True, timeout=10,
+        )
+        website_token = result.stdout.strip()
+        if result.returncode == 0 and re.fullmatch(r"[0-9a-f]{64}", website_token):
+            return website_token
+        if permission_flag == "--permission" and "bad option: --permission" in result.stderr:
+            continue
+        break
+    raise ValueError("Gofile 웹 인증 토큰을 만들지 못했습니다.")
 
 
 def _gofile_session() -> tuple[str, str]:
@@ -4326,11 +4384,21 @@ def _gofile_file(item: dict, token: str, fallback_code: str, relative_path: str 
     size = int(item.get("size", 0))
     name = _clean_download_name(str(item.get("name", "")))
     download_url = str(item.get("link", ""))
-    download_host = (urlparse(download_url).hostname or "").lower()
+    parsed_download = urlparse(download_url)
+    download_host = (parsed_download.hostname or "").lower()
+    try:
+        download_port = parsed_download.port
+    except ValueError:
+        download_port = -1
     code = str(item.get("code") or fallback_code)
     if not SAFE_SERVICE_ID.fullmatch(code):
         raise ValueError("Gofile 파일의 공유 식별자가 올바르지 않습니다.")
-    if not name or size <= 0 or size > MAX_FILE_BYTES or not download_url.startswith("https://") or not download_host.endswith(".gofile.io"):
+    if (
+        not name or size <= 0 or size > MAX_FILE_BYTES
+        or parsed_download.scheme != "https" or not GOFILE_DOWNLOAD_HOST.fullmatch(download_host)
+        or parsed_download.username is not None or parsed_download.password is not None
+        or download_port not in {None, 443} or parsed_download.fragment
+    ):
         raise ValueError("허용할 수 없는 Gofile 파일 정보입니다.")
     return {
         "url": f"https://gofile.io/d/{code}", "name": name, "size": size, "expires": "",

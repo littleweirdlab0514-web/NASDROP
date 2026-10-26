@@ -6,7 +6,7 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.30-2 candidate | x86_64 SPK adds destination-volume capacity reporting and transfer preflight while retaining bounded X-Share recovery |
+| Synology package | 0.9.30-3 candidate | x86_64 SPK adds GoFile delivery-host DNS fallback while retaining capacity checks and bounded X-Share recovery |
 | Docker image | 0.9.29-2 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
 | Android app | 0.8.23 candidate | Shows server-reported NAS free/total capacity and localized low-space errors while retaining X-Share refresh |
 | Chrome extension | 0.5.12 candidate | Retains 0.5.11 behavior and adds capability-gated X-Share refresh for the same reauthentication-waiting job |
@@ -18,6 +18,8 @@ NASDrop Server 0.9.29-2 recognizes split-archive volumes discovered in one multi
 NASDrop Server 0.9.30-1 adds bounded X-Share recovery. A failed keyed transfer starts from zero and retries three times after 10, 20, and 30 seconds. Exhaustion preserves the existing job as `reauthentication_required`; capability-aware Chrome 0.5.12 and Android 0.8.23 clients use `browser_handoff_refresh_providers: ["xshare"]` and `POST /api/jobs/<id>/browser-handoff` to replace only the private issued URL after a fresh official user click. Older clients keep the original inspect/start fallback.
 
 NASDrop Server 0.9.30-2 reports free and total bytes for the selected destination filesystem. Before a transfer starts, it reserves the remaining transfer bytes, one complete output-file copy, a fixed safety margin, and the same estimate for older active jobs on that filesystem. A failed preflight or operating-system `ENOSPC` condition becomes `insufficient_storage`, so web and Android clients can explain the required user action.
+
+NASDrop Server 0.9.30-3 resolves verified `*.gofile.io` delivery hosts through the system resolver first and Cloudflare DNS-over-HTTPS only when the system resolver fails. It rejects private answers and pins the validated public address in curl while TLS still verifies the original GoFile hostname. The GoFile website-token sandbox also selects the supported Node permission flag for both Docker's Node 20 and newer Node releases.
 
 The same Synology candidate adds an optional `NAS_PORTAL_LAUNCHER_PUBLIC_URL` setting for the DSM desktop icon. It affects only the Synology launcher file and does not change the server API used by Android, Chrome, or Docker clients. An empty value keeps the established adaptive hostname and port behavior.
 

@@ -31,6 +31,13 @@ class TransferReliabilityTests(unittest.TestCase):
                 script = controller._download_script_gofile('https://example.com/file', 'test', 'https://gofile.io/d/test', name, 'test', 80, '/tmp/test', mode=mode)
                 self.assertIn(f'COUNT={count}\nCHUNK={chunk}\n', script)
                 self.assertIn('i % 2', script)
+        pinned = controller._download_script_gofile(
+            'https://cold1.gofile.io/file', 'test', 'https://gofile.io/d/test',
+            'video.mp4', 'test', 80, '/tmp/test',
+            resolve_host='cold1.gofile.io', resolve_address='45.112.123.220',
+        )
+        self.assertIn('resolve = "cold1.gofile.io:443:45.112.123.220"', pinned)
+        self.assertIn('user-agent = "Mozilla/5.0', pinned)
         job = backend.Job('test', 'file.zip', 'https://gofile.io/d/test', 7, 7, 'verifying', 'now', transfer_mode='segmented2')
         (self.root / '.test.segment.0').write_bytes(b'abcd')
         (self.root / '.test.segment.1').write_bytes(b'efg')

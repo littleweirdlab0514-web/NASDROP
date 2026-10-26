@@ -1,5 +1,15 @@
 # NASDrop 0.9.30 release checklist
 
+## 0.9.30-3 GoFile DNS compatibility candidate
+
+- [x] Reproduce the supplied share as a valid single-file GoFile response.
+- [x] Confirm the assigned `cold1.gofile.io` host fails through the system resolver but resolves through public DNS.
+- [x] Restrict DNS-over-HTTPS fallback to syntactically valid GoFile delivery subdomains and public A records.
+- [x] Pin the validated address with curl `--resolve` while retaining HTTPS hostname verification.
+- [x] Keep the GoFile token helper sandboxed on both Node 20 and current Node releases.
+- [x] Verify the supplied share with a successful one-byte HTTP 206 transfer.
+- [x] Run the full server suite and related web/GoFile tests.
+
 ## 0.9.30-2 storage-capacity candidate
 
 - [x] Expose selected destination filesystem free and total bytes through `/api/status`.

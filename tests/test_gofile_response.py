@@ -48,6 +48,69 @@ class GoFileResponseTest(unittest.TestCase):
 
         request.assert_not_called()
 
+    @patch("backend.subprocess.run")
+    def test_node20_uses_legacy_permission_flag_without_disabling_sandbox(self, run):
+        run.side_effect = [
+            backend.subprocess.CompletedProcess([], 9, "", "node: bad option: --permission"),
+            backend.subprocess.CompletedProcess([], 0, "a" * 64, "ExperimentalWarning"),
+        ]
+
+        result = backend._generate_gofile_website_token("function generateWT(){return 'a'.repeat(64)}", "token")
+
+        self.assertEqual(result, "a" * 64)
+        self.assertEqual(run.call_args_list[0].args[0][1], "--permission")
+        self.assertEqual(run.call_args_list[1].args[0][1], "--experimental-permission")
+        for call in run.call_args_list:
+            self.assertTrue(any(arg.startswith("--allow-fs-read=") for arg in call.args[0]))
+
+    @patch("backend.subprocess.run")
+    def test_website_token_failure_does_not_run_node_without_permissions(self, run):
+        run.return_value = backend.subprocess.CompletedProcess([], 1, "", "script failed")
+        with self.assertRaisesRegex(ValueError, "웹 인증 토큰"):
+            backend._generate_gofile_website_token("broken", "token")
+        run.assert_called_once()
+
+    @patch("backend._json_request")
+    @patch("backend._resolve_public_addresses", return_value=("93.184.216.34",))
+    def test_uses_system_dns_for_gofile_delivery_when_available(self, _resolve, request):
+        self.assertEqual(backend._resolve_gofile_addresses("store1.gofile.io"), ("93.184.216.34",))
+        request.assert_not_called()
+
+    @patch("backend._json_request")
+    @patch("backend._resolve_public_addresses", return_value=())
+    def test_falls_back_to_public_doh_for_gofile_delivery(self, _resolve, request):
+        request.return_value = {
+            "Status": 0,
+            "Answer": [
+                {"name": "cold1.gofile.io", "type": 5, "data": "storage.gofile.io"},
+                {"name": "storage.gofile.io", "type": 1, "data": "45.112.123.220"},
+            ],
+        }
+
+        self.assertEqual(backend._resolve_gofile_addresses("cold1.gofile.io"), ("45.112.123.220",))
+        requested_url = request.call_args.args[0]
+        self.assertTrue(requested_url.startswith("https://cloudflare-dns.com/dns-query?"))
+        self.assertEqual(request.call_args.kwargs["headers"]["Accept"], "application/dns-json")
+
+    @patch("backend._json_request")
+    @patch("backend._resolve_public_addresses", return_value=())
+    def test_rejects_private_or_non_gofile_doh_answers(self, _resolve, request):
+        request.return_value = {"Status": 0, "Answer": [{"type": 1, "data": "127.0.0.1"}]}
+        self.assertEqual(backend._resolve_gofile_addresses("cold1.gofile.io"), ())
+        self.assertEqual(backend._resolve_gofile_addresses("cold1.gofile.io.evil.example"), ())
+
+    def test_rejects_untrusted_gofile_delivery_urls(self):
+        item = {"type": "file", "name": "example.bin", "size": 10, "code": "example"}
+        for link in (
+            "https://cold1.gofile.io.evil.example/file",
+            "https://user:password@cold1.gofile.io/file",
+            "https://cold1.gofile.io:8443/file",
+            "http://cold1.gofile.io/file",
+        ):
+            with self.subTest(link=link):
+                with self.assertRaisesRegex(ValueError, "허용할 수 없는"):
+                    backend._gofile_file({**item, "link": link}, "token", "fallback")
+
     @patch("backend._gofile_website_token", return_value="a" * 64)
     @patch("backend._json_request")
     def test_accepts_share_whose_root_object_is_the_file(self, request, _website_token):
