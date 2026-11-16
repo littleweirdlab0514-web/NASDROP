@@ -311,6 +311,7 @@ class AccountAuthTests(unittest.TestCase):
         self.assertEqual(payload["version"], backend.PACKAGE_VERSION)
         self.assertEqual(payload["async_enqueue_providers"], ["gigafile", "gofile"])
         self.assertEqual(payload["browser_handoff_refresh_providers"], ["xshare"])
+        self.assertIn("apexdrive", payload["browser_handoff_providers"])
         self.assertEqual(self.request("/api/missing?cache=1", token=token)[0], 404)
 
     def test_xshare_browser_handoff_refresh_route_never_echoes_secret(self):

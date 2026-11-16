@@ -2424,15 +2424,24 @@ class Controller:
                 "target": target_dir,
             }
             self.private_downloads[job_id] = private
-        if provider in {"akirabox", "vikingfile", "sendnow", "xshare"}:
-            signed = private.get("download_url") or load_job_download_url(job.id)
-            validator = {"akirabox": _validate_akira_url, "vikingfile": _validate_viking_url, "sendnow": _validate_sendnow_url, "xshare": _validate_xshare_url}[provider]
+        if provider in {"akirabox", "vikingfile", "sendnow", "xshare", "apexdrive"}:
+            # ApexDrive signatures are deliberately memory-only. A restart must
+            # require a fresh official-button handoff instead of replaying an old
+            # verification token from disk.
+            signed = private.get("download_url") or ("" if provider == "apexdrive" else load_job_download_url(job.id))
+            if provider == "apexdrive" and not signed:
+                raise HandoffError("ApexDrive 다운로드 인증이 만료됐습니다. 브라우저에서 공식 Download 버튼을 다시 눌러 주세요.")
+            validator = {
+                "akirabox": _validate_akira_url, "vikingfile": _validate_viking_url,
+                "sendnow": _validate_sendnow_url, "xshare": _validate_xshare_url,
+                "apexdrive": _validate_apexdrive_url,
+            }[provider]
             validator(job.source, direct=False)
             _validate_handoff_transfer_url(signed, provider)
             if provider == "xshare" and urlparse(job.source).path.rsplit("/", 1)[-1] != urlparse(signed).path.rsplit("/", 1)[-1]:
                 raise HandoffError("X-Share 공유 파일과 다운로드 주소가 일치하지 않습니다.")
             private.update(provider=provider, download_url=signed, target=target_dir)
-            if provider in {"sendnow", "xshare"}:
+            if provider in {"sendnow", "xshare", "apexdrive"}:
                 resolve_host = (urlparse(signed).hostname or "").lower()
                 resolved = _resolve_public_addresses(resolve_host)
                 if not resolved:
@@ -2441,7 +2450,7 @@ class Controller:
         # Persist layout so a later settings change cannot reinterpret fragments.
         if not job.transfer_mode:
             has_legacy_parts = any(workspace.glob(f".{job.id}.segment.*"))
-            job.transfer_mode = "single" if provider in {"akirabox", "vikingfile", "sendnow", "xshare", "1fichier"} else ("segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE))
+            job.transfer_mode = "single" if provider in {"akirabox", "vikingfile", "sendnow", "xshare", "apexdrive", "1fichier"} else ("segmented" if has_legacy_parts else initial_transfer_mode(provider, DOWNLOAD_MODE))
             self.save()
         download_mode = job.transfer_mode
         private["transfer_mode"] = download_mode
@@ -2490,7 +2499,7 @@ class Controller:
         elif provider == "xshare":
             script = self._download_script_xshare(private.get("download_url", ""), job.id, job.size,
                                                    workspace_dir, private["resolve_host"], private["resolve_address"])
-        elif provider in {"buzzheavier", "akirabox", "vikingfile", "sendnow"}:
+        elif provider in {"buzzheavier", "akirabox", "vikingfile", "sendnow", "apexdrive"}:
             script = self._download_script_direct(
                 private.get("download_url", ""), job.source, safe_name, job.id, job.size, workspace_dir,
                 mode=download_mode, capture_headers=True, transient_retries=3 if provider == "akirabox" else 0,
@@ -3529,6 +3538,58 @@ def _validate_xshare_url(value: str, *, direct: bool) -> str:
     return value
 
 
+APEXDRIVE_SHARE_HOST = "myapexdrive.com"
+APEXDRIVE_DELIVERY_HOST = "d.linatalksbayou.com"
+APEXDRIVE_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\Z")
+APEXDRIVE_VERIFY = re.compile(r"[A-Za-z0-9._~-]{16,4096}\Z")
+
+
+def _apexdrive_file_id(value: str) -> str:
+    parsed = urlparse(value)
+    match = re.fullmatch(
+        r"/file/(?P<share>[0-9a-fA-F-]+)" if parsed.hostname == APEXDRIVE_SHARE_HOST
+        else r"/xbox-apex/[0-9]{1,20}/(?P<share>[0-9a-fA-F-]+)\.[A-Za-z0-9]{1,10}",
+        parsed.path,
+    )
+    return match.group("share").lower() if match and APEXDRIVE_UUID.fullmatch(match.group("share")) else ""
+
+
+def _validate_apexdrive_url(value: str, *, direct: bool) -> str:
+    error = "ApexDrive 주소가 올바르지 않습니다. 브라우저에서 공식 Download 버튼을 다시 눌러 주세요."
+    if not isinstance(value, str) or not value or len(value) > 16384 or any(ord(c) < 33 or ord(c) == 127 for c in value) or "\\" in value:
+        raise HandoffError(error)
+    try:
+        parsed = urlparse(value)
+        if (parsed.scheme != "https" or parsed.username is not None or parsed.password is not None
+                or parsed.port not in {None, 443} or parsed.fragment):
+            raise ValueError
+        if direct:
+            if parsed.hostname != APEXDRIVE_DELIVERY_HOST or not _apexdrive_file_id(value):
+                raise ValueError
+            query = parse_qs(parsed.query, keep_blank_values=True)
+            if set(query) != {"verify", "fn"} or any(len(values) != 1 for values in query.values()):
+                raise ValueError
+            verify, filename = query["verify"][0], query["fn"][0]
+            if not APEXDRIVE_VERIFY.fullmatch(verify):
+                raise ValueError
+            cleaned = _clean_download_name(filename)
+            if (not filename or cleaned != filename or filename in {".", ".."}
+                    or len(filename.encode("utf-8")) > 255):
+                raise HandoffError("ApexDrive 파일명이 올바르지 않습니다.")
+            path_extension = parsed.path.rsplit(".", 1)[-1].casefold()
+            if "." not in filename or filename.rsplit(".", 1)[-1].casefold() != path_extension:
+                raise HandoffError("ApexDrive 파일명과 다운로드 파일 형식이 일치하지 않습니다.")
+        elif (parsed.hostname != APEXDRIVE_SHARE_HOST or parsed.query or not _apexdrive_file_id(value)):
+            raise ValueError
+    except HandoffError:
+        raise
+    except (ValueError, KeyError, UnicodeEncodeError):
+        raise HandoffError(error) from None
+    if direct:
+        return value
+    return f"https://{APEXDRIVE_SHARE_HOST}/file/{_apexdrive_file_id(value)}"
+
+
 def _resolve_public_addresses(host: str) -> tuple[str, ...]:
     """Resolve once and return only an all-public address set suitable for pinning."""
     candidate = host.rstrip(".").lower()
@@ -3645,6 +3706,8 @@ def _validate_handoff_transfer_url(value: str, provider: str) -> str:
             # The official page creates this first-party keyed endpoint. Do not
             # infer unrelated delivery hosts from a public-DNS check alone.
             return _validate_xshare_url(value, direct=True)
+        if provider == "apexdrive":
+            return _validate_apexdrive_url(value, direct=True)
         if provider == "sendnow":
             host = (parsed.hostname or "").lower()
             if parsed.scheme != "https" or parsed.username is not None or parsed.password is not None or parsed.port not in {None, 443} or parsed.fragment:
@@ -3773,7 +3836,7 @@ def _open_handoff_response(opener, url: str, method: str, headers: dict, provide
         try:
             response = (
                 _open_public_handoff_pinned(url, method, headers)
-                if provider in {"sendnow", "xshare"}
+                if provider in {"sendnow", "xshare", "apexdrive"}
                 else opener.open(Request(url, method=method, headers=headers), timeout=20)
             )
             if response.geturl() != url:
@@ -3791,10 +3854,12 @@ def _open_handoff_response(opener, url: str, method: str, headers: dict, provide
     raise HandoffError("다운로드 서버 이동 횟수를 초과했습니다.")
 
 
-def _handoff_metadata(response, method: str):
+def _handoff_metadata(response, method: str, *, require_disposition: bool = False):
     name = content_disposition_download_name([
         v.encode("latin-1", "replace") for v in response.headers.get_all("Content-Disposition", [])
     ])
+    if require_disposition and not name:
+        raise HandoffError("다운로드 서버가 파일명을 확인할 수 있는 응답을 반환하지 않았습니다.")
     if not name:
         name = _clean_download_name(unquote(urlparse(response.geturl()).path.rsplit("/", 1)[-1]))
     try:
@@ -3820,9 +3885,13 @@ def _handoff_metadata(response, method: str):
 
 
 def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> dict:
-    if provider not in {"akirabox", "vikingfile", "sendnow", "xshare"}:
+    if provider not in {"akirabox", "vikingfile", "sendnow", "xshare", "apexdrive"}:
         raise ValueError("지원하지 않는 브라우저 다운로드 전달입니다.")
-    validator = {"akirabox": _validate_akira_url, "vikingfile": _validate_viking_url, "sendnow": _validate_sendnow_url, "xshare": _validate_xshare_url}[provider]
+    validator = {
+        "akirabox": _validate_akira_url, "vikingfile": _validate_viking_url,
+        "sendnow": _validate_sendnow_url, "xshare": _validate_xshare_url,
+        "apexdrive": _validate_apexdrive_url,
+    }[provider]
     canonical = validator(share_url, direct=False)
     direct = validator(signed_url, direct=True)
     if provider == "xshare" and urlparse(canonical).path.rsplit("/", 1)[-1] != urlparse(direct).path.rsplit("/", 1)[-1]:
@@ -3840,7 +3909,7 @@ def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> d
         try:
             with _open_handoff_response(opener, direct, "HEAD", headers, provider) as response:
                 final_url = response.geturl()
-                metadata = _handoff_metadata(response, "HEAD")
+                metadata = _handoff_metadata(response, "HEAD", require_disposition=provider == "apexdrive")
         except HTTPError as exc:
             if exc.code not in {403, 405, 501}:
                 raise
@@ -3850,8 +3919,12 @@ def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> d
             # Never read the body, even if a server ignores Range and sends a whole file.
             with _open_handoff_response(opener, final_url, "GET", {**headers, "Range": "bytes=0-0"}, provider) as response:
                 final_url = response.geturl()
-                metadata = _handoff_metadata(response, "GET")
+                metadata = _handoff_metadata(response, "GET", require_disposition=provider == "apexdrive")
         name, size = metadata
+        if provider == "apexdrive":
+            expected_name = parse_qs(urlparse(direct).query, keep_blank_values=True)["fn"][0]
+            if name != expected_name:
+                raise HandoffError("ApexDrive가 전달한 파일명과 다운로드 서버 응답이 일치하지 않습니다.")
     except HTTPError as exc:
         code = exc.code
         exc.close()
@@ -4507,6 +4580,8 @@ def provider_for_url(raw_url: str) -> str:
         return "sendnow"
     if host == "x-share.net":
         return "xshare"
+    if host == APEXDRIVE_SHARE_HOST:
+        return "apexdrive"
     if host in {"gofile.io", "www.gofile.io"}:
         return "gofile"
     if host in {"pixeldrain.com", "www.pixeldrain.com", "pixeldrain.net", "pixeldra.in"}:
@@ -4520,7 +4595,7 @@ def provider_for_url(raw_url: str) -> str:
 
 def inspect_download(raw_url: str) -> dict:
     host = (urlparse(raw_url.strip()).hostname or "").lower()
-    if host in {"akirabox.to", "akirabox.com", "vik1ngfile.site", "vikingfile.com", "x-share.net", *SENDNOW_SHARE_HOSTS}:
+    if host in {"akirabox.to", "akirabox.com", "vik1ngfile.site", "vikingfile.com", "x-share.net", APEXDRIVE_SHARE_HOST, *SENDNOW_SHARE_HOSTS}:
         raise ValueError("이 서비스는 크롬 확장에서 다운로드 버튼이 준비된 뒤 NAS로 보내 주세요.")
     try:
         if _is_buzzheavier_download_host(host):
@@ -4938,7 +5013,7 @@ class Handler(BaseHTTPRequestHandler):
                 "gigafile_download_key": True,
                 "browser_handoff_refresh_providers": ["xshare"],
                 "async_enqueue_providers": ["gigafile", "gofile"],
-                "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow", "xshare"],
+                "browser_handoff_providers": ["akirabox", "vikingfile", "sendnow", "xshare", "apexdrive"],
                 "disk_protection": DISK_PROTECTION,
                 "temporary_folder": ".nasdrop-tmp",
                 "archive_formats": ["zip", "7z", "rar", "tar", "tar.gz", "tgz", "tar.bz2", "tbz2", "tar.xz", "txz"],
