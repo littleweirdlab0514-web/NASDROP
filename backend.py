@@ -3541,9 +3541,6 @@ def _validate_xshare_url(value: str, *, direct: bool) -> str:
 APEXDRIVE_SHARE_HOST = "myapexdrive.com"
 APEXDRIVE_DELIVERY_HOST = "d.linatalksbayou.com"
 APEXDRIVE_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\Z")
-APEXDRIVE_VERIFY = re.compile(r"(?P<issued>[0-9]{10})-(?P<signature>[A-Za-z0-9+/=._~-]{16,4096})\Z")
-
-
 def _apexdrive_file_id(value: str) -> str:
     parsed = urlparse(value)
     match = re.fullmatch(
@@ -3570,12 +3567,12 @@ def _validate_apexdrive_url(value: str, *, direct: bool) -> str:
             if set(query) != {"verify", "fn"} or any(len(values) != 1 for values in query.values()):
                 raise ValueError
             verify, filename = query["verify"][0], query["fn"][0]
-            if not APEXDRIVE_VERIFY.fullmatch(verify):
+            if (not verify or len(verify.encode("utf-8")) > 4096
+                    or any(ord(char) < 33 or ord(char) == 127 for char in verify)):
                 raise ValueError
-            # The ten-digit prefix is an opaque service timestamp, not an
-            # expiry. ApexDrive continues to serve valid Range requests after
-            # this value passes, so freshness must be decided by the delivery
-            # server response rather than by the local NAS clock.
+            # The provider owns the complete opaque value. Do not interpret a
+            # timestamp, signature format, or freshness locally; the delivery
+            # server response decides whether the issued URL remains valid.
             cleaned = _clean_download_name(filename)
             if (not filename or cleaned != filename or filename in {".", ".."}
                     or len(filename.encode("utf-8")) > 255):

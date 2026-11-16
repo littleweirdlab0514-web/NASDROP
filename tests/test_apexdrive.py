@@ -17,7 +17,7 @@ SIGNATURE = "AbCdEfghijklmnop+/0123456789=="
 
 
 def direct(file_id=FILE_ID, verify=None, filename="테스트 영상.mp4"):
-    verify = verify or f"{int(time.time()) + 3600}-{SIGNATURE}"
+    verify = f"{int(time.time()) + 3600}-{SIGNATURE}" if verify is None else verify
     return (
         f"https://d.linatalksbayou.com/xbox-apex/987654/{file_id}.mp4"
         f"?verify={quote(verify, safe='')}&fn={quote(filename, safe='')}"
@@ -55,19 +55,22 @@ class ApexDriveTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 backend.inspect_browser_handoff(SHARE, bad, "apexdrive")
 
-    def test_verify_timestamp_is_opaque_and_rejects_whitespace_and_oversize(self):
+    def test_verify_is_opaque_and_rejects_blank_control_and_oversize_values(self):
         now = 2_000_000_000
         with mock.patch.object(backend.time, "time", return_value=now):
-            valid = direct(verify=f"{now + 300}-{SIGNATURE}")
-            self.assertEqual(backend._validate_apexdrive_url(valid, direct=True), valid)
-            # Live ApexDrive links remain usable after this timestamp passes;
-            # the delivery server, not the NAS clock, decides freshness.
-            older = direct(verify=f"{now - 3600}-{SIGNATURE}")
-            self.assertEqual(backend._validate_apexdrive_url(older, direct=True), older)
+            for opaque in (
+                f"{now + 300}-{SIGNATURE}",
+                f"{now - 3600}-{SIGNATURE}",
+                "provider-defined-token-without-a-timestamp",
+                "opaque:value.with~symbols+/=",
+            ):
+                value = direct(verify=opaque)
+                self.assertEqual(backend._validate_apexdrive_url(value, direct=True), value)
             for bad in (
-                direct(verify=f"{now + 300}-bad signature=="),
-                direct(verify=f"{now + 300}-{'A' * 4097}"),
-                direct(verify=f"{now + 300}-short"),
+                direct(verify=""),
+                direct(verify="contains space"),
+                direct(verify="contains\nnewline"),
+                direct(verify="A" * 4097),
                 direct(verify=f"{now + 300}-{SIGNATURE}") + "&verify=duplicate",
             ):
                 with self.subTest(bad=bad), self.assertRaises(ValueError):
