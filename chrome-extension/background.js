@@ -201,7 +201,7 @@ async function submitUrl(rawUrl, notify = false, handoffPage = '', options = {})
     return {file,...started};
   }
   const handoffProvider = handoffPage ? NASDropProviders.provider(handoffPage) : '';
-  const inspectBody = ['akirabox','vikingfile','sendnow','xshare'].includes(handoffProvider)
+  const inspectBody = ['akirabox','vikingfile','sendnow','xshare','apexdrive'].includes(handoffProvider)
     ? {url:NASDropProviders.share(handoffPage), resolved_url:source.href, provider:handoffProvider}
     : {url:source.href};
   const inspected = await api('/api/inspect', {
@@ -450,7 +450,7 @@ async function pageReadiness(page) {
   const ready = Boolean(saved.baseUrl && saved.token);
   const language=NASDropI18n.resolve(saved.language,chrome.i18n.getUILanguage());
   const provider = NASDropProviders.provider(page);
-  if (!ready || !['akirabox','vikingfile','sendnow','xshare','gigafile','gofile'].includes(provider)) return {ready,language};
+  if (!ready || !['akirabox','vikingfile','sendnow','xshare','apexdrive','gigafile','gofile'].includes(provider)) return {ready,language};
   const status = await api('/api/status');
   if (provider === 'gigafile') return {ready:true,language,gigafileDownloadKeySupported:status.gigafile_download_key === true};
   if (provider === 'gofile') return {ready:true,language,asyncEnqueueSupported:Array.isArray(status.async_enqueue_providers) && status.async_enqueue_providers.includes('gofile')};

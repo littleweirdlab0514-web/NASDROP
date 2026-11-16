@@ -9,6 +9,7 @@ const adapterSource = await readFile(new URL('provider-adapters.js', root), 'utf
 const contentSource = await readFile(new URL('content.js', root), 'utf8');
 const workerSource = await readFile(new URL('background.js', root), 'utf8');
 const xshareMainSource = await readFile(new URL('xshare-main.js', root), 'utf8');
+const apexMainSource = await readFile(new URL('apexdrive-main.js', root), 'utf8');
 const page = 'https://buzzheavier.com/testfile1234';
 const signed = 'https://ts.buzzheavier.com/d/testfile1234?v=synthetic-token';
 const context = vm.createContext({URL, AbortSignal});
@@ -343,6 +344,10 @@ const sendNowLegacyPage = 'https://send.now/e0g53wnqs8ze';
 const sendNowFinalPage = 'https://send.now/';
 const xsharePage = 'https://x-share.net/s/Share123';
 const xshareUrl = 'https://x-share.net/api/download/Share123?key=synthetic%2Bopaque%2Fkey%3D';
+const apexPage = 'https://myapexdrive.com/file/367b5c1b-b6e1-49f6-9357-e9afa5af2c0a?name=Example';
+const apexSource = 'https://myapexdrive.com/file/367b5c1b-b6e1-49f6-9357-e9afa5af2c0a';
+const apexExpiry = Math.floor(Date.now()/1000)+3600;
+const apexUrl = `https://d.linatalksbayou.com/xbox-apex/2104449821292371970/b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7.mp4?verify=${apexExpiry}-synthetic%2Fsignature%3D&fn=example.mp4`;
 const akiraIssued = Math.floor(Date.now()/1000);
 const akiraExpiry = akiraIssued + 3600;
 const akiraUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${akiraExpiry}&t=${akiraIssued}&s=${'a'.repeat(64)}&b=${'b'.repeat(64)}`;
@@ -515,6 +520,52 @@ test('X-Share MAIN-world hook suppresses only one armed exact issued anchor clic
   assert.equal(unrelated.originalClicks,1);
 });
 
+test('ApexDrive accepts only its canonical share and exact short-lived delivery URL', () => {
+  assert.equal(adapter.share(apexPage),apexSource);
+  assert.equal(adapter.allowedSubmission(apexPage,apexUrl),true);
+  for (const invalid of [
+    apexUrl.replace('https:','http:'), apexUrl.replace('d.linatalksbayou.com','d.linatalksbayou.com.evil.example'),
+    apexUrl.replace('/xbox-apex/','/other/'), apexUrl.replace('b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7','not-a-uuid'),
+    apexUrl+'&verify=duplicate', apexUrl+'&next=https://evil.example', apexUrl.replace('&fn=example.mp4',''),
+    apexUrl.replace(`verify=${apexExpiry}`, 'verify=1700000000'), `${apexUrl}#fragment`,
+    'https://d.linatalksbayou.com:8443/xbox-apex/1/b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7.mp4?verify=9999999999-aaaaaaaaaaaaaaaa&fn=x.mp4',
+  ]) assert.equal(adapter.allowedSubmission(apexPage,invalid),false);
+  assert.equal(adapter.share(`${apexPage}&name=duplicate`),'');
+  assert.equal(adapter.share('https://myapexdrive.com.evil.example/file/367b5c1b-b6e1-49f6-9357-e9afa5af2c0a'),'');
+});
+
+test('ApexDrive MAIN-world hook leaves all links native until capability arming and suppresses only exact delivery anchors', () => {
+  const listeners=new Map(),issued=[];
+  class CustomEvent { constructor(type,options={}) {this.type=type;this.detail=options.detail;} }
+  const document={addEventListener(name,fn){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(fn);},
+    dispatchEvent(event){if(event.type==='__nasdrop_apexdrive_url_v1')issued.push(event.detail);for(const fn of listeners.get(event.type)||[])fn(event);return true;}};
+  class HTMLAnchorElement {
+    constructor(href){this.href=href;this.originalClicks=0;}
+    getAttribute(name){return name==='href'?this.href:null;}
+    click(){this.originalClicks++;}
+  }
+  const c=vm.createContext({URL,Reflect,Date,CustomEvent,document,HTMLAnchorElement,location:{href:apexPage}});
+  vm.runInContext(apexMainSource,c);
+  const before=new HTMLAnchorElement(apexUrl);before.click();assert.equal(before.originalClicks,1);
+  document.dispatchEvent(new CustomEvent('__nasdrop_apexdrive_arm_v1',{detail:{expiresAt:Date.now()+60000}}));
+  const unrelated=new HTMLAnchorElement('https://ads.example/file.exe');unrelated.click();assert.equal(unrelated.originalClicks,1);
+  const captured=new HTMLAnchorElement(apexUrl);captured.click();
+  assert.equal(captured.originalClicks,0);assert.deepEqual(issued,[apexUrl]);
+});
+
+test('ApexDrive capability arming forwards the generated URL without storing its signature', async () => {
+  const content=contentHarness({pageUrl:apexPage,handoffSupported:true});await flush();
+  content.emit('__nasdrop_apexdrive_url_v1',apexUrl);await flush();await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(content.messages.find(message=>message.type==='pageSubmit'))),{type:'pageSubmit',url:apexUrl,downloadKey:''});
+  const worker=workerHarness({capabilities:['apexdrive']});
+  const sender={...worker.sender,url:apexPage};
+  assert.equal((await worker.dispatch({type:'pageSubmit',url:apexUrl},sender)).ok,true);
+  const body=JSON.parse(worker.calls.find(call=>call.url.endsWith('/api/inspect')).options.body);
+  assert.deepEqual(body,{url:apexSource,resolved_url:apexUrl,provider:'apexdrive'});
+  assert.equal(JSON.stringify(worker.saved).includes('verify='),false);
+  assert.equal(JSON.stringify(worker.session).includes('verify='),false);
+});
+
 test('Send.now challenge controls are not clicked, solved or submitted by the extension', async () => {
   const h=contentHarness({pageUrl:sendNowPage,handoffSupported:true});
   assert.equal(h.click(control({},['button#challenge','button.continue'])).prevented,undefined);
@@ -554,6 +605,7 @@ test('provider capabilities are independent',async()=>{
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:vikingPage})).result.handoffSupported,false);
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:sendNowPage})).result.handoffSupported,false);
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:xsharePage})).result.handoffSupported,false);
+  assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:apexPage})).result.handoffSupported,false);
   assert.equal((await h.dispatch({type:'pageSubmit',url:vikingUrl},{...h.sender,url:vikingPage})).ok,false);
   assert.equal((await h.dispatch({type:'pageSubmit',url:sendNowUrl},{...h.sender,url:sendNowPage})).ok,false);
   assert.ok(!h.calls.some(c=>c.url.endsWith('/api/inspect')));

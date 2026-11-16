@@ -1,7 +1,7 @@
 # NASDrop provider behavior and security policy
 
-Last updated: 2026-10-23
-Applies to: NASDrop Server 0.9.29-2 and the next X-Share reauthentication candidate
+Last updated: 2026-11-16
+Applies to: NASDrop Server 0.9.29-2 and the next browser-handoff candidate
 
 This document is the implementation and maintenance baseline for supported download providers and the security controls shared by the Synology and Docker distributions. The Synology package is canonical; Docker must package the same provider and API implementation rather than carrying provider-specific forks.
 
@@ -32,6 +32,7 @@ Provider websites are external systems and may change without notice. “Support
 | VikingFile | Official share plus its prepared file URL | Chrome browser handoff only | Forced single connection; strict redirect/account allowlist and Range validation | Use a fresh official button/link; do not broaden the host allowlist to make one sample pass |
 | Send.now | Official share plus the final browser-created download URL | Chrome user-assisted handoff only | Forced single connection; DNS validation and IP pinning | Complete verification and Continue yourself, then click the final `Download [size]` button again |
 | X-Share | Official `https://x-share.net/s/<id>` plus its same-file `/api/download/<id>?key=...` URL | Chrome user-assisted handoff; matching `xshare` capability required | One full GET per attempt; no keyed preflight or ranges; initial request plus three bounded retries after 10/20/30 seconds; DNS/IP pinning | After retry exhaustion, use the extension's reauthentication action and complete the official verification/download click again; the same job is resumed with the fresh private URL |
+| ApexDrive | Official `https://myapexdrive.com/file/<uuid>` plus the browser-generated `d.linatalksbayou.com/xbox-apex/...` URL | Chrome user-assisted handoff; matching `apexdrive` capability required | Single connection; exact host/path/query, expiration, public-DNS pinning and response metadata validation | Return to the original share and click Download again to generate a fresh signed URL |
 
 ## 1fichier
 
@@ -175,6 +176,16 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 - A service that requires browser execution, CAPTCHA, account cookies, advertisement navigation, or a short-lived issued URL is not made “generic” by relaxing validation. It needs a provider-specific, user-initiated adapter and server-side validation contract.
 - CAPTCHA automation, challenge bypass, copied browser cookies, and unrestricted remote-browser control are outside the supported design.
 - A new provider must define its canonical share form, official user action, final host/redirect rules, expiration evidence, size/name/range validation, concurrency policy, safe error behavior, and live test gate before capability advertisement.
+
+## ApexDrive
+
+- The accepted public form is the exact HTTPS/default-port `myapexdrive.com/file/<uuid>` path. One display-only `name` query may appear in the browser, but the canonical public job source omits it.
+- The current page bundle creates a temporary anchor and programmatically clicks a signed `https://d.linatalksbayou.com/xbox-apex/<numeric>/<uuid>.<extension>?verify=<expiry-signature>&fn=<filename>` URL. The public-share UUID and delivery-path UUID differ in the observed sample and must not be forced to match.
+- Chrome 0.5.13 uses static packaged MAIN-world code that remains inert until `/api/status.browser_handoff_providers` contains `apexdrive`. It suppresses only the exact validated generated anchor before a local browser transfer and validates it again in the isolated script. Without the capability, native downloading remains unchanged.
+- Require HTTPS, the default port, no credentials or fragment, the exact delivery host and path structure, one `verify` and one `fn`, a non-expired bounded signature, and a sanitized filename whose extension agrees with the path. Reject duplicates, unknown fields, lookalikes, private addresses and HTML/error responses.
+- Resolve and pin only globally routable delivery addresses while retaining the original hostname for TLS verification. Require valid size, file content and final `Content-Disposition`; the response filename is authoritative under the shared filename rules.
+- Treat `verify` as a private short-lived credential. It must not appear in logs, public jobs, API responses, extension storage or persistent secret files. If registration or transfer cannot finish while it remains in memory, require a fresh official Download action rather than replaying a stale value.
+- Use one transfer connection until real provider evidence demonstrates safe Range/resume behavior. Automated structural and server contract tests do not replace a real Docker/NAS transfer gate.
 
 ## X-Share
 

@@ -1,6 +1,6 @@
 # Privacy Policy for NASDrop for Chrome
 
-Last updated: October 23, 2026
+Last updated: November 16, 2026
 
 NASDrop for Chrome is a companion extension for a NASDrop Server selected and operated by the user. The developer does not operate an intermediary download service and does not receive the user's NAS credentials, download links, files or job history.
 
@@ -31,7 +31,7 @@ The server is controlled by the user, not by the extension developer. The user's
 
 ## Supported provider sites
 
-The extension runs only on the supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share page patterns listed in its package. It observes the page only to recognize an official download control and respond to the user's click. For providers that issue a short-lived download URL, the extension may request or capture that URL and send it to the user's NASDrop Server. On Send.now, verification and Continue are left untouched. On X-Share, the user completes Turnstile and the provider wait; only an enabled official Download click temporarily arms capture of the exact same-file one-time anchor before a local transfer begins. If an existing job needs reauthentication, the user must first select that exact job in the popup and explicitly reopen its public X-Share page; the next validated same-file official-button URL is sent only to that job. Unsupported or unarmed X-Share downloads retain the site's normal behavior. It does not read challenge tokens, solve or bypass CAPTCHA, Cloudflare or other security-verification steps, click advertisements, or copy browser cookies to the server.
+The extension runs only on the supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now, X-Share and ApexDrive page patterns listed in its package. It observes the page only to recognize an official download action and respond to the user's click. For providers that issue a short-lived download URL, the extension may request or capture that URL and send it to the user's NASDrop Server. ApexDrive capture is capability-gated and accepts only the exact observed delivery host/path and signature fields; the signed URL is not persisted. It does not read challenge tokens, solve or bypass CAPTCHA, Cloudflare or other security-verification steps, click advertisements, or copy browser cookies to the server.
 
 ## Chrome permissions
 

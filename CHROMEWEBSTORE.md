@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — NASDrop for Chrome
 
-> Last Updated: 2026-10-23
+> Last Updated: 2026-11-16
 
 ## Store Listing
 
@@ -17,7 +17,7 @@ Send supported file-host downloads to your own NASDrop server and manage their p
 NASDrop for Chrome sends supported file-host downloads to a NASDrop server that you operate.
 
 FEATURES
-• Recognizes official download controls on supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share pages
+• Recognizes official download actions on supported GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now, X-Share and ApexDrive pages
 • Preserves distinct GoFile file clicks in page order and avoids duplicate submissions while an earlier registration is pending
 • Includes an optional Buy Me a Coffee banner that opens the project's external support page
 • Sends downloads to your NAS instead of saving them through the browser
@@ -42,9 +42,9 @@ Access to supported provider pages is used only to recognize their official down
 SUPPORT
 Report sanitized issues at https://github.com/littleweirdlab0514-web/NASDROP/issues or email littleweirdlab0514@gmail.com. Never include passwords, session tokens, private download links or an unredacted NAS address in a public report.
 
-Version 0.5.12 — Clearly identifies X-Share jobs that need fresh verification and lets the user reopen X-Share to refresh the same job after completing the site's security check.
+Version 0.5.13 — Adds capability-gated ApexDrive handoff by capturing only its strict, short-lived generated download address before a local browser copy starts.
 
-Minimum browser: Chrome 111, required by the statically declared MAIN-world X-Share content script.
+Minimum browser: Chrome 111, required by the statically declared MAIN-world X-Share and ApexDrive content scripts.
 
 **Category**
 
@@ -72,7 +72,7 @@ English
 ### Screenshot Notes
 
 - Use only synthetic filenames and a private test NAS address that has been fully redacted.
-- Show the current 0.5.12 popup, including the sponsor banner, collapsed controls by default and one expanded X-Share verification action.
+- Show the current 0.5.13 popup, including the sponsor banner, collapsed controls by default and one expanded X-Share verification action.
 - Capture each image at an accepted exact size; do not scale a mobile screenshot into the store frame.
 - Do not show credentials, session tokens, signed provider URLs, cookies or real private hostnames.
 
@@ -88,7 +88,7 @@ English
 | `storage` | permissions | Stores the chosen NASDrop address, access token, username, language and extraction preference locally. Session storage holds the short-lived pending Send.now handoff and, after an explicit refresh action, only the X-Share job ID and canonical public share URL. Passwords, GigaFile download keys and signed handoff URLs, including X-Share keys, are not stored. |
 | `http://*/*` | optional_host_permissions | Allows the user to grant access at sign-in to a self-hosted NASDrop server on a private HTTP address. The extension requests only the entered server origin at runtime. |
 | `https://*/*` | optional_host_permissions | Allows the user to grant access at sign-in to a self-hosted NASDrop server on an arbitrary HTTPS hostname. The extension requests only the entered server origin at runtime. |
-| Listed GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share URL patterns | content script matches | Detects only the supported sites' official download controls and forwards a user-clicked download to the user's NASDrop server. On Send.now and X-Share, it does not interact with CAPTCHA, Turnstile or security-challenge controls. X-Share's MAIN-world script is static package code that suppresses only one armed exact same-file anchor before local transfer; it executes no remote code. |
+| Listed GigaFile, GoFile, Pixeldrain, Buzzheavier, AkiraBox, VikingFile, Send.now, X-Share and ApexDrive URL patterns | content script matches | Detects only supported download actions and forwards a user-clicked download to the user's NASDrop server. Static MAIN-world package code for X-Share and ApexDrive suppresses only narrowly validated generated anchors after the NAS capability is confirmed; it executes no remote code. |
 
 ## Privacy & Data Use
 
@@ -149,6 +149,7 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 0.5.13 | 2026-11-16 | Capability-gated ApexDrive generated-anchor capture with exact host/path/query validation and no signed-link persistence | Candidate |
 | 0.5.12 | 2026-10-23 | Capability-gated X-Share reauthentication for the same waiting job after server retries are exhausted; the one-time key is never stored | Candidate |
 | 0.5.11 | 2026-10-18 | Shorter connected-site guidance and a bundled official Buy Me a Coffee banner linking to the project support page | GitHub release |
 | 0.5.10 | 2026-10-06 | Bounded, duplicate-safe GoFile click FIFO plus capability-gated asynchronous server enqueue with legacy fallback | Candidate |
@@ -166,22 +167,22 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 ### Submission Readiness
 
-- [x] Manifest V3 and extension version 0.5.12
+- [x] Manifest V3 and extension version 0.5.13
 - [x] English default with Korean, Simplified Chinese and Japanese locales
 - [x] Automated Chrome extension tests pass
-- [ ] Publish `NASDrop-Chrome-0.5.12.zip` as the signed-checksum GitHub developer-mode package after the matching server contract is verified
+- [ ] Publish `NASDrop-Chrome-0.5.13.zip` as the signed-checksum GitHub developer-mode package after the matching server contract is verified
 - [ ] Publish the Chrome-specific privacy policy on the public default branch
 - [ ] Create the exact 128×128 store icon
 - [ ] Capture at least one exact-size store screenshot with synthetic/redacted data
 - [ ] Complete an installed-extension run in Chrome with DevTools MCP after restarting Codex and enabling Chrome remote debugging
-- [ ] Complete live NAS end-to-end checks for Buzzheavier, AkiraBox, VikingFile, Send.now and X-Share
+- [ ] Complete live NAS end-to-end checks for Buzzheavier, AkiraBox, VikingFile, Send.now, X-Share and ApexDrive
 - [ ] Verify the publisher name and contact email in the Chrome Web Store developer account
 - [ ] Prepare reviewer instructions and a safe reviewer-accessible NASDrop test environment if Google requests credentials
 
 ### Known Issues / Limitations
 
 - A running user-operated NASDrop server is required; the extension is not a standalone downloader.
-- AkiraBox, VikingFile, Send.now and X-Share browser handoff require a NASDrop Server that advertises the matching capability and depend on third-party page behavior that may change.
+- AkiraBox, VikingFile, Send.now, X-Share and ApexDrive browser handoff require a NASDrop Server that advertises the matching capability and depend on third-party page behavior that may change.
 - X-Share requires the user to complete Turnstile and wait for the official button. The extension does not inspect the Turnstile response. Token IP binding, redirects and completed NAS transfer remain unverified until a live user-issued key is tested.
 - Send.now may require the user to complete security verification and press Continue before the final Download button appears. The extension neither solves nor bypasses those steps and does not intercept Continue; it watches for a browser download only after the later final Download button is clicked.
 - The first connection requests host access for the entered NASDrop origin. After approval, the popup closes and the user may need to reopen it and sign in again.

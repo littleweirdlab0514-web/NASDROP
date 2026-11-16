@@ -38,7 +38,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.11 is the current GitHub companion release. It retains GoFile's ordered click queue and the current AkiraBox, X-Share, and Pixeldrain controls, with shorter popup guidance and a Buy Me a Coffee banner.**
+- **Chrome extension 0.5.13 is the current candidate. It adds capability-gated ApexDrive handoff while retaining GoFile's ordered click queue, X-Share recovery, current provider controls and the Buy Me a Coffee banner.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
