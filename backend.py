@@ -3541,7 +3541,8 @@ def _validate_xshare_url(value: str, *, direct: bool) -> str:
 APEXDRIVE_SHARE_HOST = "myapexdrive.com"
 APEXDRIVE_DELIVERY_HOST = "d.linatalksbayou.com"
 APEXDRIVE_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\Z")
-APEXDRIVE_VERIFY = re.compile(r"[A-Za-z0-9._~-]{16,4096}\Z")
+APEXDRIVE_VERIFY = re.compile(r"(?P<expires>[0-9]{10})-(?P<signature>[A-Za-z0-9+/=._~-]{16,4096})\Z")
+APEXDRIVE_CLOCK_SKEW_SECONDS = 60
 
 
 def _apexdrive_file_id(value: str) -> str:
@@ -3570,8 +3571,14 @@ def _validate_apexdrive_url(value: str, *, direct: bool) -> str:
             if set(query) != {"verify", "fn"} or any(len(values) != 1 for values in query.values()):
                 raise ValueError
             verify, filename = query["verify"][0], query["fn"][0]
-            if not APEXDRIVE_VERIFY.fullmatch(verify):
+            verification = APEXDRIVE_VERIFY.fullmatch(verify)
+            if not verification:
                 raise ValueError
+            # ApexDrive prefixes its opaque Base64 signature with a Unix expiry.
+            # Permit a small NAS/browser clock difference, but never accept a
+            # stale token merely because the remaining signature is well formed.
+            if int(verification.group("expires")) + APEXDRIVE_CLOCK_SKEW_SECONDS <= time.time():
+                raise HandoffError("ApexDrive 다운로드 링크가 만료됐습니다.")
             cleaned = _clean_download_name(filename)
             if (not filename or cleaned != filename or filename in {".", ".."}
                     or len(filename.encode("utf-8")) > 255):

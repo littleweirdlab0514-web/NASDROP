@@ -2,6 +2,7 @@ from email.message import Message
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 from unittest import mock
 from urllib.parse import quote
@@ -12,12 +13,14 @@ import backend
 FILE_ID = "123e4567-e89b-42d3-a456-426614174000"
 OTHER_ID = "123e4567-e89b-42d3-a456-426614174001"
 SHARE = f"https://myapexdrive.com/file/{FILE_ID}"
+SIGNATURE = "AbCdEfghijklmnop+/0123456789=="
 
 
-def direct(file_id=FILE_ID, verify="signed-token_1234567890", filename="테스트 영상.mp4"):
+def direct(file_id=FILE_ID, verify=None, filename="테스트 영상.mp4"):
+    verify = verify or f"{int(time.time()) + 3600}-{SIGNATURE}"
     return (
         f"https://d.linatalksbayou.com/xbox-apex/987654/{file_id}.mp4"
-        f"?verify={quote(verify)}&fn={quote(filename)}"
+        f"?verify={quote(verify, safe='')}&fn={quote(filename, safe='')}"
     )
 
 
@@ -46,11 +49,29 @@ class ApexDriveTests(unittest.TestCase):
             direct().replace("/xbox-apex/987654/", "/other/987654/"),
             direct().replace("?verify=", "?extra=1&verify="),
             direct() + "&verify=duplicate", direct().replace("&fn=", "&other="),
-            direct().replace("signed-token_1234567890", "short"),
+            direct(verify="short"),
             direct(filename="../unsafe.mp4"), direct(filename="not-video.zip"),
         ):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 backend.inspect_browser_handoff(SHARE, bad, "apexdrive")
+
+    def test_verify_allows_real_base64_and_rejects_expired_whitespace_and_oversize(self):
+        now = 2_000_000_000
+        with mock.patch.object(backend.time, "time", return_value=now):
+            valid = direct(verify=f"{now + 300}-{SIGNATURE}")
+            self.assertEqual(backend._validate_apexdrive_url(valid, direct=True), valid)
+            # A small NAS/browser clock skew is tolerated at the expiry edge.
+            skewed = direct(verify=f"{now - 30}-{SIGNATURE}")
+            self.assertEqual(backend._validate_apexdrive_url(skewed, direct=True), skewed)
+            for bad in (
+                direct(verify=f"{now - 61}-{SIGNATURE}"),
+                direct(verify=f"{now + 300}-bad signature=="),
+                direct(verify=f"{now + 300}-{'A' * 4097}"),
+                direct(verify=f"{now + 300}-short"),
+                direct(verify=f"{now + 300}-{SIGNATURE}") + "&verify=duplicate",
+            ):
+                with self.subTest(bad=bad), self.assertRaises(ValueError):
+                    backend._validate_apexdrive_url(bad, direct=True)
 
     def test_share_and_delivery_uuids_are_independent(self):
         url = direct(OTHER_ID)
@@ -65,7 +86,7 @@ class ApexDriveTests(unittest.TestCase):
         self.assertEqual(result["name"], "공식 이름.mp4")
         self.assertEqual(result["size"], 100)
         self.assertEqual(result["provider"], "apexdrive")
-        self.assertNotIn("signed-token", str(backend.public_inspection(result)))
+        self.assertNotIn(SIGNATURE, str(backend.public_inspection(result)))
         self.assertEqual(opened.call_args.args[1], "HEAD")
 
     def test_content_disposition_is_required_and_must_match_fn(self):
@@ -92,7 +113,7 @@ class ApexDriveTests(unittest.TestCase):
                 job = controller.start_many([file], temp, False)[0]
             self.assertEqual(backend.load_job_download_url(job.id), "")
             self.assertFalse((Path(temp) / "secrets" / f"{job.id}.json").exists())
-            self.assertNotIn("signed-token", str(backend.asdict(job)))
+            self.assertNotIn(SIGNATURE, str(backend.asdict(job)))
 
             controller._download_script_direct = mock.Mock(side_effect=RuntimeError("STOP-BEFORE-TRANSFER"))
             with mock.patch.object(
