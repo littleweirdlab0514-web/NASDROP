@@ -3541,8 +3541,7 @@ def _validate_xshare_url(value: str, *, direct: bool) -> str:
 APEXDRIVE_SHARE_HOST = "myapexdrive.com"
 APEXDRIVE_DELIVERY_HOST = "d.linatalksbayou.com"
 APEXDRIVE_UUID = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\Z")
-APEXDRIVE_VERIFY = re.compile(r"(?P<expires>[0-9]{10})-(?P<signature>[A-Za-z0-9+/=._~-]{16,4096})\Z")
-APEXDRIVE_CLOCK_SKEW_SECONDS = 60
+APEXDRIVE_VERIFY = re.compile(r"(?P<issued>[0-9]{10})-(?P<signature>[A-Za-z0-9+/=._~-]{16,4096})\Z")
 
 
 def _apexdrive_file_id(value: str) -> str:
@@ -3571,14 +3570,12 @@ def _validate_apexdrive_url(value: str, *, direct: bool) -> str:
             if set(query) != {"verify", "fn"} or any(len(values) != 1 for values in query.values()):
                 raise ValueError
             verify, filename = query["verify"][0], query["fn"][0]
-            verification = APEXDRIVE_VERIFY.fullmatch(verify)
-            if not verification:
+            if not APEXDRIVE_VERIFY.fullmatch(verify):
                 raise ValueError
-            # ApexDrive prefixes its opaque Base64 signature with a Unix expiry.
-            # Permit a small NAS/browser clock difference, but never accept a
-            # stale token merely because the remaining signature is well formed.
-            if int(verification.group("expires")) + APEXDRIVE_CLOCK_SKEW_SECONDS <= time.time():
-                raise HandoffError("ApexDrive 다운로드 링크가 만료됐습니다.")
+            # The ten-digit prefix is an opaque service timestamp, not an
+            # expiry. ApexDrive continues to serve valid Range requests after
+            # this value passes, so freshness must be decided by the delivery
+            # server response rather than by the local NAS clock.
             cleaned = _clean_download_name(filename)
             if (not filename or cleaned != filename or filename in {".", ".."}
                     or len(filename.encode("utf-8")) > 255):
@@ -3928,10 +3925,9 @@ def inspect_browser_handoff(share_url: str, signed_url: str, provider: str) -> d
                 final_url = response.geturl()
                 metadata = _handoff_metadata(response, "GET", require_disposition=provider == "apexdrive")
         name, size = metadata
-        if provider == "apexdrive":
-            expected_name = parse_qs(urlparse(direct).query, keep_blank_values=True)["fn"][0]
-            if name != expected_name:
-                raise HandoffError("ApexDrive가 전달한 파일명과 다운로드 서버 응답이 일치하지 않습니다.")
+        # ApexDrive's `fn` is a display hint and may contain a user-renamed
+        # title while Content-Disposition still carries the original file
+        # name. The required, sanitized response header is authoritative.
     except HTTPError as exc:
         code = exc.code
         exc.close()

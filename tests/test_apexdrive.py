@@ -55,16 +55,16 @@ class ApexDriveTests(unittest.TestCase):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 backend.inspect_browser_handoff(SHARE, bad, "apexdrive")
 
-    def test_verify_allows_real_base64_and_rejects_expired_whitespace_and_oversize(self):
+    def test_verify_timestamp_is_opaque_and_rejects_whitespace_and_oversize(self):
         now = 2_000_000_000
         with mock.patch.object(backend.time, "time", return_value=now):
             valid = direct(verify=f"{now + 300}-{SIGNATURE}")
             self.assertEqual(backend._validate_apexdrive_url(valid, direct=True), valid)
-            # A small NAS/browser clock skew is tolerated at the expiry edge.
-            skewed = direct(verify=f"{now - 30}-{SIGNATURE}")
-            self.assertEqual(backend._validate_apexdrive_url(skewed, direct=True), skewed)
+            # Live ApexDrive links remain usable after this timestamp passes;
+            # the delivery server, not the NAS clock, decides freshness.
+            older = direct(verify=f"{now - 3600}-{SIGNATURE}")
+            self.assertEqual(backend._validate_apexdrive_url(older, direct=True), older)
             for bad in (
-                direct(verify=f"{now - 61}-{SIGNATURE}"),
                 direct(verify=f"{now + 300}-bad signature=="),
                 direct(verify=f"{now + 300}-{'A' * 4097}"),
                 direct(verify=f"{now + 300}-short"),
@@ -89,14 +89,15 @@ class ApexDriveTests(unittest.TestCase):
         self.assertNotIn(SIGNATURE, str(backend.public_inspection(result)))
         self.assertEqual(opened.call_args.args[1], "HEAD")
 
-    def test_content_disposition_is_required_and_must_match_fn(self):
+    def test_content_disposition_is_required_and_authoritative(self):
         url = direct(filename="expected.mp4")
         missing = Response(url, "expected.mp4")
         del missing.headers["Content-Disposition"]
         with mock.patch.object(backend, "_open_public_handoff_pinned", return_value=missing), self.assertRaises(ValueError):
             backend.inspect_browser_handoff(SHARE, url, "apexdrive")
-        with mock.patch.object(backend, "_open_public_handoff_pinned", return_value=Response(url, "other.mp4")), self.assertRaisesRegex(ValueError, "파일명"):
-            backend.inspect_browser_handoff(SHARE, url, "apexdrive")
+        with mock.patch.object(backend, "_open_public_handoff_pinned", return_value=Response(url, "other.mp4")):
+            result = backend.inspect_browser_handoff(SHARE, url, "apexdrive")
+        self.assertEqual(result["name"], "other.mp4")
 
     def test_signed_url_is_memory_only_and_single_transfer_is_dns_pinned(self):
         url = direct()

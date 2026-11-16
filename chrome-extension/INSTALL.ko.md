@@ -11,10 +11,10 @@ NASDrop 확장은 공유 사이트의 다운로드를 NASDrop 서버로 보내�
 
 ## 2. 확장 ZIP 다운로드 및 압축 해제
 
-0.5.13은 기존 기능을 유지하면서 ApexDrive를 추가합니다. ApexDrive 공유 페이지에서 사용자가 다운로드를 누르면 사이트가 생성한 정확한 단기 파일 주소만 Chrome 다운로드 전에 NASDrop으로 전달하며, 서명 주소는 확장 저장소에 보관하지 않습니다. 호환 서버가 `apexdrive` 기능을 알려 주지 않으면 사이트의 원래 다운로드가 그대로 동작합니다.
+0.5.14는 기존 기능을 유지하면서 ApexDrive 전달 주소 검증을 바로잡습니다. `verify` 안의 숫자는 로컬 만료 시각으로 해석하지 않고 전달 서버가 유효성을 판단하며, 사용자가 다운로드를 누르면 사이트가 생성한 정확한 파일 주소만 Chrome 다운로드 전에 NASDrop으로 전달합니다. 서명 주소는 확장 저장소에 보관하지 않으며, 호환 서버가 `apexdrive` 기능을 알려 주지 않으면 사이트의 원래 다운로드가 그대로 동작합니다.
 
-1. 0.5.13 공개 후 [확장 프로그램 공개 페이지](https://github.com/littleweirdlab0514-web/NASDROP/releases/tag/chrome-v0.5.13)를 엽니다.
-2. **Assets**에서 `NASDrop-Chrome-0.5.13.zip`을 받습니다.
+1. 0.5.14 공개 후 [확장 프로그램 공개 페이지](https://github.com/littleweirdlab0514-web/NASDROP/releases/tag/chrome-v0.5.14)를 엽니다.
+2. **Assets**에서 `NASDrop-Chrome-0.5.14.zip`을 받습니다.
 3. `Source code (zip)`은 저장소 전체 소스이며, `.spk`는 NAS용 설치 파일입니다. 크롬에는 확장 전용 ZIP을 사용하세요.
 4. ZIP 전체를 `C:\Tools\NASDrop-Chrome`처럼 계속 보관할 폴더에 압축 해제합니다.
 5. 해제한 폴더에 `manifest.json`, `background.js`, `popup.html`, `icons`, `_locales`가 바로 보이는지 확인합니다. 폴더가 한 겹 더 있다면 그 안쪽 폴더를 선택해야 합니다.
@@ -27,7 +27,7 @@ ZIP을 그대로 선택하거나 압축파일 안에서 HTML을 실행하는 방
 2. 오른쪽 위 **개발자 모드**를 켭니다.
 3. **압축해제된 확장 프로그램을 로드합니다** 버튼을 누릅니다. Chrome 버전에 따라 버튼 번역은 조금 다를 수 있습니다.
 4. 앞에서 해제한 폴더 중 `manifest.json`이 직접 들어 있는 폴더를 선택합니다.
-5. **NASDrop for Chrome** 카드가 표시되고, 버전이 **0.5.13**이며 사용 설정이 켜져 있는지 확인합니다. Chrome이 다운로드 관리 권한을 표시하는 것은 Send.now 전달 흐름 때문입니다.
+5. **NASDrop for Chrome** 카드가 표시되고, 버전이 **0.5.14**이며 사용 설정이 켜져 있는지 확인합니다. Chrome이 다운로드 관리 권한을 표시하는 것은 Send.now 전달 흐름 때문입니다.
 6. 크롬 오른쪽 위 퍼즐 모양 확장 프로그램 메뉴를 열어 NASDrop의 핀을 누르면 아이콘을 고정할 수 있습니다.
 
 [Chrome 공식 설치 안내](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world?hl=ko#load-unpacked)도 참고할 수 있습니다. 이 안내는 모바일 Chrome용이 아닙니다. 회사·학교에서 개발자 모드를 차단했다면 관리자에게 문의하세요. 정책을 우회하지 마세요.

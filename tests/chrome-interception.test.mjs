@@ -520,14 +520,15 @@ test('X-Share MAIN-world hook suppresses only one armed exact issued anchor clic
   assert.equal(unrelated.originalClicks,1);
 });
 
-test('ApexDrive accepts only its canonical share and exact short-lived delivery URL', () => {
+test('ApexDrive accepts only its canonical share and exact delivery URL', () => {
   assert.equal(adapter.share(apexPage),apexSource);
   assert.equal(adapter.allowedSubmission(apexPage,apexUrl),true);
+  assert.equal(adapter.allowedSubmission(apexPage,apexUrl.replace(`verify=${apexExpiry}`, 'verify=1700000000-synthetic%2Fsignature%3D')),true);
   for (const invalid of [
     apexUrl.replace('https:','http:'), apexUrl.replace('d.linatalksbayou.com','d.linatalksbayou.com.evil.example'),
     apexUrl.replace('/xbox-apex/','/other/'), apexUrl.replace('b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7','not-a-uuid'),
     apexUrl+'&verify=duplicate', apexUrl+'&next=https://evil.example', apexUrl.replace('&fn=example.mp4',''),
-    apexUrl.replace(`verify=${apexExpiry}`, 'verify=1700000000'), `${apexUrl}#fragment`,
+    `${apexUrl}#fragment`,
     'https://d.linatalksbayou.com:8443/xbox-apex/1/b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7.mp4?verify=9999999999-aaaaaaaaaaaaaaaa&fn=x.mp4',
   ]) assert.equal(adapter.allowedSubmission(apexPage,invalid),false);
   assert.equal(adapter.share(`${apexPage}&name=duplicate`),'');

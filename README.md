@@ -26,7 +26,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 **0.9.29-2:** recognizes split-archive volumes even when each part arrives through a separate supported-service link. NASDrop keeps unmistakably numbered volumes in the private work queue, combines only matching provider/destination/name families, and retries extraction when another volume arrives. If 7-Zip reports that a later volume is still missing, the whole set returns to waiting instead of publishing raw archives or failing. Supported layouts are `.7z.001`, `.zip.001`, `.rar.001`, `.z01` plus `.zip`, `.part01.rar`, and legacy `.rar` plus `.r00`. Synology administrators can also set the DSM icon to open a complete HTTPS reverse-proxy address.
 
-**0.9.30-3 candidate:** fixes GoFile downloads whose newly assigned `*.gofile.io` storage host is missing from the NAS or ISP resolver. NASDrop falls back to Cloudflare DNS-over-HTTPS only for verified GoFile delivery hosts, accepts only public IP addresses, and pins the validated address while preserving HTTPS hostname verification. Docker also supports the Node 20 permission-flag name without disabling the GoFile token sandbox. This candidate retains the storage-capacity checks from 0.9.30-2 and X-Share recovery from 0.9.30-1.
+**0.9.30-4 candidate:** fixes ApexDrive downloads that Download Station and Chrome accept but NASDrop previously rejected. The service timestamp inside `verify` is treated as opaque, the delivery server decides whether the signed URL is valid, and the response `Content-Disposition` filename is authoritative even when it differs from the display-only `fn` value. Exact host/path/query validation, public-DNS pinning, private credential handling, and response metadata checks remain enforced. This candidate also retains the GoFile DNS compatibility from 0.9.30-3, storage-capacity checks from 0.9.30-2, and X-Share recovery from 0.9.30-1.
 
 1fichier shares (`https://1fichier.com/?<id>`) can be added in the NASDrop web portal. Enter a file password if the share requires one; this is different from an archive extraction password. Free 1fichier downloads follow the site's wait/guest-slot/daily limits, run one connection at a time, and restart from zero after interruption. On 2026-09-28, four sequential NAS transfers completed, including the deferred owner and the following job after the daily limit reset. NASDrop does not bypass CAPTCHA, provider limits, or account requirements.
 
@@ -38,7 +38,7 @@ NASDrop is a self-hosted personal download portal for Synology DSM and Docker ho
 
 Send supported download buttons directly to your own NASDrop server, manage the queue, and choose automatic extraction without repeatedly opening the NAS web portal. The extension is a companion client, not a standalone downloader or a replacement for the server.
 
-- **Chrome extension 0.5.13 is the current candidate. It adds capability-gated ApexDrive handoff while retaining GoFile's ordered click queue, X-Share recovery, current provider controls and the Buy Me a Coffee banner.**
+- **Chrome extension 0.5.14 is the current candidate. It no longer rejects valid ApexDrive links by interpreting the service timestamp as a local expiry, while retaining capability-gated handoff, GoFile's ordered click queue, X-Share recovery, current provider controls and the Buy Me a Coffee banner.**
 - **[Installation, updates, permissions and usage](chrome-extension/README.md)**
 - **[Step-by-step installation guide in Korean](chrome-extension/INSTALL.ko.md)**
 - **Compatible NASDrop Server 0.9.26-6 includes the protected GigaFile handoff and the security hardening described below.**
@@ -378,7 +378,7 @@ Build the SPK with Windows PowerShell and Python 3.11 or later. The build tool p
 .\synology\build-spk.ps1
 ```
 
-The output is `synology/dist/nasdrop-0.9.30-3-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
+The output is `synology/dist/nasdrop-0.9.30-4-x86_64.spk`. Building from source does not make the package an official Synology Package Center application.
 
 Release validation details are in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md). The consolidated [provider and security policy](docs/PROVIDER_AND_SECURITY_POLICY.md), provider filename handling in [docs/PROVIDER_FILENAME_GUIDE.md](docs/PROVIDER_FILENAME_GUIDE.md), and DSM launcher-title rules in [docs/DSM_LAUNCHER_GUIDE.md](docs/DSM_LAUNCHER_GUIDE.md) are mandatory references for future changes.
 

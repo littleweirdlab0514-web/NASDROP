@@ -6,14 +6,14 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.30-3 candidate | x86_64 SPK adds GoFile delivery-host DNS fallback while retaining capacity checks and bounded X-Share recovery |
+| Synology package | 0.9.30-4 candidate | x86_64 SPK fixes ApexDrive live-delivery validation while retaining GoFile DNS fallback, capacity checks and bounded X-Share recovery |
 | Docker image | 0.9.29-2 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
 | Android app | 0.8.23 candidate | Shows server-reported NAS free/total capacity and localized low-space errors while retaining X-Share refresh |
-| Chrome extension | 0.5.13 candidate | Retains 0.5.12 behavior and adds capability-gated ApexDrive generated-link handoff without persisting the signed URL |
+| Chrome extension | 0.5.14 candidate | Accepts the service-defined ApexDrive timestamp as opaque while retaining capability-gated handoff without persisting the signed URL |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
 
-The next server candidate advertises `apexdrive` in `browser_handoff_providers`. Chrome 0.5.13 captures only the official page's strict short-lived `d.linatalksbayou.com/xbox-apex/...` anchor after capability confirmation, validates it twice, and submits the canonical share plus private resolved URL. The public share and delivery UUIDs are independent. The `verify` value is never written to extension storage or public job state. Automated contract tests pass; a real NAS transfer remains a release gate.
+NASDrop Server 0.9.30-4 advertises `apexdrive` in `browser_handoff_providers`. Chrome 0.5.14 captures only the official page's strict `d.linatalksbayou.com/xbox-apex/...` anchor after capability confirmation, validates it twice, and submits the canonical share plus private resolved URL. The public share and delivery UUIDs are independent, the numeric component inside `verify` is an opaque service value rather than a client-side expiry deadline, and the delivery response `Content-Disposition` filename is authoritative even when it differs from `fn`. A live PC Docker inspection and 10,940,416-byte transfer passed; the signed URL was absent from persistent configuration, public jobs, and container logs.
 
 NASDrop Server 0.9.29-2 recognizes split-archive volumes discovered in one multi-file share or through separate supported-service links. Matching is limited to the same provider, destination, and exact numbered filename family. A numbered volume remains private while the set is incomplete; if 7-Zip identifies another missing volume, all members return to waiting and extraction retries when that volume arrives. This is automatic server behavior and does not require an Android or Chrome API change.
 

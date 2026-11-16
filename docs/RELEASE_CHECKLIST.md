@@ -1,5 +1,14 @@
 # NASDrop 0.9.30 release checklist
 
+## 0.9.30-4 ApexDrive compatibility candidate
+
+- [x] Confirm the same generated delivery URL is accepted by Chrome and Synology Download Station.
+- [x] Prove the numeric `verify` component is not a client-side expiry timestamp by receiving HTTP 206 after that numeric value is in the past.
+- [x] Treat the delivery response `Content-Disposition` filename as authoritative instead of requiring equality with the display-only `fn` query value.
+- [x] Retain exact host, path and query validation, public-address DNS pinning, response metadata checks, and private in-memory handling of `verify`.
+- [x] Complete a live PC Docker inspection and transfer of 10,940,416 bytes, then pause the job without persisting or logging the signed URL.
+- [x] Run the ApexDrive Python tests and the complete Chrome JavaScript test suite.
+
 ## 0.9.30-3 GoFile DNS compatibility candidate
 
 - [x] Reproduce the supplied share as a valid single-file GoFile response.

@@ -2,9 +2,9 @@
 
 This Manifest V3 extension connects supported sites' download controls to an existing NASDrop server. After signing in once, click a recognized download button on the provider page. NASDrop receives the link and the page shows the result.
 
-Version 0.5.13 requires Chrome 111 or later because its narrowly scoped X-Share and ApexDrive integrations use statically declared MAIN-world content scripts.
+Version 0.5.14 requires Chrome 111 or later because its narrowly scoped X-Share and ApexDrive integrations use statically declared MAIN-world content scripts.
 
-Version 0.5.13 adds capability-gated ApexDrive handoff while retaining 0.5.12's four-language UI, GoFile queue, job controls, extraction/password controls, automatic progress updates, sponsor banner, existing browser handoffs and Pixeldrain transfer-limit support. AkiraBox, VikingFile, Send.now, X-Share and ApexDrive require a NASDrop server that advertises the matching capability. See [HANDOFF.md](HANDOFF.md) for the verified contract and security boundaries.
+Version 0.5.14 corrects ApexDrive delivery validation while retaining 0.5.13's capability-gated handoff, four-language UI, GoFile queue, job controls, extraction/password controls, automatic progress updates, sponsor banner, existing browser handoffs and Pixeldrain transfer-limit support. AkiraBox, VikingFile, Send.now, X-Share and ApexDrive require a NASDrop server that advertises the matching capability. See [HANDOFF.md](HANDOFF.md) for the verified contract and security boundaries.
 
 Server, Synology packages and setup instructions: [NASDrop project](https://github.com/littleweirdlab0514-web/NASDROP). This extension requires a running NASDrop server; it does not download files independently. This is a developer-mode distribution, not an official Chrome Web Store release.
 
@@ -20,13 +20,13 @@ Choose **Automatic (browser)** or English, 한국어, 中文（简体）, 日本
 - Pixeldrain: direct `/api/file/ID?download` links and viewer download controls submit the file share. Version 0.5.9 recognizes both the current Svelte toolbar button and the classless no-preview Download button shown on transfer-limit pages, including clicks on their icons or labels. Upgrade, share and advertisement controls remain untouched.
 - Send.now: the extension accepts both `/FILE_ID` and current `/d/FILE_ID` share pages. The user completes security verification and presses **CONTINUE** normally; NASDrop does not intercept either action. The resulting page exposes the real `Download [size]` control as `button#downloadbtn`. Only when the user clicks that final button does the extension watch the same tab for at most one minute, cancel the resulting Chrome download with a Send.now referrer, remove its browser history entry and send the final HTTPS address to NASDrop. Rotating public delivery hosts are validated by the NAS server rather than pinned in the extension.
 - X-Share: complete Turnstile and the site's wait normally. When the enabled official **Download** button is clicked, the page requests its one-time same-file URL. The extension captures that exact URL before Chrome starts a local transfer and sends it to NASDrop. If a compatible server later reports `reauthentication_required`, expand that job and choose **Continue on X-Share**. After the extension opens the same public share, complete verification and click the official button again; the fresh URL is supplied only to that existing job. The extension does not read the Turnstile response, click the button automatically, copy cookies or match advertisement links. If the server does not advertise the applicable capability, native downloads remain untouched and refresh controls stay disabled.
-- ApexDrive: on an exact `myapexdrive.com/file/UUID` page, the site creates a temporary download anchor after the user's Download action. When the NAS advertises `apexdrive`, the extension suppresses only a strict `d.linatalksbayou.com/xbox-apex/...` anchor with one unexpired `verify` value and one filename, then sends it to NASDrop before Chrome starts a local copy. The signed address is not written to extension storage. Without the capability, the site's native download remains unchanged.
+- ApexDrive: on an exact `myapexdrive.com/file/UUID` page, the site creates a temporary download anchor after the user's Download action. When the NAS advertises `apexdrive`, the extension suppresses only a strict `d.linatalksbayou.com/xbox-apex/...` anchor with one structurally valid `verify` value and one filename, then sends it to NASDrop before Chrome starts a local copy. The numeric service timestamp is opaque; the delivery server decides whether the issued URL is still valid. The signed address is not written to extension storage. Without the capability, the site's native download remains unchanged.
 
 Controls inserted after page load are supported. Only genuine, unmodified primary clicks are redirected; Ctrl/Command/Shift/Alt clicks retain the site's behavior. Unknown controls and advertisements are left alone. Failed NASDrop requests remain visible and never automatically start a local download. Check the NASDrop queue before retrying an uncertain result.
 
 ## Install locally
 
-Version 0.5.13 keeps file controls collapsed by default. Click a file to expand Pause, Resume, Delete and the relevant password, key or X-Share verification action below its progress display; click again to collapse. GigaFile download keys and archive passwords are separate. Automatic extraction is configured only in the toolbar. Long filenames wrap within the card. The Buy Me a Coffee banner opens the project's external support page in a new tab and does not send NASDrop credentials or job data.
+Version 0.5.14 keeps file controls collapsed by default. Click a file to expand Pause, Resume, Delete and the relevant password, key or X-Share verification action below its progress display; click again to collapse. GigaFile download keys and archive passwords are separate. Automatic extraction is configured only in the toolbar. Long filenames wrap within the card. The Buy Me a Coffee banner opens the project's external support page in a new tab and does not send NASDrop credentials or job data.
 
 Detailed Korean instructions: [한국어 설치 및 사용 안내](INSTALL.ko.md).
 
@@ -38,7 +38,7 @@ Install and start NASDrop on the NAS. Open its web portal, create or confirm you
 
 ### 2. Download and extract the extension
 
-Download the separately supplied **NASDrop-Chrome-0.5.13.zip** release. After a matching GitHub release is published, use its asset rather than GitHub's automatically generated **Source code (zip)** or the Synology `.spk` installer.
+Download the separately supplied **NASDrop-Chrome-0.5.14.zip** release. After a matching GitHub release is published, use its asset rather than GitHub's automatically generated **Source code (zip)** or the Synology `.spk` installer.
 
 Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`. Do not run files inside the ZIP or select the ZIP itself. The folder you will select must contain `manifest.json`, `background.js`, `popup.html`, `icons` and `_locales` directly. If there is an extra nested folder, select that inner folder. Keep this directory in place while the extension is installed.
 
@@ -47,7 +47,7 @@ Extract the entire ZIP into a permanent folder such as `C:\Tools\NASDrop-Chrome`
 1. Type `chrome://extensions` in Chrome's address bar and press Enter.
 2. Turn on **Developer mode** in the upper-right corner.
 3. Click **Load unpacked** and select the extracted folder containing `manifest.json`.
-4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.13**. Chrome will disclose that the extension can manage downloads; this is used only for the user-initiated Send.now handoff described above.
+4. Confirm the **NASDrop for Chrome** card appears and is enabled, with version **0.5.14**. Chrome will disclose that the extension can manage downloads; this is used only for the user-initiated Send.now handoff described above.
 5. Open Chrome's puzzle-piece Extensions menu and pin NASDrop to the toolbar for easy access.
 
 These steps follow [Chrome's official unpacked-extension instructions](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#load-unpacked). This package is not a Chrome Web Store installation. Managed work/school Chrome may prohibit developer-mode extensions; ask the administrator rather than bypassing the policy. This guide is for desktop Chrome, not mobile Chrome.
