@@ -348,6 +348,7 @@ const apexPage = 'https://myapexdrive.com/file/367b5c1b-b6e1-49f6-9357-e9afa5af2
 const apexSource = 'https://myapexdrive.com/file/367b5c1b-b6e1-49f6-9357-e9afa5af2c0a';
 const apexExpiry = Math.floor(Date.now()/1000)+3600;
 const apexUrl = `https://d.linatalksbayou.com/xbox-apex/2104449821292371970/b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7.mp4?verify=${apexExpiry}-synthetic%2Fsignature%3D&fn=example.mp4`;
+const apexOpaqueUrl = apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, 'provider-defined-opaque-value');
 const akiraIssued = Math.floor(Date.now()/1000);
 const akiraExpiry = akiraIssued + 3600;
 const akiraUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${akiraExpiry}&t=${akiraIssued}&s=${'a'.repeat(64)}&b=${'b'.repeat(64)}`;
@@ -523,11 +524,15 @@ test('X-Share MAIN-world hook suppresses only one armed exact issued anchor clic
 test('ApexDrive accepts only its canonical share and exact delivery URL', () => {
   assert.equal(adapter.share(apexPage),apexSource);
   assert.equal(adapter.allowedSubmission(apexPage,apexUrl),true);
-  assert.equal(adapter.allowedSubmission(apexPage,apexUrl.replace(`verify=${apexExpiry}`, 'verify=1700000000-synthetic%2Fsignature%3D')),true);
+  assert.equal(adapter.allowedSubmission(apexPage,apexOpaqueUrl),true);
+  assert.equal(adapter.allowedSubmission(apexPage,apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, 'x')),true);
   for (const invalid of [
     apexUrl.replace('https:','http:'), apexUrl.replace('d.linatalksbayou.com','d.linatalksbayou.com.evil.example'),
     apexUrl.replace('/xbox-apex/','/other/'), apexUrl.replace('b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7','not-a-uuid'),
     apexUrl+'&verify=duplicate', apexUrl+'&next=https://evil.example', apexUrl.replace('&fn=example.mp4',''),
+    apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, ''),
+    apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, 'line%0Abreak'),
+    apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, 'a'.repeat(4097)),
     `${apexUrl}#fragment`,
     'https://d.linatalksbayou.com:8443/xbox-apex/1/b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7.mp4?verify=9999999999-aaaaaaaaaaaaaaaa&fn=x.mp4',
   ]) assert.equal(adapter.allowedSubmission(apexPage,invalid),false);
@@ -550,8 +555,8 @@ test('ApexDrive MAIN-world hook leaves all links native until capability arming 
   const before=new HTMLAnchorElement(apexUrl);before.click();assert.equal(before.originalClicks,1);
   document.dispatchEvent(new CustomEvent('__nasdrop_apexdrive_arm_v1',{detail:{expiresAt:Date.now()+60000}}));
   const unrelated=new HTMLAnchorElement('https://ads.example/file.exe');unrelated.click();assert.equal(unrelated.originalClicks,1);
-  const captured=new HTMLAnchorElement(apexUrl);captured.click();
-  assert.equal(captured.originalClicks,0);assert.deepEqual(issued,[apexUrl]);
+  const captured=new HTMLAnchorElement(apexOpaqueUrl);captured.click();
+  assert.equal(captured.originalClicks,0);assert.deepEqual(issued,[apexOpaqueUrl]);
 });
 
 test('ApexDrive capability arming forwards the generated URL without storing its signature', async () => {

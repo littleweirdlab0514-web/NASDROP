@@ -149,6 +149,8 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
+| 0.5.15 | 2026-11-16 | Fixes ApexDrive interception by forwarding provider-defined opaque `verify` values without assuming a timestamp/signature format | Candidate |
+| 0.5.14 | 2026-11-16 | Corrected server-side ApexDrive delivery handling; superseded by 0.5.15 because the Chrome hook still imposed an overly strict `verify` format | Superseded |
 | 0.5.13 | 2026-11-16 | Capability-gated ApexDrive generated-anchor capture with exact host/path/query validation and no signed-link persistence | Candidate |
 | 0.5.12 | 2026-10-23 | Capability-gated X-Share reauthentication for the same waiting job after server retries are exhausted; the one-time key is never stored | Candidate |
 | 0.5.11 | 2026-10-18 | Shorter connected-site guidance and a bundled official Buy Me a Coffee banner linking to the project support page | GitHub release |
@@ -167,10 +169,10 @@ https://github.com/littleweirdlab0514-web/NASDROP
 
 ### Submission Readiness
 
-- [x] Manifest V3 and extension version 0.5.13
+- [x] Manifest V3 and extension version 0.5.15
 - [x] English default with Korean, Simplified Chinese and Japanese locales
 - [x] Automated Chrome extension tests pass
-- [ ] Publish `NASDrop-Chrome-0.5.13.zip` as the signed-checksum GitHub developer-mode package after the matching server contract is verified
+- [ ] Publish `NASDrop-Chrome-0.5.15.zip` as the signed-checksum GitHub developer-mode package after the matching server contract is verified
 - [ ] Publish the Chrome-specific privacy policy on the public default branch
 - [ ] Create the exact 128×128 store icon
 - [ ] Capture at least one exact-size store screenshot with synthetic/redacted data

@@ -161,7 +161,7 @@ globalThis.NASDropProviders = (() => {
       const filename=u.searchParams.get('fn') || '';
       if (keys.length !== 2 || u.searchParams.getAll('verify').length !== 1 || u.searchParams.getAll('fn').length !== 1
         || !keys.includes('verify') || !keys.includes('fn')
-        || !/^\d{10}-[A-Za-z0-9._~+/=-]{16,4096}$/.test(verify)
+        || !verify || verify.length > 4096 || /[\x00-\x1f\x7f]/.test(verify)
         || !filename || filename.length > 1024 || filename === '.' || filename === '..'
         || /[\/\\\x00-\x1f\x7f]/.test(filename)) return null;
       return u;
