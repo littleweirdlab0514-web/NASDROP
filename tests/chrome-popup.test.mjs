@@ -79,8 +79,8 @@ test('errors back off to 60 seconds and auth expiration stops retries',async()=>
 
 const inline=(h,index,row=0)=>h.nodes.get('jobs').children[row].children[1].children[index];
 
-function popupHarness({connected=true,modern=true,gigafileDownloadKey=true,preferences={autoExtract:true},confirmAction=()=>true,actionError=false,extraJobs=[],beforeJobs=()=>{}}={}) {
-  const nodes=new Map(), messages=[], timers=new Map();let timerID=0,deleted=false;
+function popupHarness({connected=true,modern=true,gigafileDownloadKey=true,refreshProviders=[],preferences={autoExtract:true},confirmAction=()=>true,actionError=false,extraJobs=[],beforeJobs=()=>{},currentTab=null}={}) {
+  const nodes=new Map(), messages=[], timers=new Map(), injections=[];let timerID=0,deleted=false;
   const job={id:'abcdef012345',name:'archive.zip',status:'downloading',size:100,downloaded:10,extract:true};
   const jobs=[job,...extraJobs];
   function node() {
@@ -106,15 +106,23 @@ function popupHarness({connected=true,modern=true,gigafileDownloadKey=true,prefe
       if(message.type==='jobResume')target.status='queued';
       if(message.type==='jobDelete')deleted=true;
       if(message.type==='savePreferences')for(const key of ['autoExtract','language'])if(message[key]!==undefined)preferences[key]=message[key];
-      if(message.type==='getState'||message.type==='login')return {ok:true,result:{connected:message.type==='login'||connected,baseUrl:'https://nas.example',...preferences,jobs,status:{target:'/downloads',job_processing_options:modern,gigafile_download_key:gigafileDownloadKey}}};
+      if(message.type==='getState'||message.type==='login')return {ok:true,result:{connected:message.type==='login'||connected,baseUrl:'https://nas.example',...preferences,jobs,status:{target:'/downloads',job_processing_options:modern,gigafile_download_key:gigafileDownloadKey,browser_handoff_refresh_providers:refreshProviders}}};
       if(message.type==='getJobs'){beforeJobs(job);return {ok:true,result:{jobs:deleted?[]:jobs.map(j=>({...j}))}};}
       if(message.type==='submit')return {ok:true,result:{count:1,file:{name:'example.bin'}}};
       return {ok:true,result:{ok:true}};
-    }},tabs:{query:async()=>[]},permissions:{request:async()=>true}},
+    }},tabs:{query:async()=>currentTab?[currentTab]:[]},scripting:{executeScript:async options=>{injections.push(options);}},permissions:{request:async()=>true}},
   });
   vm.runInContext(i18nSource,c);vm.runInContext(pollSource,c);vm.runInContext(popupSource,c);
-  return {nodes,messages,job,c,async ready(){await flush();},async poll(){vm.runInContext('polling.refresh()',c);await flush();}};
+  return {nodes,messages,injections,job,c,async ready(){await flush();},async poll(){vm.runInContext('polling.refresh()',c);await flush();}};
 }
+
+test('opening the popup activates a previously unseen branded VikingFile mirror only in the current tab',async()=>{
+  const h=popupHarness({currentTab:{id:42,url:'https://vik1ngf1le.download/f/Share123'}});await h.ready();
+  assert.equal(h.nodes.get('download-url').value,'https://vik1ngf1le.download/f/Share123');
+  assert.equal(JSON.stringify(h.injections),JSON.stringify([{target:{tabId:42},files:['i18n.js','provider-adapters.js','content.js']}]));
+  const known=popupHarness({currentTab:{id:43,url:'https://vik1ngf1le.online/f/Share123'}});await known.ready();
+  assert.equal(known.injections.length,0);
+});
 
 test('Enter after password submits login once with a real submit button',async()=>{
   const h=popupHarness({connected:false});await h.ready();
@@ -188,6 +196,23 @@ test('older server keeps extraction readonly but permits password-required retry
   h.nodes.get('job-password').value='retry';
   await h.nodes.get('job-options-form').events.submit({preventDefault(){}});
   assert.ok(h.messages.some(m=>m.type==='jobPassword'&&m.password==='retry'));
+});
+
+test('X-Share reauthentication is explicit, capability-gated and opens only the selected job',async()=>{
+  const unsupported=popupHarness();await unsupported.ready();
+  unsupported.job.status='reauthentication_required';unsupported.job.url='https://x-share.net/s/Share123';await unsupported.poll();
+  unsupported.nodes.get('jobs').children[0].children[0].events.click();
+  assert.equal(unsupported.nodes.get('job-handoff-refresh').classList.contains('hidden'),false);
+  assert.equal(unsupported.nodes.get('open-xshare-refresh').disabled,true);
+  assert.match(unsupported.nodes.get('job-handoff-refresh-hint').textContent,/서버를 업데이트/);
+
+  const current=popupHarness({refreshProviders:['xshare']});await current.ready();
+  current.job.status='reauthentication_required';current.job.url='https://x-share.net/s/Share123';await current.poll();
+  current.nodes.get('jobs').children[0].children[0].events.click();
+  assert.equal(current.nodes.get('open-xshare-refresh').disabled,false);
+  await current.nodes.get('open-xshare-refresh').events.click();
+  assert.equal(JSON.stringify(current.messages.find(message=>message.type==='jobHandoffOpen')),JSON.stringify({type:'jobHandoffOpen',id:current.job.id}));
+  assert.match(current.nodes.get('notice').textContent,/공식 다운로드 버튼/);
 });
 
 test('completed cleanup removes history through explicit action and disables when none exist',async()=>{

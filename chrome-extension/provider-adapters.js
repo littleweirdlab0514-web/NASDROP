@@ -2,6 +2,8 @@
 globalThis.NASDropProviders = (() => {
   const id = '[A-Za-z0-9_-]+';
   const xShareId = '[A-Za-z0-9_-]{6,64}';
+  const apexId = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+  const vikingShareHost = /^(?:vikingfile|vik1ngfile|vik1ngf1le)\.[a-z]{2,24}$/;
   function parse(value, base) {
     try {
       if (typeof value !== 'string' || /[\x00-\x20\x7f\\]/.test(value) || value.length > 8192) return null;
@@ -17,9 +19,10 @@ globalThis.NASDropProviders = (() => {
     if (['pixeldrain.com', 'www.pixeldrain.com', 'pixeldrain.net', 'pixeldra.in'].includes(u.hostname)) return 'pixeldrain';
     if (['buzzheavier.com', 'www.buzzheavier.com'].includes(u.hostname)) return 'buzzheavier';
     if (['akirabox.to', 'akirabox.com'].includes(u.hostname)) return 'akirabox';
-    if (['vik1ngfile.site', 'vikingfile.com'].includes(u.hostname)) return 'vikingfile';
+    if (vikingShareHost.test(u.hostname)) return 'vikingfile';
     if (['send.now', 'www.send.now'].includes(u.hostname)) return 'sendnow';
     if (u.hostname === 'x-share.net') return 'xshare';
+    if (u.hostname === 'myapexdrive.com') return 'apexdrive';
     return '';
   }
   function share(value) {
@@ -30,6 +33,13 @@ globalThis.NASDropProviders = (() => {
     if (type === 'vikingfile') return new RegExp(`^/f/${id}/?$`).test(u.pathname) ? u.origin + u.pathname.replace(/\/$/, '') : '';
     if (type === 'sendnow') return new RegExp(`^/(?:d/)?${id}/?$`).test(u.pathname) && !u.search && !u.hash ? u.origin + u.pathname.replace(/\/$/, '') : '';
     if (type === 'xshare') return new RegExp(`^/s/${xShareId}/?$`).test(u.pathname) && !u.search && !u.hash ? u.origin + u.pathname.replace(/\/$/, '') : '';
+    if (type === 'apexdrive') {
+      const keys=[...u.searchParams.keys()];
+      const validQuery=!u.search || (keys.length === 1 && keys[0] === 'name'
+        && u.searchParams.getAll('name').length === 1 && u.searchParams.get('name').length <= 1024);
+      return new RegExp(`^/file/${apexId}/?$`,'i').test(u.pathname) && validQuery && !u.hash
+        ? u.origin + u.pathname.replace(/\/$/, '') : '';
+    }
     const prefix = type === 'gofile' ? '/d/' : type === 'pixeldrain' ? '/u/' : '/';
     return new RegExp(`^${prefix}${id}/?$`).test(u.pathname) ? u.origin + u.pathname.replace(/\/$/, '') : '';
   }
@@ -113,7 +123,7 @@ globalThis.NASDropProviders = (() => {
   function allowedSubmission(page, value) {
     const type = provider(page);
     if (!share(page)) return false;
-    if (type === 'akirabox' || type === 'vikingfile' || type === 'sendnow' || type === 'xshare') return validHandoffURL(value, type, page);
+    if (type === 'akirabox' || type === 'vikingfile' || type === 'sendnow' || type === 'xshare' || type === 'apexdrive') return validHandoffURL(value, type, page);
     if (type === 'buzzheavier') return signedBuzz(value, page);
     return Boolean(share(value) && provider(value) === type && (type !== 'gigafile' || new URL(value).origin === new URL(page).origin));
   }
@@ -141,6 +151,20 @@ globalThis.NASDropProviders = (() => {
       const key = u.searchParams.get('key') || '';
       if (keys.length !== 1 || keys[0] !== 'key' || u.searchParams.getAll('key').length !== 1
         || key.length < 1 || key.length > 4096 || !/^[\x21-\x7e]+$/.test(key)) return null;
+      return u;
+    }
+    if (type === 'apexdrive') {
+      const source=parse(share(page));
+      if (!source || u.hostname !== 'd.linatalksbayou.com') return null;
+      if (!/^\/xbox-apex\/\d{1,20}\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9]{1,10}$/i.test(u.pathname)) return null;
+      const keys=[...u.searchParams.keys()];
+      const verify=u.searchParams.get('verify') || '';
+      const filename=u.searchParams.get('fn') || '';
+      if (keys.length !== 2 || u.searchParams.getAll('verify').length !== 1 || u.searchParams.getAll('fn').length !== 1
+        || !keys.includes('verify') || !keys.includes('fn')
+        || !verify || verify.length > 4096 || /[\x00-\x1f\x7f]/.test(verify)
+        || !filename || filename.length > 1024 || filename === '.' || filename === '..'
+        || /[\/\\\x00-\x1f\x7f]/.test(filename)) return null;
       return u;
     }
     const parts = u.pathname.split('/');

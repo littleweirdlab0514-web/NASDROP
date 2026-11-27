@@ -8,15 +8,17 @@ const root = new URL('../chrome-extension/', import.meta.url);
 test('Chrome extension is a least-privilege Manifest V3 package', async () => {
   const manifest = JSON.parse(await readFile(new URL('manifest.json', root), 'utf8'));
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.version, '0.5.16');
   assert.equal(manifest.minimum_chrome_version, '111');
   assert.equal(manifest.background.service_worker, 'background.js');
   assert.deepEqual(manifest.optional_host_permissions, ['http://*/*', 'https://*/*']);
   assert.ok(!manifest.permissions.includes('<all_urls>'));
   assert.ok(!manifest.permissions.includes('tabs'));
-  const mainWorld=manifest.content_scripts.find(script=>script.world==='MAIN');
-  assert.deepEqual(mainWorld.matches,['https://x-share.net/s/*']);
-  assert.deepEqual(mainWorld.js,['xshare-main.js']);
-  assert.equal(mainWorld.run_at,'document_start');
+  assert.ok(manifest.permissions.includes('scripting'));
+  const mainWorld=manifest.content_scripts.filter(script=>script.world==='MAIN');
+  assert.deepEqual(mainWorld.map(script=>script.matches),[['https://x-share.net/s/*'],['https://myapexdrive.com/file/*']]);
+  assert.deepEqual(mainWorld.map(script=>script.js),[['xshare-main.js'],['apexdrive-main.js']]);
+  assert.ok(mainWorld.every(script=>script.run_at==='document_start'));
 });
 
 test('Chrome extension does not persist passwords', async () => {
@@ -33,6 +35,8 @@ test('popup avoids inline scripts and requests origin permission interactively',
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/i);
   assert.match(script, /chrome\.permissions\.request/);
   assert.match(script, /function supportedProvider/);
+  assert.match(script, /function activateRotatingVikingTab/);
+  assert.match(script, /chrome\.scripting\.executeScript/);
   assert.match(script, /useCurrentTab\(false\)/);
 });
 

@@ -1,4 +1,50 @@
-# NASDrop 0.9.29 release checklist
+# NASDrop 0.9.30 release checklist
+
+## 0.9.30-5 VikingFile rotating-domain candidate
+
+- [x] Reproduce the supplied `vik1ngf1le.online` share and confirm `vikingfile.com` redirects the same file ID to that mirror.
+- [x] Confirm the mirror retains the official Turnstile-gated `#download-link` flow and the same generated-link behavior.
+- [x] Recognize only exact `vikingfile`, `vik1ngfile`, or `vik1ngf1le` labels followed by one alphabetic TLD.
+- [x] Keep the issued URL and redirect allowlists unchanged; reject nested and unrelated lookalike share hosts.
+- [x] Add packaged active-tab injection so later matching mirrors work after the user opens the extension, without permanent all-sites access.
+- [x] Add server, provider-adapter, manifest, popup-injection, and negative lookalike tests.
+
+## 0.9.30-4 ApexDrive compatibility candidate
+
+- [x] Confirm the same generated delivery URL is accepted by Chrome and Synology Download Station.
+- [x] Prove the complete `verify` value is opaque and not a client-side timestamp or locally parsed signature by receiving HTTP 206 after the observed numeric prefix is in the past.
+- [x] Treat the delivery response `Content-Disposition` filename as authoritative instead of requiring equality with the display-only `fn` query value.
+- [x] Retain exact host, path and query validation, public-address DNS pinning, response metadata checks, and private in-memory handling of `verify`.
+- [x] Complete a live PC Docker inspection and transfer of 10,940,416 bytes, then pause the job without persisting or logging the signed URL.
+- [x] Run the ApexDrive Python tests and the complete Chrome JavaScript test suite.
+
+## 0.9.30-3 GoFile DNS compatibility candidate
+
+- [x] Reproduce the supplied share as a valid single-file GoFile response.
+- [x] Confirm the assigned `cold1.gofile.io` host fails through the system resolver but resolves through public DNS.
+- [x] Restrict DNS-over-HTTPS fallback to syntactically valid GoFile delivery subdomains and public A records.
+- [x] Pin the validated address with curl `--resolve` while retaining HTTPS hostname verification.
+- [x] Keep the GoFile token helper sandboxed on both Node 20 and current Node releases.
+- [x] Verify the supplied share with a successful one-byte HTTP 206 transfer.
+- [x] Run the full server suite and related web/GoFile tests.
+
+## 0.9.30-2 storage-capacity candidate
+
+- [x] Expose selected destination filesystem free and total bytes through `/api/status`.
+- [x] Reject transfers that cannot safely retain temporary parts and assemble the final file.
+- [x] Reserve estimated peak space for older active jobs on the same filesystem.
+- [x] Classify preflight and operating-system disk-full failures as `insufficient_storage`.
+- [x] Show capacity and localized storage errors in the Synology web UI and Android 0.8.23.
+- [x] Run server unit tests, web rendering tests, Android unit tests, lint, and debug assembly.
+
+## 0.9.30-1 X-Share reauthentication candidate
+
+- [x] Retry an interrupted X-Share keyed transfer three times with bounded 10, 20, and 30 second delays.
+- [x] Preserve the existing job and enter `reauthentication_required` after retry exhaustion.
+- [x] Accept a fresh same-file keyed URL only for the selected waiting job through the capability-gated browser handoff endpoint.
+- [x] Keep issued URLs, keys, headers, and cookies out of public job data, persistent browser storage, and logs.
+- [x] Coordinate Chrome 0.5.12 and Android 0.8.22 with the additive server capability.
+- [ ] Install the candidate SPK on real DSM hardware and verify X-Share retry and reauthentication.
 
 ## 0.9.29-2 release
 

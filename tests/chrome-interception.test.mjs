@@ -9,6 +9,7 @@ const adapterSource = await readFile(new URL('provider-adapters.js', root), 'utf
 const contentSource = await readFile(new URL('content.js', root), 'utf8');
 const workerSource = await readFile(new URL('background.js', root), 'utf8');
 const xshareMainSource = await readFile(new URL('xshare-main.js', root), 'utf8');
+const apexMainSource = await readFile(new URL('apexdrive-main.js', root), 'utf8');
 const page = 'https://buzzheavier.com/testfile1234';
 const signed = 'https://ts.buzzheavier.com/d/testfile1234?v=synthetic-token';
 const context = vm.createContext({URL, AbortSignal});
@@ -232,24 +233,24 @@ test('server rejection stays visible and does not fall through to a browser down
   assert.equal(h.requests.length, 1);
 });
 
-function workerHarness({refreshFails = false, capabilities = [], asyncEnqueueProviders = [], gigafileDownloadKey = false, jobs = [], autoExtract = true, count = 1, inspectFailures = 0} = {}) {
+function workerHarness({refreshFails = false, capabilities = [], refreshProviders = [], asyncEnqueueProviders = [], gigafileDownloadKey = false, jobs = [], autoExtract = true, count = 1, inspectFailures = 0} = {}) {
   let listener, downloadCreated;
   const calls = [];
-  const session = {}, notices = [], alarms = [], cancelled = [], erased = [], tabMessages = [];
+  const session = {}, notices = [], alarms = [], cancelled = [], erased = [], tabMessages = [], openedTabs=[];
   const saved = {baseUrl:'https://nas.example', token:'private-session', autoExtract};
   const c = vm.createContext({URL, AbortSignal, importScripts(){},
     chrome:{runtime:{id:'extension-id', getURL:p => `chrome-extension://extension-id/${p}`, onConnect:{addListener(){}}, onInstalled:{addListener(){}}, onMessage:{addListener(fn){listener=fn;}}},
       alarms:{create:async(...args)=>alarms.push(args),clear:async()=>{},onAlarm:{addListener(){}}},
       notifications:{create:async(...args)=>notices.push(args)},i18n:{getUILanguage:()=> 'en'},
       downloads:{onCreated:{addListener(fn){downloadCreated=fn;}},cancel:async id=>cancelled.push(id),erase:async query=>erased.push(query)},
-      tabs:{sendMessage:async(id,message)=>tabMessages.push({id,message})},
-      storage:{session:{get:async defaults=>({...defaults,...session}),set:async values=>Object.assign(session,values),remove:async key=>delete session[key]},local:{setAccessLevel:async()=>{}, get:async defaults=>({...defaults,...saved}), set:async values=>Object.assign(saved,values), remove:async keys=>{for (const key of Array.isArray(keys)?keys:[keys])delete saved[key];}}},
+      tabs:{sendMessage:async(id,message)=>tabMessages.push({id,message}),create:async options=>openedTabs.push(options)},
+      storage:{session:{get:async defaults=>({...defaults,...session}),set:async values=>Object.assign(session,values),remove:async keys=>{for(const key of Array.isArray(keys)?keys:[keys])delete session[key];}},local:{setAccessLevel:async()=>{}, get:async defaults=>({...defaults,...saved}), set:async values=>Object.assign(saved,values), remove:async keys=>{for (const key of Array.isArray(keys)?keys:[keys])delete saved[key];}}},
       action:{setBadgeText:async()=>{},setBadgeBackgroundColor:async()=>{}}, contextMenus:{removeAll:fn=>fn(),create(){},onClicked:{addListener(){}}}},
     fetch:async (url, options) => {
       calls.push({url, options});
       if (url.endsWith('/api/inspect') && inspectFailures-- > 0) return {ok:false,status:400,json:async()=>({error:'Synthetic inspection rejected'})};
       if (url.endsWith('/api/jobs') && refreshFails) throw new Error('offline');
-      const payload = url.endsWith('/api/login') ? {token:'private-session'} : url.endsWith('/api/status') ? {browser_handoff_providers:capabilities,async_enqueue_providers:asyncEnqueueProviders,gigafile_download_key:gigafileDownloadKey} : url.endsWith('/api/inspect') ? {file:{url:signed, name:'synthetic.txt', size:100, inspection_id:'id'}} : url.endsWith('/api/start') ? {count, job:{id:'job'}} : url.endsWith('/api/enqueue') ? {count,job:{id:'job',name:'giga.bin'}} : {jobs};
+      const payload = url.endsWith('/api/login') ? {token:'private-session'} : url.endsWith('/api/status') ? {browser_handoff_providers:capabilities,browser_handoff_refresh_providers:refreshProviders,async_enqueue_providers:asyncEnqueueProviders,gigafile_download_key:gigafileDownloadKey} : url.endsWith('/api/inspect') ? {file:{url:signed, name:'synthetic.txt', size:100, inspection_id:'id'}} : url.endsWith('/api/start') ? {count, job:{id:'job'}} : url.endsWith('/api/enqueue') ? {count,job:{id:'job',name:'giga.bin'}} : url.includes('/browser-handoff') ? {accepted:true} : {jobs};
       return {ok:true,json:async()=>payload};
     },
   });
@@ -258,12 +259,12 @@ function workerHarness({refreshFails = false, capabilities = [], asyncEnqueuePro
   const dispatch = (message, from = sender) => new Promise(resolve => {
     if (!listener(message, from, resolve)) resolve(null);
   });
-  return {dispatch,calls,sender,notices,alarms,saved,cancelled,erased,tabMessages,createDownload:item=>downloadCreated(item)};
+  return {dispatch,calls,sender,notices,alarms,saved,session,cancelled,erased,tabMessages,openedTabs,createDownload:item=>downloadCreated(item)};
 }
 
 test('provider messages cannot read tokens or call login/settings APIs', async () => {
   const h = workerHarness();
-  for (const type of ['getState','getJobs','clearCompleted','jobPassword','jobProcessing','jobPause','jobResume','jobDelete','login','logout','submit','savePreferences']) assert.equal(await h.dispatch({type,url:signed}),null);
+  for (const type of ['getState','getJobs','clearCompleted','jobPassword','jobProcessing','jobPause','jobResume','jobDelete','jobHandoffOpen','login','logout','submit','savePreferences']) assert.equal(await h.dispatch({type,url:signed}),null);
   const ready = await h.dispatch({type:'pageReady'});
   assert.equal(JSON.stringify(ready), '{"ok":true,"result":{"ready":true,"language":"en"}}');
   assert.equal(await h.dispatch({type:'pageSubmit',url:'https://evil.example'}),null);
@@ -283,6 +284,10 @@ test('four-language page notices and background password alerts use saved choice
     assert.equal((await worker.dispatch({type:'pageReady'})).result.language,language);
     await worker.dispatch({type:'getJobs'},popup);
     assert.equal(worker.notices[0][1].title,c.NASDropI18n.t(language,'passwordTitle'));
+    const reauth=workerHarness({jobs:[{id:'abcdef012345',name:'test.zip',url:xsharePage,status:'reauthentication_required'}]});
+    assert.equal((await reauth.dispatch({type:'savePreferences',language},popup)).ok,true);
+    await reauth.dispatch({type:'getJobs'},popup);
+    assert.equal(reauth.notices[0][1].title,c.NASDropI18n.t(language,'reauthTitle'));
   }
   const h=contentHarness({browserLanguage:'unknown'});h.click();await flush();
   assert.ok(h.nodes.some(n=>n.textContent==='Added to NASDrop.'));
@@ -334,11 +339,17 @@ test('GoFile uses capability-gated async enqueue and older servers retain inspec
 
 const akiraPage = 'https://akirabox.to/Share123/file';
 const vikingPage = 'https://vik1ngfile.site/f/Share123';
+const rotatingVikingPage = 'https://vik1ngf1le.online/f/Share123';
 const sendNowPage = 'https://send.now/d/1pBGp';
 const sendNowLegacyPage = 'https://send.now/e0g53wnqs8ze';
 const sendNowFinalPage = 'https://send.now/';
 const xsharePage = 'https://x-share.net/s/Share123';
 const xshareUrl = 'https://x-share.net/api/download/Share123?key=synthetic%2Bopaque%2Fkey%3D';
+const apexPage = 'https://myapexdrive.com/file/367b5c1b-b6e1-49f6-9357-e9afa5af2c0a?name=Example';
+const apexSource = 'https://myapexdrive.com/file/367b5c1b-b6e1-49f6-9357-e9afa5af2c0a';
+const apexExpiry = Math.floor(Date.now()/1000)+3600;
+const apexUrl = `https://d.linatalksbayou.com/xbox-apex/2104449821292371970/b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7.mp4?verify=${apexExpiry}-synthetic%2Fsignature%3D&fn=example.mp4`;
+const apexOpaqueUrl = apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, 'provider-defined-opaque-value');
 const akiraIssued = Math.floor(Date.now()/1000);
 const akiraExpiry = akiraIssued + 3600;
 const akiraUrl = `https://akirabox.com/download/syntheticOpaqueToken=/example.mkv?expiration=${akiraExpiry}&t=${akiraIssued}&s=${'a'.repeat(64)}&b=${'b'.repeat(64)}`;
@@ -366,6 +377,17 @@ test('AkiraBox/Viking recognize only the official button and strict issued-link 
       assert.equal(adapter.classifyHandoff(makeButton(invalid),pageUrl).kind,'unrecognized');
       assert.equal(adapter.allowedSubmission(pageUrl,invalid),false);
     }
+  }
+});
+
+test('VikingFile recognizes rotating branded share domains without widening delivery hosts', () => {
+  for (const page of [vikingPage,rotatingVikingPage,'https://vikingfile.download/f/Share123']) {
+    assert.equal(adapter.share(page),page);
+    assert.equal(adapter.allowedSubmission(page,vikingUrl),true);
+  }
+  for (const page of ['https://vikingfile.evil.example/f/Share123','https://notvikingfile.online/f/Share123']) {
+    assert.equal(adapter.share(page),'');
+    assert.equal(adapter.allowedSubmission(page,vikingUrl),false);
   }
 });
 
@@ -511,6 +533,57 @@ test('X-Share MAIN-world hook suppresses only one armed exact issued anchor clic
   assert.equal(unrelated.originalClicks,1);
 });
 
+test('ApexDrive accepts only its canonical share and exact delivery URL', () => {
+  assert.equal(adapter.share(apexPage),apexSource);
+  assert.equal(adapter.allowedSubmission(apexPage,apexUrl),true);
+  assert.equal(adapter.allowedSubmission(apexPage,apexOpaqueUrl),true);
+  assert.equal(adapter.allowedSubmission(apexPage,apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, 'x')),true);
+  for (const invalid of [
+    apexUrl.replace('https:','http:'), apexUrl.replace('d.linatalksbayou.com','d.linatalksbayou.com.evil.example'),
+    apexUrl.replace('/xbox-apex/','/other/'), apexUrl.replace('b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7','not-a-uuid'),
+    apexUrl+'&verify=duplicate', apexUrl+'&next=https://evil.example', apexUrl.replace('&fn=example.mp4',''),
+    apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, ''),
+    apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, 'line%0Abreak'),
+    apexUrl.replace(`${apexExpiry}-synthetic%2Fsignature%3D`, 'a'.repeat(4097)),
+    `${apexUrl}#fragment`,
+    'https://d.linatalksbayou.com:8443/xbox-apex/1/b0a2c915-be16-4f8e-b9a1-1de4f5ef5eb7.mp4?verify=9999999999-aaaaaaaaaaaaaaaa&fn=x.mp4',
+  ]) assert.equal(adapter.allowedSubmission(apexPage,invalid),false);
+  assert.equal(adapter.share(`${apexPage}&name=duplicate`),'');
+  assert.equal(adapter.share('https://myapexdrive.com.evil.example/file/367b5c1b-b6e1-49f6-9357-e9afa5af2c0a'),'');
+});
+
+test('ApexDrive MAIN-world hook leaves all links native until capability arming and suppresses only exact delivery anchors', () => {
+  const listeners=new Map(),issued=[];
+  class CustomEvent { constructor(type,options={}) {this.type=type;this.detail=options.detail;} }
+  const document={addEventListener(name,fn){if(!listeners.has(name))listeners.set(name,[]);listeners.get(name).push(fn);},
+    dispatchEvent(event){if(event.type==='__nasdrop_apexdrive_url_v1')issued.push(event.detail);for(const fn of listeners.get(event.type)||[])fn(event);return true;}};
+  class HTMLAnchorElement {
+    constructor(href){this.href=href;this.originalClicks=0;}
+    getAttribute(name){return name==='href'?this.href:null;}
+    click(){this.originalClicks++;}
+  }
+  const c=vm.createContext({URL,Reflect,Date,CustomEvent,document,HTMLAnchorElement,location:{href:apexPage}});
+  vm.runInContext(apexMainSource,c);
+  const before=new HTMLAnchorElement(apexUrl);before.click();assert.equal(before.originalClicks,1);
+  document.dispatchEvent(new CustomEvent('__nasdrop_apexdrive_arm_v1',{detail:{expiresAt:Date.now()+60000}}));
+  const unrelated=new HTMLAnchorElement('https://ads.example/file.exe');unrelated.click();assert.equal(unrelated.originalClicks,1);
+  const captured=new HTMLAnchorElement(apexOpaqueUrl);captured.click();
+  assert.equal(captured.originalClicks,0);assert.deepEqual(issued,[apexOpaqueUrl]);
+});
+
+test('ApexDrive capability arming forwards the generated URL without storing its signature', async () => {
+  const content=contentHarness({pageUrl:apexPage,handoffSupported:true});await flush();
+  content.emit('__nasdrop_apexdrive_url_v1',apexUrl);await flush();await flush();
+  assert.deepEqual(JSON.parse(JSON.stringify(content.messages.find(message=>message.type==='pageSubmit'))),{type:'pageSubmit',url:apexUrl,downloadKey:''});
+  const worker=workerHarness({capabilities:['apexdrive']});
+  const sender={...worker.sender,url:apexPage};
+  assert.equal((await worker.dispatch({type:'pageSubmit',url:apexUrl},sender)).ok,true);
+  const body=JSON.parse(worker.calls.find(call=>call.url.endsWith('/api/inspect')).options.body);
+  assert.deepEqual(body,{url:apexSource,resolved_url:apexUrl,provider:'apexdrive'});
+  assert.equal(JSON.stringify(worker.saved).includes('verify='),false);
+  assert.equal(JSON.stringify(worker.session).includes('verify='),false);
+});
+
 test('Send.now challenge controls are not clicked, solved or submitted by the extension', async () => {
   const h=contentHarness({pageUrl:sendNowPage,handoffSupported:true});
   assert.equal(h.click(control({},['button#challenge','button.continue'])).prevented,undefined);
@@ -550,6 +623,7 @@ test('provider capabilities are independent',async()=>{
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:vikingPage})).result.handoffSupported,false);
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:sendNowPage})).result.handoffSupported,false);
   assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:xsharePage})).result.handoffSupported,false);
+  assert.equal((await h.dispatch({type:'pageReady'},{...h.sender,url:apexPage})).result.handoffSupported,false);
   assert.equal((await h.dispatch({type:'pageSubmit',url:vikingUrl},{...h.sender,url:vikingPage})).ok,false);
   assert.equal((await h.dispatch({type:'pageSubmit',url:sendNowUrl},{...h.sender,url:sendNowPage})).ok,false);
   assert.ok(!h.calls.some(c=>c.url.endsWith('/api/inspect')));
@@ -565,6 +639,29 @@ test('X-Share worker gates arming and forwards the agreed inspect payload',async
   const body=JSON.parse(h.calls.find(call=>call.url.endsWith('/api/inspect')).options.body);
   assert.deepEqual(body,{url:xsharePage,resolved_url:xshareUrl,provider:'xshare'});
   assert.equal(JSON.stringify(h.saved).includes('synthetic+opaque/key='),false);
+});
+
+test('X-Share refresh targets one waiting job and never persists or echoes the new key',async()=>{
+  const popup={id:'extension-id',url:'chrome-extension://extension-id/popup.html'};
+  const job={id:'abcdef012345',name:'example.bin',status:'reauthentication_required',url:xsharePage};
+  const unsupported=workerHarness({capabilities:['xshare'],jobs:[job]});
+  assert.equal((await unsupported.dispatch({type:'jobHandoffOpen',id:job.id},popup)).ok,false);
+  assert.equal(unsupported.openedTabs.length,0);
+
+  const h=workerHarness({capabilities:['xshare'],refreshProviders:['xshare'],jobs:[job]});
+  assert.equal((await h.dispatch({type:'jobHandoffOpen',id:job.id},popup)).ok,true);
+  assert.equal(JSON.stringify(h.openedTabs),JSON.stringify([{url:xsharePage}]));
+  assert.deepEqual({jobId:h.session.xshareRefresh.jobId,source:h.session.xshareRefresh.source},{jobId:job.id,source:xsharePage});
+  const sender={id:'extension-id',url:xsharePage,tab:{id:7},frameId:0};
+  assert.equal((await h.dispatch({type:'pageArmXShare',source:xsharePage},sender)).ok,true);
+  const refreshed=await h.dispatch({type:'pageSubmit',url:xshareUrl},sender);
+  assert.equal(refreshed.ok,true);assert.equal(refreshed.result.refreshed,true);
+  const call=h.calls.find(item=>item.url.endsWith(`/api/jobs/${job.id}/browser-handoff`));
+  assert.deepEqual(JSON.parse(call.options.body),{provider:'xshare',resolved_url:xshareUrl});
+  assert.equal(h.calls.some(item=>item.url.endsWith('/api/inspect')),false);
+  assert.equal('xshareRefresh' in h.session,false);
+  assert.equal(JSON.stringify(h.session).includes('synthetic+opaque'),false);
+  assert.equal(JSON.stringify(refreshed).includes('synthetic+opaque'),false);
 });
 
 test('protected and unprotected GigaFile jobs use enqueue; keys are capability-gated and separate',async()=>{

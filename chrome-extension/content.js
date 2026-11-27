@@ -1,4 +1,6 @@
 (() => {
+  if (globalThis.__NASDROP_CONTENT_ACTIVE__) return;
+  globalThis.__NASDROP_CONTENT_ACTIVE__ = true;
   const adapters = globalThis.NASDropProviders;
   let language=NASDropI18n.normalize(navigator.language);
   const text=new Proxy({}, {get:(_,key)=>NASDropI18n.dictionaries[language][key]});
@@ -142,16 +144,26 @@
     clearTimeout(xShareTimer);xShareTimer=0;pending=false;
     void send({url,handoff:'xshare'});
   });
+  document.addEventListener('__nasdrop_apexdrive_url_v1', event => {
+    const url=typeof event.detail === 'string' ? event.detail : '';
+    if (pending || adapters.provider(location.href) !== 'apexdrive' || !adapters.allowedSubmission(location.href,url)) return;
+    void send({url,handoff:'apexdrive'});
+  });
   chrome.runtime.onMessage.addListener(message => {
     if (message?.type !== 'sendNowResult') return;
     clearTimeout(sendNowTimer); sendNowTimer=0; pending=false;
     show(message.ok ? text.success : message.error || text.failed);
   });
   async function preloadReadiness() {
-    if (!['gigafile','sendnow','xshare'].includes(adapters.provider(location.href))) return;
+    if (!['gigafile','sendnow','xshare','apexdrive'].includes(adapters.provider(location.href))) return;
     try {
       const response = await chrome.runtime.sendMessage({type:'pageReady'});
-      if (response?.ok) readinessCache = response.result;
+      if (response?.ok) {
+        readinessCache = response.result;
+        if (adapters.provider(location.href) === 'apexdrive' && readinessCache.ready && readinessCache.handoffSupported) {
+          document.dispatchEvent(new CustomEvent('__nasdrop_apexdrive_arm_v1',{detail:{expiresAt:Date.now()+86400000}}));
+        }
+      }
     } catch (error) {
       if (invalidContext(error)) contextLost=true;
     }

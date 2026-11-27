@@ -52,6 +52,7 @@ main .text-button { color: #2563eb; }
 .job .job-controls button:disabled { cursor:default; }
 .job.selected { border-color:#2563eb; }
 .job.password-required { border-color:#d97706; background:#fffbeb; }
+.job.reauthentication-required { border-color:#b45309; background:#fff7ed; }
 .job-meta { margin-top:5px; color:#617086; font-size:11px; }
 main .danger { color:#b42318; }
 #poll-status { margin:0 0 8px; font-size:11px; }
@@ -59,6 +60,7 @@ main .danger { color:#b42318; }
 #job-detail { margin-top:12px; padding-top:5px; border-top:1px solid #cbd4e1; }
 #job-detail > button { display:block; margin-left:auto; }
 #job-options-hint { margin:0; }
+#job-handoff-refresh-hint { margin:0 0 10px; }
 .job-line { display: flex; flex-wrap:wrap; justify-content: space-between; gap: 4px 8px; min-width:0; }
 .job strong { flex:1 1 180px; min-width: 0; font-size: 12px; overflow-wrap:anywhere; white-space:normal; }
 .job span { flex: none; color: #617086; font-size: 10px; }

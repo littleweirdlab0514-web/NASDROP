@@ -43,6 +43,15 @@ class Response:
 
 
 class BrowserHandoffTests(unittest.TestCase):
+    def test_viking_rotating_share_domains_are_scoped_to_the_brand_label(self):
+        for url in (SHARES['vikingfile'], 'https://vik1ngf1le.online/f/Test123', 'https://vikingfile.download/f/Test123'):
+            with self.subTest(url=url):
+                self.assertEqual(backend._validate_viking_url(url, direct=False), url)
+                self.assertEqual(backend.provider_for_url(url), 'vikingfile')
+        for url in ('https://vikingfile.evil.example/f/Test123', 'https://notvikingfile.online/f/Test123'):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                backend._validate_viking_url(url, direct=False)
+
     def test_sendnow_user_resolved_link_uses_single_connection_handoff(self):
         opener = mock.Mock()
         opener.open.return_value = Response(SENDNOW_DIRECT, '브라우저 파일.zip')
