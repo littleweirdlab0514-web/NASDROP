@@ -145,6 +145,7 @@ See [GOFILE_REQUEST_POLICY.md](GOFILE_REQUEST_POLICY.md) for the dedicated reque
 ### Characteristics
 
 - VikingFile also requires an official browser-prepared URL. Some valid signed objects reject HEAD but accept a minimal Range request.
+- Share domains may rotate. Accept only a complete hostname made from the exact `vikingfile`, `vik1ngfile`, or `vik1ngf1le` label plus one alphabetic TLD; never accept nested subdomains or unrelated labels. This share-page classification does not expand the issued-link or storage redirect boundary.
 - Observed delivery may use regional `vikingfile.com` hosts, one bucket label beneath the pinned Cloudflare R2 account, or one bucket label beneath an OVH Object Storage regional endpoint signed by VikingFile's pinned AWS V4 credential.
 
 ### Required response

@@ -79,8 +79,8 @@ test('errors back off to 60 seconds and auth expiration stops retries',async()=>
 
 const inline=(h,index,row=0)=>h.nodes.get('jobs').children[row].children[1].children[index];
 
-function popupHarness({connected=true,modern=true,gigafileDownloadKey=true,refreshProviders=[],preferences={autoExtract:true},confirmAction=()=>true,actionError=false,extraJobs=[],beforeJobs=()=>{}}={}) {
-  const nodes=new Map(), messages=[], timers=new Map();let timerID=0,deleted=false;
+function popupHarness({connected=true,modern=true,gigafileDownloadKey=true,refreshProviders=[],preferences={autoExtract:true},confirmAction=()=>true,actionError=false,extraJobs=[],beforeJobs=()=>{},currentTab=null}={}) {
+  const nodes=new Map(), messages=[], timers=new Map(), injections=[];let timerID=0,deleted=false;
   const job={id:'abcdef012345',name:'archive.zip',status:'downloading',size:100,downloaded:10,extract:true};
   const jobs=[job,...extraJobs];
   function node() {
@@ -110,11 +110,19 @@ function popupHarness({connected=true,modern=true,gigafileDownloadKey=true,refre
       if(message.type==='getJobs'){beforeJobs(job);return {ok:true,result:{jobs:deleted?[]:jobs.map(j=>({...j}))}};}
       if(message.type==='submit')return {ok:true,result:{count:1,file:{name:'example.bin'}}};
       return {ok:true,result:{ok:true}};
-    }},tabs:{query:async()=>[]},permissions:{request:async()=>true}},
+    }},tabs:{query:async()=>currentTab?[currentTab]:[]},scripting:{executeScript:async options=>{injections.push(options);}},permissions:{request:async()=>true}},
   });
   vm.runInContext(i18nSource,c);vm.runInContext(pollSource,c);vm.runInContext(popupSource,c);
-  return {nodes,messages,job,c,async ready(){await flush();},async poll(){vm.runInContext('polling.refresh()',c);await flush();}};
+  return {nodes,messages,injections,job,c,async ready(){await flush();},async poll(){vm.runInContext('polling.refresh()',c);await flush();}};
 }
+
+test('opening the popup activates a previously unseen branded VikingFile mirror only in the current tab',async()=>{
+  const h=popupHarness({currentTab:{id:42,url:'https://vik1ngf1le.download/f/Share123'}});await h.ready();
+  assert.equal(h.nodes.get('download-url').value,'https://vik1ngf1le.download/f/Share123');
+  assert.equal(JSON.stringify(h.injections),JSON.stringify([{target:{tabId:42},files:['i18n.js','provider-adapters.js','content.js']}]));
+  const known=popupHarness({currentTab:{id:43,url:'https://vik1ngf1le.online/f/Share123'}});await known.ready();
+  assert.equal(known.injections.length,0);
+});
 
 test('Enter after password submits login once with a real submit button',async()=>{
   const h=popupHarness({connected:false});await h.ready();

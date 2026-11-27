@@ -3,6 +3,7 @@ globalThis.NASDropProviders = (() => {
   const id = '[A-Za-z0-9_-]+';
   const xShareId = '[A-Za-z0-9_-]{6,64}';
   const apexId = '[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
+  const vikingShareHost = /^(?:vikingfile|vik1ngfile|vik1ngf1le)\.[a-z]{2,24}$/;
   function parse(value, base) {
     try {
       if (typeof value !== 'string' || /[\x00-\x20\x7f\\]/.test(value) || value.length > 8192) return null;
@@ -18,7 +19,7 @@ globalThis.NASDropProviders = (() => {
     if (['pixeldrain.com', 'www.pixeldrain.com', 'pixeldrain.net', 'pixeldra.in'].includes(u.hostname)) return 'pixeldrain';
     if (['buzzheavier.com', 'www.buzzheavier.com'].includes(u.hostname)) return 'buzzheavier';
     if (['akirabox.to', 'akirabox.com'].includes(u.hostname)) return 'akirabox';
-    if (['vik1ngfile.site', 'vikingfile.com'].includes(u.hostname)) return 'vikingfile';
+    if (vikingShareHost.test(u.hostname)) return 'vikingfile';
     if (['send.now', 'www.send.now'].includes(u.hostname)) return 'sendnow';
     if (u.hostname === 'x-share.net') return 'xshare';
     if (u.hostname === 'myapexdrive.com') return 'apexdrive';

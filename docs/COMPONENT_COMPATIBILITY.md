@@ -6,12 +6,14 @@ NASDrop uses one server implementation across Synology and Docker. The Synology 
 
 | Component | Current line | Server contract |
 | --- | --- | --- |
-| Synology package | 0.9.30-4 candidate | x86_64 SPK fixes ApexDrive live-delivery validation while retaining GoFile DNS fallback, capacity checks and bounded X-Share recovery |
+| Synology package | 0.9.30-5 candidate | x86_64 SPK recognizes tightly scoped rotating VikingFile share domains while retaining ApexDrive, GoFile, capacity and X-Share fixes |
 | Docker image | 0.9.29-2 stable | The verified amd64/arm64 candidate was promoted by digest to the version, minor, and latest tags |
 | Android app | 0.8.23 candidate | Shows server-reported NAS free/total capacity and localized low-space errors while retaining X-Share refresh |
-| Chrome extension | 0.5.15 candidate | Accepts any non-empty bounded provider-defined ApexDrive `verify` value as opaque while retaining capability-gated handoff without persisting the URL |
+| Chrome extension | 0.5.16 candidate | Supports the current VikingFile mirror and active-tab injection for future branded mirrors without broad permanent site access |
 
 The version numbers document tested combinations. Runtime feature decisions must use `/api/status` capabilities rather than version comparisons.
+
+NASDrop Server 0.9.30-5 accepts VikingFile share hosts only when the entire hostname is one of the exact brand labels `vikingfile`, `vik1ngfile`, or `vik1ngf1le` followed by one ordinary alphabetic TLD. Chrome 0.5.16 includes the observed `vik1ngf1le.online` mirror. For a later matching mirror, opening the extension on that tab uses Chrome's temporary `activeTab` grant to inject the packaged detector into that tab only; no broad permanent host permission is added. Issued URLs and redirects remain confined to the existing VikingFile direct, regional, pinned R2, and signed OVH contracts.
 
 NASDrop Server 0.9.30-4 advertises `apexdrive` in `browser_handoff_providers`. Chrome 0.5.15 captures only the official page's strict `d.linatalksbayou.com/xbox-apex/...` anchor after capability confirmation, validates it twice, and submits the canonical share plus private resolved URL. The public share and delivery UUIDs are independent, the complete `verify` value is opaque and is not parsed as a timestamp or signature, and the delivery response `Content-Disposition` filename is authoritative even when it differs from `fn`. A live PC Docker inspection and 10,940,416-byte transfer passed; the signed URL was absent from persistent configuration, public jobs, and container logs.
 

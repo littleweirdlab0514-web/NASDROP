@@ -1,4 +1,6 @@
 (() => {
+  if (globalThis.__NASDROP_CONTENT_ACTIVE__) return;
+  globalThis.__NASDROP_CONTENT_ACTIVE__ = true;
   const adapters = globalThis.NASDropProviders;
   let language=NASDropI18n.normalize(navigator.language);
   const text=new Proxy({}, {get:(_,key)=>NASDropI18n.dictionaries[language][key]});

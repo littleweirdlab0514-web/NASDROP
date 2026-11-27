@@ -1,5 +1,14 @@
 # NASDrop 0.9.30 release checklist
 
+## 0.9.30-5 VikingFile rotating-domain candidate
+
+- [x] Reproduce the supplied `vik1ngf1le.online` share and confirm `vikingfile.com` redirects the same file ID to that mirror.
+- [x] Confirm the mirror retains the official Turnstile-gated `#download-link` flow and the same generated-link behavior.
+- [x] Recognize only exact `vikingfile`, `vik1ngfile`, or `vik1ngf1le` labels followed by one alphabetic TLD.
+- [x] Keep the issued URL and redirect allowlists unchanged; reject nested and unrelated lookalike share hosts.
+- [x] Add packaged active-tab injection so later matching mirrors work after the user opens the extension, without permanent all-sites access.
+- [x] Add server, provider-adapter, manifest, popup-injection, and negative lookalike tests.
+
 ## 0.9.30-4 ApexDrive compatibility candidate
 
 - [x] Confirm the same generated delivery URL is accepted by Chrome and Synology Download Station.

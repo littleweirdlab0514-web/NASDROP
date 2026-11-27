@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "NASDrop for Chrome",
-  "version": "0.5.15",
+  "version": "0.5.16",
   "icons": {"16":"icons/nasdrop-16.png", "32":"icons/nasdrop-32.png", "48":"icons/nasdrop-48.png", "256":"icons/nasdrop-256.png"},
   "minimum_chrome_version": "111",
   "default_locale": "en",
@@ -12,6 +12,7 @@
     "contextMenus",
     "downloads",
     "notifications",
+    "scripting",
     "storage"
   ],
   "optional_host_permissions": [
@@ -22,7 +23,7 @@
     "service_worker": "background.js"
   },
   "content_scripts": [{
-    "matches": ["https://*.gigafile.nu/*", "https://gofile.io/*", "https://www.gofile.io/*", "https://pixeldrain.com/*", "https://www.pixeldrain.com/*", "https://pixeldrain.net/*", "https://pixeldra.in/*", "https://buzzheavier.com/*", "https://www.buzzheavier.com/*", "https://akirabox.to/*/file", "https://akirabox.com/*/file", "https://vik1ngfile.site/f/*", "https://vikingfile.com/f/*", "https://send.now/*", "https://www.send.now/*", "https://x-share.net/s/*", "https://myapexdrive.com/file/*"],
+    "matches": ["https://*.gigafile.nu/*", "https://gofile.io/*", "https://www.gofile.io/*", "https://pixeldrain.com/*", "https://www.pixeldrain.com/*", "https://pixeldrain.net/*", "https://pixeldra.in/*", "https://buzzheavier.com/*", "https://www.buzzheavier.com/*", "https://akirabox.to/*/file", "https://akirabox.com/*/file", "https://vik1ngfile.site/f/*", "https://vik1ngf1le.online/f/*", "https://vikingfile.com/f/*", "https://send.now/*", "https://www.send.now/*", "https://x-share.net/s/*", "https://myapexdrive.com/file/*"],
     "js": ["i18n.js", "provider-adapters.js", "content.js"],
     "run_at": "document_start"
   }, {

@@ -68,14 +68,33 @@ function supportedProvider(rawUrl) {
     if (['gofile.io', 'www.gofile.io'].includes(host) && url.pathname.startsWith('/d/')) return 'GoFile';
     if (['pixeldrain.com', 'www.pixeldrain.com', 'pixeldrain.net', 'pixeldra.in'].includes(host) && url.pathname.startsWith('/u/')) return 'Pixeldrain';
     if (/^[a-z0-9-]+\.buzzheavier\.com$/.test(host) && url.pathname.startsWith('/d/') && url.searchParams.has('v')) return 'Buzzheavier';
+    if (/^(?:vikingfile|vik1ngfile|vik1ngf1le)\.[a-z]{2,24}$/.test(host) && /^\/f\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)) return 'VikingFile';
   } catch (_) {}
   return '';
+}
+
+function needsVikingInjection(rawUrl) {
+  try {
+    const url=new URL(rawUrl);
+    return /^(?:vikingfile|vik1ngfile|vik1ngf1le)\.[a-z]{2,24}$/.test(url.hostname)
+      && !['vikingfile.com','vik1ngfile.site','vik1ngf1le.online'].includes(url.hostname)
+      && /^\/f\/[A-Za-z0-9_-]+\/?$/.test(url.pathname) && !url.search && !url.hash;
+  } catch (_) { return false; }
+}
+
+async function activateRotatingVikingTab(tab) {
+  if (!tab?.id || !needsVikingInjection(tab.url || '')) return;
+  await chrome.scripting.executeScript({
+    target:{tabId:tab.id},
+    files:['i18n.js','provider-adapters.js','content.js'],
+  });
 }
 
 async function useCurrentTab(showError = true) {
   const [tab] = await chrome.tabs.query({ active:true, currentWindow:true });
   const provider = supportedProvider(tab?.url || '');
   if (!provider) { if (showError) notice(t('currentTabUnavailable')); return false; }
+  await activateRotatingVikingTab(tab);
   $('#download-url').value = tab.url;
   notice(t('detected', { provider }), true);
   return true;

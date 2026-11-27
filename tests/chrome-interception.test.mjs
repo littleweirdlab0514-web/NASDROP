@@ -339,6 +339,7 @@ test('GoFile uses capability-gated async enqueue and older servers retain inspec
 
 const akiraPage = 'https://akirabox.to/Share123/file';
 const vikingPage = 'https://vik1ngfile.site/f/Share123';
+const rotatingVikingPage = 'https://vik1ngf1le.online/f/Share123';
 const sendNowPage = 'https://send.now/d/1pBGp';
 const sendNowLegacyPage = 'https://send.now/e0g53wnqs8ze';
 const sendNowFinalPage = 'https://send.now/';
@@ -376,6 +377,17 @@ test('AkiraBox/Viking recognize only the official button and strict issued-link 
       assert.equal(adapter.classifyHandoff(makeButton(invalid),pageUrl).kind,'unrecognized');
       assert.equal(adapter.allowedSubmission(pageUrl,invalid),false);
     }
+  }
+});
+
+test('VikingFile recognizes rotating branded share domains without widening delivery hosts', () => {
+  for (const page of [vikingPage,rotatingVikingPage,'https://vikingfile.download/f/Share123']) {
+    assert.equal(adapter.share(page),page);
+    assert.equal(adapter.allowedSubmission(page,vikingUrl),true);
+  }
+  for (const page of ['https://vikingfile.evil.example/f/Share123','https://notvikingfile.online/f/Share123']) {
+    assert.equal(adapter.share(page),'');
+    assert.equal(adapter.allowedSubmission(page,vikingUrl),false);
   }
 });
 

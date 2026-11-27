@@ -3476,6 +3476,9 @@ def _validate_akira_url(value: str, *, direct: bool) -> str:
     return value
 
 
+VIKING_SHARE_HOST = re.compile(r"(?:vikingfile|vik1ngfile|vik1ngf1le)\.[a-z]{2,24}\Z")
+
+
 def _validate_viking_url(value: str, *, direct: bool) -> str:
     error = "VikingFile 주소가 올바르지 않습니다. 브라우저에서 다운로드 버튼을 다시 준비해 주세요."
     if not isinstance(value, str) or not value or len(value) > 16384 or any(ord(c) < 33 or ord(c) == 127 for c in value) or "\\" in value:
@@ -3487,7 +3490,7 @@ def _validate_viking_url(value: str, *, direct: bool) -> str:
         if direct:
             if parsed.hostname != "vikingfile.com" or not re.fullmatch(r"/d/[a-zA-Z0-9_-]+/[^/]+", parsed.path):
                 raise ValueError(error)
-        elif parsed.hostname not in {"vik1ngfile.site", "vikingfile.com"} or not re.fullmatch(r"/f/[a-zA-Z0-9]+", parsed.path):
+        elif not VIKING_SHARE_HOST.fullmatch(parsed.hostname or "") or not re.fullmatch(r"/f/[a-zA-Z0-9]+", parsed.path):
             raise ValueError(error)
     except ValueError:
         raise ValueError(error) from None
@@ -4574,7 +4577,7 @@ def provider_for_url(raw_url: str) -> str:
     host = (urlparse(raw_url).hostname or "").lower()
     if host in {"akirabox.to", "akirabox.com"}:
         return "akirabox"
-    if host in {"vik1ngfile.site", "vikingfile.com"}:
+    if VIKING_SHARE_HOST.fullmatch(host):
         return "vikingfile"
     if host in SENDNOW_SHARE_HOSTS or SENDNOW_PROVIDER_HOST.fullmatch(host):
         return "sendnow"
@@ -4595,7 +4598,7 @@ def provider_for_url(raw_url: str) -> str:
 
 def inspect_download(raw_url: str) -> dict:
     host = (urlparse(raw_url.strip()).hostname or "").lower()
-    if host in {"akirabox.to", "akirabox.com", "vik1ngfile.site", "vikingfile.com", "x-share.net", APEXDRIVE_SHARE_HOST, *SENDNOW_SHARE_HOSTS}:
+    if host in {"akirabox.to", "akirabox.com", "x-share.net", APEXDRIVE_SHARE_HOST, *SENDNOW_SHARE_HOSTS} or VIKING_SHARE_HOST.fullmatch(host):
         raise ValueError("이 서비스는 크롬 확장에서 다운로드 버튼이 준비된 뒤 NAS로 보내 주세요.")
     try:
         if _is_buzzheavier_download_host(host):
